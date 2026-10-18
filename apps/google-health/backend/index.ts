@@ -266,59 +266,11 @@ export default defineThassiApp((ctx) => {
     }
   }
 
-  // Seed 7-day biometric history if empty
-  const bioCount =
-    ctx.db.queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM daily_biometrics')?.cnt ?? 0;
-  if (bioCount === 0) {
-    const historySeed = [
-      { daysBack: 6, steps: 9420, current_hr: 66, resting_hr: 58, sleep: 7.4, cal: 480, score: 80 },
-      { daysBack: 5, steps: 11250, current_hr: 71, resting_hr: 56, sleep: 8.1, cal: 610, score: 88 },
-      { daysBack: 4, steps: 7890, current_hr: 74, resting_hr: 59, sleep: 6.8, cal: 390, score: 71 },
-      { daysBack: 3, steps: 10410, current_hr: 69, resting_hr: 57, sleep: 7.6, cal: 530, score: 83 },
-      { daysBack: 2, steps: 12300, current_hr: 72, resting_hr: 56, sleep: 7.9, cal: 640, score: 86 },
-      { daysBack: 1, steps: 8640, current_hr: 67, resting_hr: 57, sleep: 7.7, cal: 450, score: 82 },
-      { daysBack: 0, steps: 6420, current_hr: 68, resting_hr: 56, sleep: 7.8, cal: 380, score: 85 },
-    ];
-    const nowIso = new Date().toISOString();
-    for (const h of historySeed) {
-      ctx.db.execute(
-        `INSERT OR IGNORE INTO daily_biometrics
-         (log_date, steps, step_goal, current_hr, resting_hr, sleep_hours, active_calories, weight_kg, readiness_score, source, updated_at)
-         VALUES (?, ?, 10000, ?, ?, ?, ?, 85.5, ?, 'seed', ?)`,
-        [formatDateOffset(h.daysBack), h.steps, h.current_hr, h.resting_hr, h.sleep, h.cal, h.score, nowIso]
-      );
-    }
-
-    // Seed 2 recent workouts
-    ctx.db.execute(
-      `INSERT INTO workout_logs (workout_date, title, category, duration_min, avg_hr, calories_burned, rpe_load, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        formatDateOffset(2),
-        'Upper Body Hypertrophy & Core',
-        'strength',
-        50,
-        132,
-        395,
-        8,
-        'Strong bench & pull-up progression',
-      ]
-    );
-    ctx.db.execute(
-      `INSERT INTO workout_logs (workout_date, title, category, duration_min, avg_hr, calories_burned, rpe_load, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        formatDateOffset(1),
-        'Zone 2 Aerobic Base Run / Cycle',
-        'cardio',
-        40,
-        134,
-        380,
-        6,
-        'Nasal breathing steady Zone 2',
-      ]
-    );
-  }
+  // Purge any legacy seed/dummy biometrics and workouts so only real wearable & user data remain
+  ctx.db.execute("DELETE FROM daily_biometrics WHERE source = 'seed'");
+  ctx.db.execute(
+    "DELETE FROM workout_logs WHERE notes IN ('Strong bench & pull-up progression', 'Nasal breathing steady Zone 2')"
+  );
 
   /**
    * Syncs live biometrics from:
@@ -343,11 +295,11 @@ export default defineThassiApp((ctx) => {
          VALUES (?, ?, 10000, ?, ?, ?, ?, ?, 82, 'auto', ?)`,
         [
           today,
-          2136,
+          0,
           prev?.current_hr ?? 68,
           prev?.resting_hr ?? 56,
-          prev?.sleep_hours ?? 7.6,
-          310,
+          prev?.sleep_hours ?? 7.5,
+          0,
           prev?.weight_kg ?? 85.5,
           new Date().toISOString(),
         ]
@@ -372,12 +324,19 @@ export default defineThassiApp((ctx) => {
       const states = await ctx.ha.getStates('sensor');
       const byId = new Map(states.map((s) => [s.entity_id, s]));
 
-      // Pixel 10 Steps sensor
-      const p10Steps = Number(byId.get('sensor.pixel_10_steps_sensor')?.state);
-      if (Number.isFinite(p10Steps) && p10Steps > 0) {
-        pixelPhoneSteps = p10Steps;
-        if (p10Steps > steps) {
-          steps = p10Steps;
+      // Pixel 10 & Pixel Watch Steps sensors
+      const candidateSteps = [
+        Number(byId.get('sensor.pixel_10_daily_steps')?.state),
+        Number(byId.get('sensor.thomas_pixel_watch_daily_steps')?.state),
+        Number(byId.get('sensor.thomas_pixel_watch_steps_sensor')?.state),
+        Number(byId.get('sensor.pixel_10_steps_sensor')?.state),
+      ].filter((v) => Number.isFinite(v) && v > 0);
+
+      if (candidateSteps.length > 0) {
+        const bestSteps = Math.max(...candidateSteps);
+        pixelPhoneSteps = bestSteps;
+        if (todayRow.source !== 'manual' || bestSteps > steps) {
+          steps = Math.round(bestSteps);
         }
         activeSources.push('Pixel 10');
       }
@@ -386,6 +345,17 @@ export default defineThassiApp((ctx) => {
       const p10WeightRaw = Number(byId.get('sensor.pixel_10_weight')?.state);
       if (Number.isFinite(p10WeightRaw) && p10WeightRaw > 0) {
         weightKg = p10WeightRaw > 500 ? Number((p10WeightRaw / 1000).toFixed(1)) : p10WeightRaw;
+      }
+
+      // Pixel 10 Sleep Duration (Health Connect)
+      const p10SleepRaw = Number(byId.get('sensor.pixel_10_sleep_duration')?.state);
+      if (Number.isFinite(p10SleepRaw) && p10SleepRaw > 0) {
+        sleepHours =
+          p10SleepRaw > 1000
+            ? Number((p10SleepRaw / 3600).toFixed(1))
+            : p10SleepRaw > 24
+            ? Number((p10SleepRaw / 60).toFixed(1))
+            : Number(p10SleepRaw.toFixed(1));
       }
 
       // Thomas' Pixel Watch battery & any enabled heart rate sensors
@@ -403,10 +373,8 @@ export default defineThassiApp((ctx) => {
 
         if (/resting_heart_rate/i.test(st.entity_id)) {
           restingHr = Math.round(val);
-        } else if (/heart_rate|heartrate/i.test(st.entity_id)) {
+        } else if (/heart_rate|heartrate/i.test(st.entity_id) && !/variability/i.test(st.entity_id)) {
           currentHr = Math.round(val);
-        } else if (/daily_steps/i.test(st.entity_id) && val > steps) {
-          steps = Math.round(val);
         }
       }
     } catch {

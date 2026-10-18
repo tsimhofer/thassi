@@ -25,22 +25,23 @@ export interface CalendarFeedRow {
 export function inferEventCategory(
   title: string,
   description = '',
-  fallback: CalendarEventRow['category'] = 'personal'
+  fallback: CalendarEventRow['category'] = 'personal',
+  calendarName = ''
 ): CalendarEventRow['category'] {
-  const text = `${title} ${description}`.toLowerCase();
-  if (/gym|workout|run|fitness|yoga|swim|cycling|doctor|dentist|health|sleep/.test(text)) {
+  const text = `${title} ${description} ${calendarName}`.toLowerCase();
+  if (/gym|workout|run|fitness|yoga|swim|cycling|doctor|dentist|health|sleep|gesundheit|therapie|arzt|hautarzt|gyn|zahnarzt|periode/.test(text)) {
     return 'health';
   }
-  if (/focus|deep work|coding|study|architecture|research/.test(text)) {
+  if (/focus|deep work|vibe coding|coding|study|architecture|research|tu-termine|innox/.test(text)) {
     return 'focus';
   }
-  if (/standup|sprint|meeting|sync|1:1|client|review|retro|planning|call|work|office/.test(text)) {
+  if (/arbeiten|standup|sprint|meeting|sync|1:1|client|review|retro|planning|call|work|office|buero|büro/.test(text)) {
     return 'work';
   }
-  if (/dinner|lunch|breakfast|meal|cooking|brunch|restaurant/.test(text)) {
+  if (/dinner|lunch|breakfast|meal|cooking|brunch|restaurant|mittagessen|abendessen|frühstück|essen/.test(text)) {
     return 'meals';
   }
-  if (/birthday|party|friends|family|concert|movie|drinks|hangout/.test(text)) {
+  if (/birthday|geburtstag|party|friends|family|familie|oma|opa|concert|movie|kino|drinks|hangout|budapest|fightzustand|urlaub/.test(text)) {
     return 'social';
   }
   return fallback;
@@ -225,30 +226,8 @@ export default defineThassiApp((ctx) => {
     );
   `);
 
-  // Seed starter events if empty so analytics and HA sensors work immediately
-  const existingCount =
-    ctx.db.queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM calendar_events')?.cnt ?? 0;
-  if (existingCount === 0) {
-    for (const ev of createSeedEvents()) {
-      ctx.db.execute(
-        `INSERT OR IGNORE INTO calendar_events
-         (external_id, calendar_name, title, category, start_time, end_time, duration_minutes, location, description, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          ev.external_id,
-          ev.calendar_name,
-          ev.title,
-          ev.category,
-          ev.start_time,
-          ev.end_time,
-          ev.duration_minutes,
-          ev.location,
-          ev.description,
-          ev.source,
-        ]
-      );
-    }
-  }
+  // Purge any legacy dummy/seed events so only real Google Calendar & user events remain
+  ctx.db.execute("DELETE FROM calendar_events WHERE external_id LIKE 'seed_%'");
 
   function upsertEvent(ev: Omit<CalendarEventRow, 'id'>) {
     ctx.db.execute(
@@ -280,15 +259,92 @@ export default defineThassiApp((ctx) => {
   }
 
   async function syncExternalCalendars(): Promise<{
+    haCalendarSynced: number;
     oauthSynced: number;
     icsSynced: number;
     errors: string[];
   }> {
+    let haCalendarSynced = 0;
     let oauthSynced = 0;
     let icsSynced = 0;
     const errors: string[] = [];
 
-    // A) Sync from Shared Google OAuth2 Client if authorized
+    // A) Sync directly from Home Assistant's connected Google Calendar entities (calendar.*)
+    try {
+      const haStatus = await ctx.ha.getStatus();
+      if (haStatus.connected) {
+        const calStates = await ctx.ha.getStates('calendar');
+        const startIso = new Date(Date.now() - 7 * 86400000).toISOString();
+        const endIso = new Date(Date.now() + 30 * 86400000).toISOString();
+
+        for (const cal of calStates) {
+          if (
+            cal.state === 'unavailable' ||
+            cal.entity_id === 'calendar.kalenderwochen' ||
+            cal.entity_id === 'calendar.feiertage_in_deutschland'
+          ) {
+            continue;
+          }
+          const calName = String(cal.attributes?.friendly_name || cal.entity_id.replace('calendar.', '')).trim();
+          try {
+            const endpoint = `/calendars/${encodeURIComponent(cal.entity_id)}?start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`;
+            const items =
+              typeof ctx.ha.getCalendarEvents === 'function'
+                ? await ctx.ha.getCalendarEvents(cal.entity_id, startIso, endIso)
+                : await (ctx.ha as unknown as { request: <T>(ep: string) => Promise<T> }).request<
+                    Array<{
+                      summary?: string;
+                      description?: string;
+                      location?: string;
+                      uid?: string;
+                      start?: { dateTime?: string; date?: string };
+                      end?: { dateTime?: string; date?: string };
+                    }>
+                  >(endpoint);
+            for (const item of items) {
+              const rawStart = item.start?.dateTime || item.start?.date;
+              const rawEnd = item.end?.dateTime || item.end?.date;
+              if (!rawStart || !item.summary) continue;
+
+              const isAllDay = !item.start?.dateTime;
+              const startDate = new Date(isAllDay ? `${rawStart}T08:00:00` : rawStart);
+              const endDate = rawEnd
+                ? new Date(isAllDay ? `${rawEnd}T09:00:00` : rawEnd)
+                : new Date(startDate.getTime() + 60 * 60 * 1000);
+
+              const rawDuration = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+              const durationMinutes = isAllDay
+                ? 60
+                : Math.max(15, Math.min(720, Number.isFinite(rawDuration) ? rawDuration : 60));
+
+              const extId =
+                item.uid ||
+                `ha_${cal.entity_id}_${rawStart}_${item.summary.replace(/[^a-z0-9]/gi, '_')}`;
+
+              upsertEvent({
+                external_id: extId,
+                calendar_name: calName,
+                title: item.summary,
+                category: inferEventCategory(item.summary, item.description || '', 'personal', calName),
+                start_time: startDate.toISOString(),
+                end_time: endDate.toISOString(),
+                duration_minutes: durationMinutes,
+                location: item.location || '',
+                description: item.description || '',
+                source: 'google_oauth',
+              });
+              haCalendarSynced++;
+            }
+          } catch (calErr) {
+            errors.push(`${cal.entity_id}: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
+          }
+        }
+      }
+    } catch (err) {
+      errors.push(`HA Calendar sync: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // B) Sync from Shared Google OAuth2 Client if authorized directly
     const oauthStatus = ctx.google.getStatus();
     if (oauthStatus.authorized) {
       try {
@@ -316,7 +372,7 @@ export default defineThassiApp((ctx) => {
       }
     }
 
-    // B) Sync from any configured Google Calendar iCal (.ics) Feeds
+    // C) Sync from any configured Google Calendar iCal (.ics) Feeds
     const feeds = ctx.db.query<CalendarFeedRow>('SELECT * FROM calendar_feeds');
     for (const feed of feeds) {
       try {
@@ -344,7 +400,7 @@ export default defineThassiApp((ctx) => {
     }
 
     await publishCalendarSensorsAndSharedState();
-    return { oauthSynced, icsSynced, errors };
+    return { haCalendarSynced, oauthSynced, icsSynced, errors };
   }
 
   async function publishCalendarSensorsAndSharedState() {
@@ -483,7 +539,7 @@ export default defineThassiApp((ctx) => {
 
     upsertEvent({
       external_id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      calendar_name: (body.calendar_name || 'Personal').trim(),
+      calendar_name: (body.calendar_name || 'Thomas.simhofer@gmail.com').trim(),
       title: body.title.trim(),
       category,
       start_time: start.toISOString(),
@@ -493,6 +549,20 @@ export default defineThassiApp((ctx) => {
       description: (body.description || '').trim(),
       source: 'manual',
     });
+
+    // Also push event to Google Calendar via Home Assistant calendar.create_event service
+    try {
+      await ctx.ha.callService('calendar', 'create_event', {
+        entity_id: 'calendar.thomas_simhofer_gmail_com',
+        summary: body.title.trim(),
+        description: (body.description || '').trim(),
+        location: (body.location || '').trim(),
+        start_date_time: start.toISOString(),
+        end_date_time: end.toISOString(),
+      });
+    } catch {
+      // Ignore if calendar is read-only
+    }
 
     await publishCalendarSensorsAndSharedState();
     return { created: true };
@@ -545,13 +615,13 @@ export default defineThassiApp((ctx) => {
     id: 'sync-google-calendar',
     name: 'Sync Google Calendar & Publish HA Sensors',
     description:
-      'Pulls upcoming events from Google OAuth2 & iCal feeds, updates time-allocation stats, and publishes sensor.thassi_google_calendar_next_event.',
+      'Pulls upcoming events from Home Assistant Google Calendars, Google OAuth2 & iCal feeds, updates time-allocation stats, and publishes sensor.thassi_google_calendar_next_event.',
     intervalMinutes: 15,
     runOnStart: true,
     handler: async () => {
       const sync = await syncExternalCalendars();
       const ha = await publishCalendarSensorsAndSharedState();
-      return `Next: "${ha.nextEvent}" | Today: ${ha.todayEventCount} events (${ha.busyHoursToday}h) | Synced OAuth=${sync.oauthSynced}, ICS=${sync.icsSynced}`;
+      return `Next: "${ha.nextEvent}" | Today: ${ha.todayEventCount} events (${ha.busyHoursToday}h) | Synced HA=${sync.haCalendarSynced}, OAuth=${sync.oauthSynced}, ICS=${sync.icsSynced}`;
     },
   });
 });

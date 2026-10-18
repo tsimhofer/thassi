@@ -139,29 +139,29 @@ const STARTER_TRANSACTIONS: Array<Omit<TransactionRow, 'id'>> = [
 ];
 
 export function autoCategorizeTransaction(payee: string, notes = '', amount = 0): string {
+  const text = `${payee} ${notes}`.toLowerCase();
   if (amount > 0) {
     return 'Income';
   }
-  const text = `${payee} ${notes}`.toLowerCase();
-  if (/billa|spar|hofer|lidl|rewe|adeg|denns|bio|supermarkt|grocer|markt/.test(text)) {
-    return 'Groceries';
-  }
-  if (/miete|wohnung|strom|gas|energie|evn|wien energie|internet|magenta|a1|drei|versicherung|gis|orf/.test(text)) {
-    return 'Housing & Utilities';
-  }
-  if (/flatex|trade republic|scalable|etf|sparplan|aktien|depot|invest|broker/.test(text)) {
+  if (/notgroschen|flatex|trade republic|scalable|bitpanda|etf|sparplan|aktien|depot|invest|broker/.test(text)) {
     return 'Investments';
   }
-  if (/restaurant|cafe|coffee|bistro|pizza|burger|sushi|lieferando|mjam|wolt|foodora|bar|lunch|dinner/.test(text)) {
+  if (/billa|spar |spar$|spar\b|interspar|eurospar|hofer|lidl|rewe|adeg|penny|unimarkt|denns|bio|supermarkt|grocer|bäckerei|baeckerei|fleischerei/.test(text)) {
+    return 'Groceries';
+  }
+  if (/kreditrate|sparkasse n|miete|wohnung|strom|gas|energie|evn|wien energie|internet|magenta|a1|drei|versicherung|generali|uniqa|allianz|wiener staedtische|gis|orf|obs|kontoführung|kontofuehrung|bereitstellung|sollzinsen|ablebensprovision|gemeinde/.test(text)) {
+    return 'Housing & Utilities';
+  }
+  if (/megaplex|kino|restaurant|cafe|coffee|bistro|pizza|kebab|burger|mcdonalds|mc donalds|sushi|lieferando|mjam|wolt|foodora|bar\b|gasthaus|wirtshaus|heuriger|lunch|dinner/.test(text)) {
     return 'Dining & Coffee';
   }
-  if (/fitness|gym|fitinn|mcfit|apotheke|arzt|doctor|dm |bipa|health|sport/.test(text)) {
+  if (/fitness|gym|fitinn|mcfit|apotheke|arzt|doctor|dm\b|dm-|bipa|health|sport|therme|optik/.test(text)) {
     return 'Health & Fitness';
   }
-  if (/netflix|spotify|youtube|apple|google|openai|anthropic|github|prime|abonnement|subscription/.test(text)) {
+  if (/netflix|spotify|youtube|apple|openai|anthropic|claude|chatgpt|github|prime|disney|steam|playstation|xbox|abonnement|subscription/.test(text)) {
     return 'Subscriptions';
   }
-  if (/oebb|öbb|wiener linien|tankstelle|omv|bp |shell|eni|uber|bolt|parken|ticket/.test(text)) {
+  if (/handyparken|oebb|öbb|wiener linien|tankstelle|omv|bp\b|shell|eni\b|avia|turmöl|turmoel|jet\b|uber|bolt|parken|parkgarage|asfinag|öamtc|oeamtc|ticket/.test(text)) {
     return 'Transport';
   }
   return 'Shopping & Tech';
@@ -194,6 +194,21 @@ function normalizeDateString(raw: string): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+const LEGACY_DUMMY_PAYEES = [
+  'Monthly Salary Deposit',
+  'Wohnung Miete & Betriebskosten',
+  'Flatex MSCI World ETF Sparplan',
+  'SPAR Gourmet Einkauf',
+  'Wien Energie / Strom & Gas Teilbetrag',
+  'HOFER KG Filiale',
+  'Fitness Studio Membership',
+  'Specialty Coffee & Bakery',
+  'BILLA Plus Einkauf',
+  'Spotify & Cloud Storage Subscriptions',
+  'ÖBB Tickets & Klimaticket',
+  'Shelly Smart Home Modules',
+];
+
 export default defineThassiApp((ctx) => {
   // 1. Initialize SQLite Schema for Finance & Budget Analytics
   ctx.db.exec(`
@@ -214,6 +229,11 @@ export default defineThassiApp((ctx) => {
     );
   `);
 
+  // Purge any legacy starter/dummy rows so only real imported bank transactions remain
+  for (const dummyPayee of LEGACY_DUMMY_PAYEES) {
+    ctx.db.execute('DELETE FROM transactions WHERE payee = ?', [dummyPayee]);
+  }
+
   const budgetCount =
     ctx.db.queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM category_budgets')?.cnt ?? 0;
   if (budgetCount === 0) {
@@ -225,38 +245,53 @@ export default defineThassiApp((ctx) => {
     }
   }
 
-  const txCount =
-    ctx.db.queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM transactions')?.cnt ?? 0;
-  if (txCount === 0) {
-    for (const tx of STARTER_TRANSACTIONS) {
-      ctx.db.execute(
-        `INSERT INTO transactions (tx_date, payee, category, amount, account, is_recurring, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [tx.tx_date, tx.payee, tx.category, tx.amount, tx.account, tx.is_recurring, tx.notes]
-      );
-    }
+  function resolveDefaultTargetMonth(): string {
+    // Pick the most recent month that has salary/income or at least 10 transactions (e.g. 2026-09 if 2026-10 only has Oct 1st)
+    const months = ctx.db.query<{ ym: string; cnt: number; inc: number }>(`
+      SELECT
+        substr(tx_date, 1, 7) as ym,
+        COUNT(*) as cnt,
+        SUM(CASE WHEN amount > 500 THEN amount ELSE 0 END) as inc
+      FROM transactions
+      GROUP BY ym
+      ORDER BY ym DESC
+    `);
+    if (months.length === 0) return new Date().toISOString().slice(0, 7);
+    const fullMonth = months.find((m) => m.cnt >= 10 || m.inc > 1000);
+    return fullMonth ? fullMonth.ym : months[0].ym;
   }
 
-  async function computeSummaryAndPublishSensors() {
+  async function computeSummaryAndPublishSensors(monthFilter?: string) {
+    const activeMonth = monthFilter && monthFilter !== 'all' ? monthFilter : resolveDefaultTargetMonth();
+    const whereClause = monthFilter === 'all' ? '1=1' : 'substr(tx_date, 1, 7) = ?';
+    const params = monthFilter === 'all' ? [] : [activeMonth];
+
     const totals = ctx.db.queryOne<{
       income: number;
       expenses: number;
       investments: number;
       net: number;
-    }>(`
+    }>(
+      `
       SELECT
         COALESCE(ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 2), 0) as income,
         COALESCE(ROUND(SUM(CASE WHEN amount < 0 AND category != 'Investments' THEN ABS(amount) ELSE 0 END), 2), 0) as expenses,
         COALESCE(ROUND(SUM(CASE WHEN amount < 0 AND category = 'Investments' THEN ABS(amount) ELSE 0 END), 2), 0) as investments,
         COALESCE(ROUND(SUM(amount), 2), 0) as net
       FROM transactions
-    `) || { income: 0, expenses: 0, investments: 0, net: 0 };
+      WHERE ${whereClause}
+    `,
+      params
+    ) || { income: 0, expenses: 0, investments: 0, net: 0 };
 
-    const groceriesRow = ctx.db.queryOne<{ total: number }>(`
+    const groceriesRow = ctx.db.queryOne<{ total: number }>(
+      `
       SELECT COALESCE(ROUND(SUM(ABS(amount)), 2), 0) as total
       FROM transactions
-      WHERE amount < 0 AND category = 'Groceries'
-    `);
+      WHERE amount < 0 AND category = 'Groceries' AND ${whereClause}
+    `,
+      params
+    );
     const grocerySpend = groceriesRow?.total ?? 0;
 
     // Savings Rate = (Net Free Cashflow + Investments) / Income
@@ -266,6 +301,7 @@ export default defineThassiApp((ctx) => {
 
     // Store summary in /data/shared.db for cross-app use
     ctx.sharedDb.kvSet('finance_summary', {
+      activeMonth,
       income: totals.income,
       expenses: totals.expenses,
       investments: totals.investments,
@@ -278,9 +314,10 @@ export default defineThassiApp((ctx) => {
     const haStatus = await ctx.ha.getStatus();
     if (haStatus.connected) {
       await ctx.ha.publishSensor('net_cashflow', totals.net, {
-        friendly_name: 'Monthly Net Cashflow',
+        friendly_name: `Net Cashflow (${activeMonth})`,
         unit_of_measurement: 'EUR',
         icon: 'mdi:cash-multiple',
+        period_month: activeMonth,
         income_eur: totals.income,
         expenses_eur: totals.expenses,
         investments_eur: totals.investments,
@@ -288,25 +325,29 @@ export default defineThassiApp((ctx) => {
       });
 
       await ctx.ha.publishSensor('monthly_expenses', totals.expenses, {
-        friendly_name: 'Monthly Living Expenses',
+        friendly_name: `Living Expenses (${activeMonth})`,
         unit_of_measurement: 'EUR',
         icon: 'mdi:credit-card-outline',
+        period_month: activeMonth,
       });
 
       await ctx.ha.publishSensor('grocery_spend', grocerySpend, {
-        friendly_name: 'Monthly Grocery Spend',
+        friendly_name: `Grocery Spend (${activeMonth})`,
         unit_of_measurement: 'EUR',
-        icon: 'mdi:cart-Check',
+        icon: 'mdi:cart-check',
+        period_month: activeMonth,
       });
 
       await ctx.ha.publishSensor('savings_rate', savingsRatePct, {
-        friendly_name: 'Monthly Savings & Investment Rate',
+        friendly_name: `Savings & Investment Rate (${activeMonth})`,
         unit_of_measurement: '%',
         icon: 'mdi:piggy-bank-outline',
+        period_month: activeMonth,
       });
     }
 
     return {
+      activeMonth,
       ...totals,
       grocerySpend,
       savingsRatePct,
@@ -316,10 +357,20 @@ export default defineThassiApp((ctx) => {
 
   // 2. REST API Routes (/api/apps/finance-analytics/*)
 
-  ctx.route('GET', '/overview', async (_req, { db, sharedDb }) => {
-    const kpis = await computeSummaryAndPublishSensors();
+  ctx.route('GET', '/overview', async (req, { db, sharedDb }) => {
+    const requestedMonth = req.query.month || undefined;
+    const kpis = await computeSummaryAndPublishSensors(requestedMonth);
+    const activeMonth = kpis.activeMonth;
+    const whereClause = requestedMonth === 'all' ? '1=1' : 'substr(tx_date, 1, 7) = ?';
+    const params = requestedMonth === 'all' ? [] : [activeMonth];
+
+    const availableMonths = db
+      .query<{ ym: string }>('SELECT DISTINCT substr(tx_date, 1, 7) as ym FROM transactions ORDER BY ym DESC')
+      .map((r) => r.ym);
+
     const transactions = db.query<TransactionRow>(
-      'SELECT * FROM transactions ORDER BY tx_date DESC, id DESC LIMIT 200'
+      `SELECT * FROM transactions WHERE ${whereClause} ORDER BY tx_date DESC, id DESC LIMIT 250`,
+      params
     );
     const budgets = db.query<CategoryBudgetRow>('SELECT * FROM category_budgets');
     const budgetMap = new Map(budgets.map((b) => [b.category, b.monthly_limit]));
@@ -328,16 +379,19 @@ export default defineThassiApp((ctx) => {
       category: string;
       tx_count: number;
       spent: number;
-    }>(`
+    }>(
+      `
       SELECT
         category,
         COUNT(*) as tx_count,
         ROUND(SUM(ABS(amount)), 2) as spent
       FROM transactions
-      WHERE amount < 0
+      WHERE amount < 0 AND ${whereClause}
       GROUP BY category
       ORDER BY spent DESC
-    `);
+    `,
+      params
+    );
 
     const categoryBreakdown = rawCategories.map((c) => ({
       ...c,
@@ -345,7 +399,8 @@ export default defineThassiApp((ctx) => {
     }));
 
     const recurringFixed = db.query<TransactionRow>(
-      'SELECT * FROM transactions WHERE is_recurring = 1 AND amount < 0 ORDER BY ABS(amount) DESC'
+      `SELECT * FROM transactions WHERE is_recurring = 1 AND amount < 0 AND ${whereClause} ORDER BY ABS(amount) DESC`,
+      params
     );
 
     const mealPlannerToday = sharedDb.kvGet<{
@@ -357,6 +412,8 @@ export default defineThassiApp((ctx) => {
 
     return {
       kpis,
+      activeMonth,
+      availableMonths,
       transactions,
       categoryBreakdown,
       recurringFixed,
@@ -415,9 +472,13 @@ export default defineThassiApp((ctx) => {
     return { updated: true };
   });
 
-  // Smart Bank Export CSV Importer (supports Austrian/German/English CSV headers & European decimal commas)
+  // Smart Bank Export CSV Importer (supports Sparkasse/George AT/DE CSV headers & European decimal commas)
   ctx.route('POST', '/import-bank-csv', async (req, { db }) => {
-    const body = (req.body || {}) as { csvText?: string; accountName?: string };
+    const body = (req.body || {}) as {
+      csvText?: string;
+      accountName?: string;
+      replaceAll?: boolean;
+    };
     if (!body.csvText?.trim()) {
       return { status: 400, body: { error: 'csvText is required' } };
     }
@@ -427,39 +488,62 @@ export default defineThassiApp((ctx) => {
       return { status: 400, body: { error: 'No rows found in CSV' } };
     }
 
-    // Auto-detect date, payee, amount, category, and notes columns
     const findIdx = (patterns: RegExp[]) =>
       headers.findIndex((h) => patterns.some((p) => p.test(h)));
 
-    const dateIdx = Math.max(0, findIdx([/date|datum|buchungstag|valuta/i]));
-    const payeeIdx = Math.max(
-      dateIdx === 0 ? 1 : 0,
-      findIdx([/payee|description|empfaenger|auftraggeber|buchungstext|partner|merchant|title/i])
-    );
-    const amountIdx = findIdx([/amount|betrag|umsatz|wert|summe|eur/i]);
+    const accountIdx = findIdx([/^eigener_kontoname$|^eigener kontoname$|^account$/i]);
+    const dateIdx = Math.max(0, findIdx([/buchungsdatum|date|datum|buchungstag|valuta/i]));
+    const payeeIdx = findIdx([/partnername|payee|empfaenger|auftraggeber|merchant|title/i]);
+    const detailsIdx = findIdx([/buchungs_details|buchungs-details|buchungstext|description|verwendungszweck/i]);
+    const payRefIdx = findIdx([/zahlungsreferenz|notiz/i]);
+    const mandateIdx = findIdx([/mandats_id|mandats id|creditor_id|creditor id/i]);
+    const amountIdx = findIdx([/^betrag$|amount|umsatz|wert|summe/i]);
     const catIdx = findIdx([/category|kategorie/i]);
-    const notesIdx = findIdx([/notes|verwendungszweck|referenz|info/i]);
 
     let importedCount = 0;
     db.exec('BEGIN TRANSACTION;');
     try {
+      if (body.replaceAll) {
+        db.exec('DELETE FROM transactions;');
+      }
+
       for (const row of rows) {
         const rawDate = row[dateIdx] || '';
-        const rawPayee = row[payeeIdx] || 'Bank Transaction';
         const rawAmt = amountIdx >= 0 ? row[amountIdx] || '0' : row[row.length - 1] || '0';
         const amt = parseEuroAmount(rawAmt);
-        if (amt === 0 && !rawPayee.trim()) continue;
+        // Skip 0,00 EUR closing notice rows
+        if (amt === 0) continue;
 
+        const partner = payeeIdx >= 0 ? (row[payeeIdx] || '').trim() : '';
+        const details = detailsIdx >= 0 ? (row[detailsIdx] || '').trim() : '';
+        const payRef = payRefIdx >= 0 ? (row[payRefIdx] || '').trim() : '';
+        const mandate = mandateIdx >= 0 ? (row[mandateIdx] || '').trim() : '';
+        const acct =
+          (accountIdx >= 0 && row[accountIdx]?.trim()) ||
+          (body.accountName || 'Girokonto').trim();
+
+        const rawPayee =
+          partner ||
+          (details.startsWith('Notgroschen zu ')
+            ? 'Sparkasse Notgroschen (Round-Up)'
+            : details.slice(0, 60)) ||
+          payRef ||
+          'Bankbuchung';
+
+        const notes = [details, payRef].filter(Boolean).join(' • ').slice(0, 180);
         const txDate = normalizeDateString(rawDate);
-        const notes = notesIdx >= 0 ? row[notesIdx] || '' : '';
         const explicitCat = catIdx >= 0 ? (row[catIdx] || '').trim() : '';
-        const category =
-          explicitCat || autoCategorizeTransaction(rawPayee, notes, amt);
+        const category = explicitCat || autoCategorizeTransaction(rawPayee, notes, amt);
+        const isRecurring =
+          Boolean(mandate) ||
+          /kreditrate|versicherung|gehalt|miete|strom|evn|netflix|spotify/i.test(`${rawPayee} ${notes}`)
+            ? 1
+            : 0;
 
         db.execute(
           `INSERT INTO transactions (tx_date, payee, category, amount, account, is_recurring, notes)
-           VALUES (?, ?, ?, ?, ?, 0, ?)`,
-          [txDate, rawPayee.trim(), category, amt, (body.accountName || 'CSV Import').trim(), notes]
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [txDate, rawPayee, category, amt, acct, isRecurring, notes]
         );
         importedCount++;
       }
@@ -483,7 +567,7 @@ export default defineThassiApp((ctx) => {
     runOnStart: true,
     handler: async () => {
       const kpis = await computeSummaryAndPublishSensors();
-      return `Income: €${kpis.income} | Expenses: €${kpis.expenses} | Investments: €${kpis.investments} | Savings Rate: ${kpis.savingsRatePct}%`;
+      return `[${kpis.activeMonth}] Income: €${kpis.income} | Expenses: €${kpis.expenses} | Investments: €${kpis.investments} | Savings Rate: ${kpis.savingsRatePct}%`;
     },
   });
 });

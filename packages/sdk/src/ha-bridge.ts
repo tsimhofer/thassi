@@ -130,6 +130,26 @@ export class ThassiHaBridge {
     return this.request<HaEntityState>(`/states/${encodeURIComponent(entityId)}`);
   }
 
+  /** Fetch events from a Home Assistant calendar.* entity over [startIso, endIso] */
+  async getCalendarEvents(
+    entityId: string,
+    startIso: string,
+    endIso: string
+  ): Promise<
+    Array<{
+      summary?: string;
+      description?: string;
+      location?: string;
+      uid?: string;
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+    }>
+  > {
+    return this.request(
+      `/calendars/${encodeURIComponent(entityId)}?start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`
+    );
+  }
+
   /** Call a Home Assistant service (e.g. domain='light', service='toggle', data={ entity_id: 'light.office' }) */
   async callService(
     domain: string,

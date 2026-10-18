@@ -62,6 +62,8 @@ export default function App() {
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
   const [recurringFixed, setRecurringFixed] = useState<TransactionRow[]>([]);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [filterCat, setFilterCat] = useState<string>('all');
   const [toast, setToast] = useState<string | null>(null);
 
@@ -75,7 +77,7 @@ export default function App() {
   const [notes, setNotes] = useState('');
 
   // Bank CSV Import Form
-  const [csvText, setCsvText] = useState(SAMPLE_AUSTRIAN_BANK_CSV);
+  const [csvText, setCsvText] = useState('');
   const [accountName, setAccountName] = useState('Girokonto');
 
   const notify = (msg: string) => {
@@ -83,17 +85,23 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const loadOverview = async () => {
+  const loadOverview = async (monthOverride?: string) => {
+    const m = monthOverride !== undefined ? monthOverride : selectedMonth;
+    const query = m ? `?month=${encodeURIComponent(m)}` : '';
     const data = await api.get<{
       kpis: FinanceKpis;
+      activeMonth?: string;
+      availableMonths?: string[];
       transactions: TransactionRow[];
       categoryBreakdown: CategoryBreakdownItem[];
       recurringFixed: TransactionRow[];
-    }>('/overview');
+    }>(`/overview${query}`);
     setKpis(data.kpis);
     setTransactions(data.transactions);
     setCategoryBreakdown(data.categoryBreakdown);
     setRecurringFixed(data.recurringFixed);
+    if (data.availableMonths) setAvailableMonths(data.availableMonths);
+    if (!m && data.activeMonth) setSelectedMonth(data.activeMonth);
   };
 
   useEffect(() => {
@@ -138,6 +146,18 @@ export default function App() {
     }
   };
 
+  const handleCsvFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    // Sparkasse / George CSV exports use UTF-16LE (BOM 0xFF 0xFE)
+    const isUtf16Le = bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe;
+    const decoded = new TextDecoder(isUtf16Le ? 'utf-16le' : 'utf-8').decode(buf);
+    setCsvText(decoded);
+    notify(`Loaded "${file.name}" (${isUtf16Le ? 'UTF-16LE George CSV' : 'UTF-8 CSV'}) — click Import below!`);
+  };
+
   const visibleTransactions =
     filterCat === 'all'
       ? transactions
@@ -167,11 +187,26 @@ export default function App() {
             💶 Finance & Budget Analytics
           </h1>
           <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>
-            Persistent SQLite Ledger • Auto-Categorized Bank Exports • Live Home Assistant Sensors
+            Sparkasse George Girokonto (AT22 2025 6010 0120 1324) • Auto-Categorized Ledger • Live HA Sensors
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            value={selectedMonth}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              void loadOverview(e.target.value);
+            }}
+            style={{ ...btnTab, background: '#0f172a', color: '#38bdf8' }}
+          >
+            <option value="all">📅 All Months (Full Year)</option>
+            {availableMonths.map((ym) => (
+              <option key={ym} value={ym}>
+                📅 Month: {ym}
+              </option>
+            ))}
+          </select>
           <button
             onClick={() => setActiveTab('dashboard')}
             style={activeTab === 'dashboard' ? btnPrimary : btnTab}
@@ -188,7 +223,7 @@ export default function App() {
             onClick={() => setActiveTab('import')}
             style={activeTab === 'import' ? btnPrimary : btnTab}
           >
-            📥 Import Bank CSV Export
+            📥 Import George CSV
           </button>
         </div>
       </header>
@@ -571,13 +606,20 @@ export default function App() {
             <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.5 }}>
               Supports Austrian/German and international bank CSV exports (<code>;</code> or <code>,</code> delimiters, <code>DD.MM.YYYY</code> or <code>YYYY-MM-DD</code> dates, and European decimal commas like <code>-46,80</code>). Merchants like <em>BILLA, SPAR, Hofer, Wien Energie, Flatex, ÖBB, Netflix</em> are categorized automatically!
             </p>
+            <label style={labelStyle}>Select George / Bank CSV File (UTF-16LE or UTF-8)</label>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleCsvFileSelect}
+              style={inputStyle}
+            />
             <label style={labelStyle}>Account Label</label>
             <input
               value={accountName}
               onChange={(e) => setAccountName(e.target.value)}
               style={inputStyle}
             />
-            <label style={labelStyle}>Paste Bank CSV Rows</label>
+            <label style={labelStyle}>Or Paste Bank CSV Rows</label>
             <textarea
               rows={8}
               value={csvText}
