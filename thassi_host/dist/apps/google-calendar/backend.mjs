@@ -162,7 +162,23 @@ var index_default = defineThassiApp((ctx) => {
               if (!rawStart || !item.summary) continue;
               const isAllDay = !item.start?.dateTime;
               const startDate = new Date(isAllDay ? `${rawStart}T08:00:00` : rawStart);
-              const endDate = rawEnd ? new Date(isAllDay ? `${rawEnd}T09:00:00` : rawEnd) : new Date(startDate.getTime() + 60 * 60 * 1e3);
+              let endDate;
+              if (isAllDay && rawEnd) {
+                const exclusiveEnd = /* @__PURE__ */ new Date(`${rawEnd}T00:00:00`);
+                const daysSpan = Math.max(
+                  1,
+                  Math.round(
+                    (exclusiveEnd.getTime() - (/* @__PURE__ */ new Date(`${rawStart}T00:00:00`)).getTime()) / 864e5
+                  )
+                );
+                endDate = new Date(
+                  startDate.getTime() + (daysSpan === 1 ? 10 * 36e5 : (daysSpan * 24 - 12) * 36e5)
+                );
+              } else if (rawEnd) {
+                endDate = new Date(rawEnd);
+              } else {
+                endDate = new Date(startDate.getTime() + 60 * 60 * 1e3);
+              }
               const rawDuration = Math.round((endDate.getTime() - startDate.getTime()) / 6e4);
               const durationMinutes = isAllDay ? 60 : Math.max(15, Math.min(720, Number.isFinite(rawDuration) ? rawDuration : 60));
               const extId = item.uid || `ha_${cal.entity_id}_${rawStart}_${item.summary.replace(/[^a-z0-9]/gi, "_")}`;
@@ -322,6 +338,12 @@ var index_default = defineThassiApp((ctx) => {
       googleOAuth: google.getStatus(),
       mealPlannerToday: mealPlannerToday || null
     };
+  });
+  ctx.route("GET", "/events", (_req, { db }) => {
+    const events = db.query(
+      "SELECT * FROM calendar_events ORDER BY start_time ASC LIMIT 250"
+    );
+    return { events };
   });
   ctx.route("POST", "/events", async (req) => {
     const body = req.body || {};

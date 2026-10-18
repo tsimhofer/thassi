@@ -308,9 +308,24 @@ export default defineThassiApp((ctx) => {
 
               const isAllDay = !item.start?.dateTime;
               const startDate = new Date(isAllDay ? `${rawStart}T08:00:00` : rawStart);
-              const endDate = rawEnd
-                ? new Date(isAllDay ? `${rawEnd}T09:00:00` : rawEnd)
-                : new Date(startDate.getTime() + 60 * 60 * 1000);
+              let endDate: Date;
+              if (isAllDay && rawEnd) {
+                // Google Calendar all-day end date is exclusive (next day 00:00)
+                const exclusiveEnd = new Date(`${rawEnd}T00:00:00`);
+                const daysSpan = Math.max(
+                  1,
+                  Math.round(
+                    (exclusiveEnd.getTime() - new Date(`${rawStart}T00:00:00`).getTime()) / 86400000
+                  )
+                );
+                endDate = new Date(
+                  startDate.getTime() + (daysSpan === 1 ? 10 * 3600000 : (daysSpan * 24 - 12) * 3600000)
+                );
+              } else if (rawEnd) {
+                endDate = new Date(rawEnd);
+              } else {
+                endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+              }
 
               const rawDuration = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
               const durationMinutes = isAllDay
@@ -513,6 +528,13 @@ export default defineThassiApp((ctx) => {
       googleOAuth: google.getStatus(),
       mealPlannerToday: mealPlannerToday || null,
     };
+  });
+
+  ctx.route('GET', '/events', (_req, { db }) => {
+    const events = db.query<CalendarEventRow>(
+      'SELECT * FROM calendar_events ORDER BY start_time ASC LIMIT 250'
+    );
+    return { events };
   });
 
   // Add manual or quick event
