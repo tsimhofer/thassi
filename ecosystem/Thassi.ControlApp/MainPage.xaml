@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Thassi.ControlApp.MainPage"
+             BackgroundColor="#070B19">
+
+    <Grid RowDefinitions="Auto,*" Padding="0">
+        <!-- Top Status & Mode Switch Header -->
+        <Border Grid.Row="0"
+                BackgroundColor="#0F172A"
+                Stroke="#1E293B"
+                StrokeThickness="1"
+                Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8">
+                <VerticalStackLayout Grid.Row="0" Grid.Column="0" Spacing="2">
+                    <Label Text="THASSI ECOSYSTEM CONTROL"
+                           FontSize="13"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.5"
+                           TextColor="#38BDF8" />
+                    <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                        <BoxView x:Name="ConnectionDot"
+                                 WidthRequest="8"
+                                 HeightRequest="8"
+                                 CornerRadius="4"
+                                 Color="#F59E0B"
+                                 VerticalOptions="Center" />
+                        <Label x:Name="ConnectionStatusLabel"
+                               Text="Verbinde mit SignalR Hub..."
+                               FontSize="11"
+                               TextColor="#94A3B8" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+
+                <HorizontalStackLayout Grid.Row="0" Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                    <Button x:Name="TabPipelineBtn"
+                            Text="⚡ Pipeline"
+                            Clicked="OnShowPipelineClicked"
+                            FontSize="12"
+                            FontAttributes="Bold"
+                            Padding="12,6"
+                            HeightRequest="34"
+                            CornerRadius="8"
+                            BackgroundColor="#0284C7"
+                            TextColor="White" />
+                    <Button x:Name="TabHorizonBtn"
+                            Text="🌅 Horizon"
+                            Clicked="OnShowHorizonClicked"
+                            FontSize="12"
+                            Padding="12,6"
+                            HeightRequest="34"
+                            CornerRadius="8"
+                            BackgroundColor="#1E293B"
+                            TextColor="#94A3B8" />
+                </HorizontalStackLayout>
+            </Grid>
+        </Border>
+
+        <!-- View 1: Dev, Deploy & Monitoring Pipeline -->
+        <ScrollView x:Name="PipelineScrollView" Grid.Row="1">
+            <VerticalStackLayout Padding="16" Spacing="16">
+
+                <!-- Voice & Prompt Input Panel -->
+                <Border BackgroundColor="#0F172A"
+                        Stroke="#1E293B"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14"
+                        Padding="14">
+                    <VerticalStackLayout Spacing="12">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Text="SPRACH- &amp; AGENT-STEUERUNG"
+                                   FontSize="11"
+                                   FontAttributes="Bold"
+                                   CharacterSpacing="1.2"
+                                   TextColor="#94A3B8"
+                                   VerticalOptions="Center" />
+                            <Label x:Name="DeviceBadgeLabel"
+                                   Grid.Column="1"
+                                   Text="Pixel 10 / MAUI"
+                                   FontSize="10"
+                                   TextColor="#38BDF8" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <Button x:Name="VoiceBtn"
+                                    Grid.Column="0"
+                                    Text="🎤"
+                                    Clicked="OnVoiceButtonClicked"
+                                    FontSize="18"
+                                    WidthRequest="48"
+                                    HeightRequest="48"
+                                    CornerRadius="12"
+                                    BackgroundColor="#4F46E5"
+                                    TextColor="White" />
+                            <Entry x:Name="PromptEntry"
+                                   Grid.Column="1"
+                                   Placeholder="Befehl eingeben oder sprechen (z.B. 'Erstelle Add-on System Monitor')..."
+                                   PlaceholderColor="#475569"
+                                   TextColor="#F8FAFC"
+                                   BackgroundColor="#1E293B"
+                                   FontSize="13"
+                                   HeightRequest="48" />
+                            <Button x:Name="DeployBtn"
+                                    Grid.Column="2"
+                                    Text="🚀 Start"
+                                    Clicked="OnDeployClicked"
+                                    FontSize="13"
+                                    FontAttributes="Bold"
+                                    Padding="14,0"
+                                    HeightRequest="48"
+                                    CornerRadius="12"
+                                    BackgroundColor="#0EA5E9"
+                                    TextColor="White" />
+                        </Grid>
+
+                        <!-- Quick Preset Chips -->
+                        <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                            <HorizontalStackLayout Spacing="8">
+                                <Button Text="➕ Add-on: System Monitor"
+                                        Clicked="OnPresetSystemMonitorClicked"
+                                        FontSize="11"
+                                        HeightRequest="30"
+                                        Padding="10,0"
+                                        CornerRadius="6"
+                                        BackgroundColor="#1E293B"
+                                        TextColor="#38BDF8" />
+                                <Button Text="➕ Add-on: Energy Pulse"
+                                        Clicked="OnPresetEnergyPulseClicked"
+                                        FontSize="11"
+                                        HeightRequest="30"
+                                        Padding="10,0"
+                                        CornerRadius="6"
+                                        BackgroundColor="#1E293B"
+                                        TextColor="#10B981" />
+                                <Button Text="🔄 Smoke-Test &amp; Sync"
+                                        Clicked="OnPresetSmokeTestClicked"
+                                        FontSize="11"
+                                        HeightRequest="30"
+                                        Padding="10,0"
+                                        CornerRadius="6"
+                                        BackgroundColor="#1E293B"
+                                        TextColor="#F59E0B" />
+                            </HorizontalStackLayout>
+                        </ScrollView>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 5-Stage Pipeline Progress Card -->
+                <Border BackgroundColor="#0F172A"
+                        Stroke="#1E293B"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14"
+                        Padding="14">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label x:Name="ActiveTaskTitleLabel"
+                                   Text="PIPELINE-STATUS (HASS-PC 192.168.188.92)"
+                                   FontSize="11"
+                                   FontAttributes="Bold"
+                                   CharacterSpacing="1.2"
+                                   TextColor="#94A3B8" />
+                            <Label x:Name="ProgressPercentLabel"
+                                   Grid.Column="1"
+                                   Text="BEREIT"
+                                   FontSize="11"
+                                   FontAttributes="Bold"
+                                   TextColor="#38BDF8" />
+                        </Grid>
+
+                        <ProgressBar x:Name="TaskProgressBar"
+                                     Progress="0"
+                                     ProgressColor="#38BDF8"
+                                     BackgroundColor="#1E293B"
+                                     HeightRequest="6" />
+
+                        <Grid ColumnDefinitions="*,*,*,*,*" ColumnSpacing="4">
+                            <Border x:Name="Stage1Box" Grid.Column="0" BackgroundColor="#1E293B" StrokeShape="RoundRectangle 6" Padding="4,6">
+                                <Label Text="1. Check" FontSize="10" HorizontalTextAlignment="Center" TextColor="#94A3B8" />
+                            </Border>
+                            <Border x:Name="Stage2Box" Grid.Column="1" BackgroundColor="#1E293B" StrokeShape="RoundRectangle 6" Padding="4,6">
+                                <Label Text="2. Code" FontSize="10" HorizontalTextAlignment="Center" TextColor="#94A3B8" />
+                            </Border>
+                            <Border x:Name="Stage3Box" Grid.Column="2" BackgroundColor="#1E293B" StrokeShape="RoundRectangle 6" Padding="4,6">
+                                <Label Text="3. GitHub" FontSize="10" HorizontalTextAlignment="Center" TextColor="#94A3B8" />
+                            </Border>
+                            <Border x:Name="Stage4Box" Grid.Column="3" BackgroundColor="#1E293B" StrokeShape="RoundRectangle 6" Padding="4,6">
+                                <Label Text="4. Docker" FontSize="10" HorizontalTextAlignment="Center" TextColor="#94A3B8" />
+                            </Border>
+                            <Border x:Name="Stage5Box" Grid.Column="4" BackgroundColor="#1E293B" StrokeShape="RoundRectangle 6" Padding="4,6">
+                                <Label Text="5. Test" FontSize="10" HorizontalTextAlignment="Center" TextColor="#94A3B8" />
+                            </Border>
+                        </Grid>
+
+                        <Label x:Name="CurrentStageDetailLabel"
+                               Text="Warte auf Sprachbefehl oder Pipeline-Trigger..."
+                               FontSize="12"
+                               TextColor="#E2E8F0" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Live SignalR Event Stream -->
+                <Border BackgroundColor="#0F172A"
+                        Stroke="#1E293B"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14"
+                        Padding="14">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Text="ECHTZEIT SIGNALR EVENT-STREAM"
+                                   FontSize="11"
+                                   FontAttributes="Bold"
+                                   CharacterSpacing="1.2"
+                                   TextColor="#94A3B8"
+                                   VerticalOptions="Center" />
+                            <Button Text="Aktualisieren"
+                                    Clicked="OnRefreshClicked"
+                                    FontSize="10"
+                                    HeightRequest="26"
+                                    Padding="8,0"
+                                    CornerRadius="6"
+                                    BackgroundColor="#1E293B"
+                                    TextColor="#94A3B8" />
+                        </Grid>
+
+                        <VerticalStackLayout x:Name="EventsStackLayout" Spacing="8" />
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- View 2: Embedded Ambient Horizon Dashboard -->
+        <Grid x:Name="HorizonContainer" Grid.Row="1" IsVisible="False">
+            <WebView x:Name="HorizonWebView"
+                     HorizontalOptions="Fill"
+                     VerticalOptions="Fill" />
+        </Grid>
+    </Grid>
+
+</ContentPage>
