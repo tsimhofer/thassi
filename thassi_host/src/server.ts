@@ -409,6 +409,81 @@ async function startServer() {
       const queryObj = Object.fromEntries(parsedUrl.searchParams.entries());
       const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
 
+      if (pathname === '/healthz' && req.method === 'GET') {
+        return sendJson(res, 200, {
+          status: 'healthy',
+          service: 'thassi_host',
+          version: '1.0.5',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (pathname === '/api/orchestrator/state' && req.method === 'GET') {
+        try {
+          const hubRes = await fetch('http://192.168.188.46:5180/api/state');
+          if (hubRes.ok) {
+            return sendJson(res, 200, await hubRes.json());
+          }
+        } catch {
+          // Fallback to cached state in sharedDb
+        }
+        return sendJson(res, 200, {
+          activeTasks: sharedDb.kvGet('orchestrator_tasks') || [],
+          recentEvents: sharedDb.kvGet('orchestrator_events') || [],
+        });
+      }
+
+      if (pathname === '/api/orchestrator/events/publish' && req.method === 'POST') {
+        const evt = JSON.parse((await readRequestBody(req)) || '{}');
+        const list = (sharedDb.kvGet<unknown[]>('orchestrator_events') || []).slice(0, 79);
+        list.unshift(evt);
+        sharedDb.kvSet('orchestrator_events', list);
+        return sendJson(res, 200, { published: true });
+      }
+
+      if (pathname === '/api/orchestrator/tasks/submit' && req.method === 'POST') {
+        const raw = await readRequestBody(req);
+        try {
+          const hubRes = await fetch('http://192.168.188.46:5180/api/tasks/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: raw,
+          });
+          const data = await hubRes.json();
+          return sendJson(res, hubRes.status, data);
+        } catch (err) {
+          return sendJson(res, 502, {
+            error: 'Dev-PC SignalR Hub (192.168.188.46:5180) unreachable',
+            details: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      if (pathname === '/api/orchestrator/apk-upload' && req.method === 'POST') {
+        const body = JSON.parse((await readRequestBody(req)) || '{}') as { base64?: string };
+        if (!body.base64) return sendJson(res, 400, { error: 'Missing base64 APK payload' });
+        const apkPath = path.join(DATA_DIR, 'thassi-control.apk');
+        fs.writeFileSync(apkPath, Buffer.from(body.base64, 'base64'));
+        return sendJson(res, 200, { uploaded: true, size: fs.statSync(apkPath).size });
+      }
+
+      if (pathname === '/download/thassi-control.apk' && req.method === 'GET') {
+        const apkPath = path.join(DATA_DIR, 'thassi-control.apk');
+        if (!fs.existsSync(apkPath)) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('APK not uploaded yet.');
+          return;
+        }
+        const stat = fs.statSync(apkPath);
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.android.package-archive',
+          'Content-Disposition': 'attachment; filename="ThassiControl.apk"',
+          'Content-Length': String(stat.size),
+        });
+        fs.createReadStream(apkPath).pipe(res);
+        return;
+      }
+
       if (pathname === '/api/system/status' && req.method === 'GET') {
         const ha = await systemHaBridge.getStatus();
         const google = googleOAuth.getStatus();

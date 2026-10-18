@@ -772,6 +772,38 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     </form>
   </div>
 
+  <!-- VOICE & SIGNALR ORCHESTRATOR DRAWER -->
+  <div id="orchestrator-modal" style="display:none; position:fixed; left:24px; bottom:246px; z-index:48; width:min(460px, calc(100vw - 48px)); max-height:62vh; background:rgba(7, 11, 25, 0.92); backdrop-filter:blur(28px); -webkit-backdrop-filter:blur(28px); border-radius:18px; padding:18px; box-shadow:0 24px 60px rgba(0,0,0,0.75); color:#f8fafc; overflow-y:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div>
+        <div style="font-size:11px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#38bdf8;">⚡ THASSI ORCHESTRATOR · SIGNALR LIVE</div>
+        <div id="orch-conn-label" style="font-size:11px; color:#94a3b8; margin-top:2px;">Verbunden via Hass-PC Relay ↔ Dev-PC :5180</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <a href="/download/thassi-control.apk" target="_blank" style="text-decoration:none; background:rgba(16,185,129,0.18); color:#34d399; font-size:11px; font-weight:600; padding:5px 10px; border-radius:8px;">📲 MAUI APK</a>
+        <button onclick="toggleOrchestratorModal(false)" style="background:none; border:none; color:rgba(255,255,255,0.5); font-size:15px; cursor:pointer;">✕</button>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <button id="orch-mic-btn" type="button" onclick="startWebVoiceRecognition()" style="background:#4f46e5; color:#fff; border:none; border-radius:10px; width:40px; height:40px; font-size:16px; cursor:pointer;" title="Sprachbefehl (Speech-to-Text)">🎤</button>
+      <input id="orch-prompt-input" class="minimal-input" style="flex:1;" placeholder="Sprachbefehl oder Add-on Auftrag..." value="Erstelle und deploye das HASS Add-on thassi_system_monitor auf Hass OS" />
+      <button id="orch-run-btn" type="button" onclick="submitOrchestratorTask()" style="background:#0ea5e9; color:#fff; border:none; border-radius:10px; padding:0 14px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">🚀 Start</button>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; margin-bottom:4px;">
+        <span id="orch-stage-label">Bereit für Pipeline-Lauf</span>
+        <span id="orch-pct-label" style="color:#38bdf8; font-weight:700;">0%</span>
+      </div>
+      <div style="height:5px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden;">
+        <div id="orch-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #38bdf8, #10b981); transition:width 0.35s ease;"></div>
+      </div>
+    </div>
+
+    <div id="orch-events-feed" style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto; font-size:11.5px;"></div>
+  </div>
+
   <!-- 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER & GCAL EVENT RECTANGLES -->
   <div id="timeline-dock">
     <div id="timeline-toolbar">
@@ -780,6 +812,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         <span id="tl-status-label">Google Calendar Timeline</span>
         <button class="tl-pill" onclick="toggleEventModal(true)">+ Event</button>
         <button class="tl-pill" onclick="syncCalendars()">↻ Sync</button>
+        <button class="tl-pill" style="color:#38bdf8;" onclick="toggleOrchestratorModal()">🎤 Pipeline / Voice</button>
       </div>
       <div class="tl-controls">
         <button class="tl-pill" id="zoom-12" onclick="setTimelineSpan(12)">12H</button>
@@ -1314,6 +1347,95 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       }
     }
 
+    // 6. VOICE-TO-TEXT & SIGNALR ORCHESTRATOR RELAY
+    let orchPollTimer = null;
+
+    function toggleOrchestratorModal(forceShow) {
+      const m = document.getElementById('orchestrator-modal');
+      const next = typeof forceShow === 'boolean' ? forceShow : m.style.display === 'none';
+      m.style.display = next ? 'block' : 'none';
+      if (next) {
+        pollOrchestratorState();
+        if (!orchPollTimer) orchPollTimer = setInterval(pollOrchestratorState, 2500);
+      }
+    }
+
+    function startWebVoiceRecognition() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const btn = document.getElementById('orch-mic-btn');
+      if (!SR) {
+        document.getElementById('orch-prompt-input').focus();
+        return;
+      }
+      const rec = new SR();
+      rec.lang = 'de-DE';
+      rec.interimResults = false;
+      btn.textContent = '🔴';
+      rec.onresult = (ev) => {
+        const text = ev.results?.[0]?.[0]?.transcript || '';
+        if (text) {
+          document.getElementById('orch-prompt-input').value = text;
+          submitOrchestratorTask();
+        }
+      };
+      rec.onend = () => { btn.textContent = '🎤'; };
+      rec.onerror = () => { btn.textContent = '🎤'; };
+      rec.start();
+    }
+
+    async function submitOrchestratorTask() {
+      const input = document.getElementById('orch-prompt-input');
+      const btn = document.getElementById('orch-run-btn');
+      const prompt = (input.value || '').trim();
+      if (!prompt) return;
+      btn.disabled = true;
+      btn.textContent = '⏳...';
+      try {
+        await fetch(base + '/api/orchestrator/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            deviceName: 'Pixel 10 (Horizon WebView)'
+          })
+        });
+        await pollOrchestratorState();
+      } catch (err) {
+        console.error('Failed submitting orchestrator task:', err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🚀 Start';
+      }
+    }
+
+    async function pollOrchestratorState() {
+      try {
+        const res = await fetch(base + '/api/orchestrator/state');
+        if (!res.ok) return;
+        const data = await res.json();
+        const events = data.recentEvents || [];
+        if (events.length > 0) {
+          const latest = events[0];
+          const pct = Math.min(100, Math.max(0, Number(latest.progressPercent || 0)));
+          document.getElementById('orch-stage-label').textContent = \`\${latest.eventType}: \${latest.title || latest.message}\`;
+          document.getElementById('orch-pct-label').textContent = pct + '%';
+          document.getElementById('orch-progress-bar').style.width = pct + '%';
+        }
+        const feed = document.getElementById('orch-events-feed');
+        feed.innerHTML = events.slice(0, 12).map((ev) => {
+          const col = (ev.severity || '').toLowerCase() === 'success' ? '#10b981' : (ev.severity || '').toLowerCase().includes('err') || (ev.severity || '').toLowerCase().includes('crit') ? '#ef4444' : '#38bdf8';
+          const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+          return \`<div style="background:rgba(255,255,255,0.04); border-left:3px solid \${col}; padding:6px 10px; border-radius:6px;">
+            <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8;">
+              <strong style="color:\${col};">\${ev.eventType} \${ev.addonSlug ? '[' + ev.addonSlug + ']' : ''}</strong>
+              <span>\${ts}</span>
+            </div>
+            <div style="color:#f1f5f9; margin-top:2px;">\${ev.message}</div>
+          </div>\`;
+        }).join('');
+      } catch (e) {}
+    }
+
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
       renderTimelineGeometry();
@@ -1324,6 +1446,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     setInterval(loadAllLiveData, 60000);
+    pollOrchestratorState();
   </script>
 </body>
 </html>`;
