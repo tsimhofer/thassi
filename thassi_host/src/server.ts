@@ -13,6 +13,7 @@ import {
   type ThassiBackendModule,
 } from '../../packages/sdk/src/index.js';
 import { renderUnifiedDashboardHtml } from './ambient-dashboard.js';
+import { getHassSidebarStylerScript, syncHassFrontendFiles } from './hass-sidebar-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -240,7 +241,7 @@ function serveAppStaticFile(
     html = html
       .replace(/(src|href)="\.\/assets\//g, `$1="${assetBase}/assets/`)
       .replace(/(src|href)="\/assets\//g, `$1="${assetBase}/assets/`);
-    const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};</script>`;
+    const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};${getHassSidebarStylerScript()}</script>`;
     html = html.includes('</head>')
       ? html.replace('</head>', `${injection}</head>`)
       : `${injection}${html}`;
@@ -395,6 +396,7 @@ async function handleAppApiRequest(
 }
 
 async function startServer() {
+  syncHassFrontendFiles();
   await discoverAllApps();
 
   const server = http.createServer(async (req, res) => {
@@ -413,7 +415,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.0.5',
+          version: '1.0.7',
           timestamp: new Date().toISOString(),
         });
       }

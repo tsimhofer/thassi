@@ -1,7 +1,7 @@
 // thassi_host/src/server.ts
 import http from "node:http";
-import fs2 from "node:fs";
-import path2 from "node:path";
+import fs3 from "node:fs";
+import path3 from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 // packages/sdk/src/db.ts
@@ -702,14 +702,301 @@ var ThassiGoogleOAuthManager = class {
   }
 };
 
+// thassi_host/src/hass-sidebar-sync.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
+function getHassSidebarStylerScript() {
+  return `
+  (function initThassiHassSidebarStyler() {
+    const LABEL_MAP = {
+      'Main Dashboard': 'Horizon',
+      'Thassi Main Dashboard': 'Horizon',
+      'Thassi Unified Dashboard': 'Horizon',
+      'Google Calendar & Time Analytics': 'Calendar',
+      'Google Health & Readiness': 'Health',
+      'Finance & Budget': 'Finances',
+      'Meal Planner': 'Meals',
+      'Smart Control Canvas': 'Smart Home'
+    };
+
+    const ROOT_THEME_CSS = \`
+      :root, html, body, home-assistant {
+        --primary-background-color: #040711 !important;
+        --secondary-background-color: #060a17 !important;
+        --card-background-color: rgba(8, 13, 26, 0.72) !important;
+        --ha-card-background: rgba(8, 13, 26, 0.72) !important;
+        --sidebar-background-color: transparent !important;
+        --sidebar-text-color: rgba(248, 250, 252, 0.58) !important;
+        --sidebar-icon-color: rgba(148, 163, 184, 0.58) !important;
+        --sidebar-selected-text-color: #ffffff !important;
+        --sidebar-selected-icon-color: #38bdf8 !important;
+        --primary-color: #38bdf8 !important;
+        --accent-color: #38bdf8 !important;
+        --divider-color: rgba(255, 255, 255, 0.0) !important;
+        --app-header-background-color: #040711 !important;
+        --app-header-text-color: #f8fafc !important;
+        --mdc-theme-primary: #38bdf8 !important;
+        --mdc-theme-surface: #040711 !important;
+        --mdc-drawer-width: 208px !important;
+        background-color: #040711 !important;
+      }
+    \`;
+
+    const DRAWER_SHADOW_CSS = \`
+      .mdc-drawer, aside.mdc-drawer {
+        background: var(--thassi-sidebar-bg, linear-gradient(180deg, rgba(4, 7, 17, 0.94) 0%, rgba(7, 13, 29, 0.92) 55%, rgba(3, 6, 15, 0.96) 100%)) !important;
+        backdrop-filter: blur(30px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(30px) saturate(140%) !important;
+        border-right: none !important;
+        box-shadow: 16px 0 48px rgba(0, 0, 0, 0.35) !important;
+        transition: background 1.2s cubic-bezier(0.22, 1, 0.36, 1) !important;
+      }
+      .mdc-drawer.mdc-drawer--open:not(.mdc-drawer--closing) + .mdc-drawer-app-content {
+        background: #040711 !important;
+      }
+      .mdc-drawer-app-content {
+        background: #040711 !important;
+      }
+    \`;
+
+    const SIDEBAR_SHADOW_CSS = \`
+      :host {
+        background: transparent !important;
+        color: rgba(248, 250, 252, 0.62) !important;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        border-right: none !important;
+      }
+      .menu {
+        background: transparent !important;
+        border-bottom: none !important;
+        height: 68px !important;
+        padding: 0 14px !important;
+        display: flex !important;
+        align-items: center !important;
+      }
+      .menu .title {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.28em !important;
+        text-transform: uppercase !important;
+        color: rgba(248, 250, 252, 0.72) !important;
+        margin-left: 6px !important;
+      }
+      .menu ha-icon-button {
+        color: rgba(248, 250, 252, 0.55) !important;
+      }
+      /* Hide sidebar edit button, dividers, notifications & non-Thassi items */
+      .divider,
+      div.divider,
+      .notifications-container,
+      .notifications,
+      ha-md-list-item.notifications,
+      a[data-panel="lovelace"],
+      a[data-panel="developer-tools"],
+      a[data-panel="config"],
+      a[data-panel="44ec3c40_thassi_system_monitor"],
+      a[data-panel="44ec3c40_thassi_fuege_neue"],
+      ha-md-list-item[href="/lovelace"],
+      ha-md-list-item[href="/developer-tools"],
+      ha-md-list-item[href="/44ec3c40_thassi_system_monitor"],
+      ha-md-list-item[href="/44ec3c40_thassi_fuege_neue"] {
+        display: none !important;
+      }
+      ha-md-list,
+      paper-listbox {
+        padding: 4px 10px !important;
+        background: transparent !important;
+      }
+      ha-md-list-item,
+      paper-icon-item,
+      a[role="option"] {
+        border-radius: 14px !important;
+        margin: 4px 0 !important;
+        min-height: 42px !important;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-size: 12.5px !important;
+        font-weight: 400 !important;
+        letter-spacing: 0.04em !important;
+        color: rgba(248, 250, 252, 0.56) !important;
+        transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        --md-list-item-leading-icon-color: rgba(148, 163, 184, 0.56) !important;
+        --md-list-item-label-text-color: rgba(248, 250, 252, 0.56) !important;
+        --md-list-item-label-text-font: "Inter", system-ui, sans-serif !important;
+        --md-list-item-label-text-size: 12.5px !important;
+        --md-list-item-label-text-weight: 400 !important;
+      }
+      ha-md-list-item:hover,
+      a[role="option"]:hover {
+        background: rgba(255, 255, 255, 0.04) !important;
+        color: rgba(248, 250, 252, 0.92) !important;
+        transform: translateX(3px) !important;
+        --md-list-item-leading-icon-color: rgba(248, 250, 252, 0.92) !important;
+        --md-list-item-label-text-color: rgba(248, 250, 252, 0.92) !important;
+      }
+      ha-md-list-item[selected],
+      ha-md-list-item.selected,
+      a.iron-selected,
+      a[aria-selected="true"] {
+        background: rgba(56, 189, 248, 0.11) !important;
+        color: #ffffff !important;
+        box-shadow: inset 2px 0 0 #38bdf8, 0 8px 24px rgba(0, 0, 0, 0.22) !important;
+        --md-list-item-leading-icon-color: #38bdf8 !important;
+        --md-list-item-label-text-color: #ffffff !important;
+        --md-list-item-label-text-weight: 500 !important;
+      }
+      .item-text {
+        font-size: 12.5px !important;
+        letter-spacing: 0.04em !important;
+      }
+      /* Subtle profile footer */
+      .profile,
+      ha-md-list-item.user {
+        opacity: 0.55 !important;
+        transition: opacity 0.2s ease !important;
+      }
+      .profile:hover,
+      ha-md-list-item.user:hover {
+        opacity: 0.95 !important;
+      }
+    \`;
+
+    const LOVELACE_FULLBLEED_CSS = \`
+      .header, app-header, .toolbar {
+        display: none !important;
+        height: 0 !important;
+      }
+      #view {
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100vh !important;
+        min-height: 100vh !important;
+        background: #040711 !important;
+      }
+    \`;
+
+    function ensureStyleTag(root, id, cssText) {
+      if (!root) return;
+      let style = root.getElementById ? root.getElementById(id) : root.querySelector('#' + id);
+      if (!style) {
+        style = document.createElement('style');
+        style.id = id;
+        style.textContent = cssText;
+        (root.head || root).appendChild(style);
+      } else if (style.textContent !== cssText) {
+        style.textContent = cssText;
+      }
+    }
+
+    function applyThassiChromeToParent() {
+      try {
+        if (!window.top || window.top === window) return;
+        const topDoc = window.top.document;
+        if (!topDoc) return;
+
+        ensureStyleTag(topDoc, 'thassi-root-vars', ROOT_THEME_CSS);
+
+        const ha = topDoc.querySelector('home-assistant');
+        if (!ha || !ha.shadowRoot) return;
+        ensureStyleTag(ha.shadowRoot, 'thassi-ha-vars', ROOT_THEME_CSS);
+
+        const main = ha.shadowRoot.querySelector('home-assistant-main');
+        if (!main || !main.shadowRoot) return;
+
+        const drawer = main.shadowRoot.querySelector('ha-drawer');
+        if (drawer && drawer.shadowRoot) {
+          ensureStyleTag(drawer.shadowRoot, 'thassi-drawer-style', DRAWER_SHADOW_CSS);
+        }
+
+        const sidebar = main.shadowRoot.querySelector('ha-sidebar');
+        if (sidebar && sidebar.shadowRoot) {
+          ensureStyleTag(sidebar.shadowRoot, 'thassi-sidebar-style', SIDEBAR_SHADOW_CSS);
+
+          const titleEl = sidebar.shadowRoot.querySelector('.menu .title');
+          if (titleEl && titleEl.textContent !== 'THASSI') {
+            titleEl.textContent = 'THASSI';
+          }
+
+          const items = sidebar.shadowRoot.querySelectorAll('.item-text, span[slot="headline"]');
+          items.forEach((el) => {
+            const raw = (el.textContent || '').trim();
+            if (LABEL_MAP[raw]) {
+              el.textContent = LABEL_MAP[raw];
+            }
+          });
+        }
+
+        // Also strip Lovelace top header if currently on /lovelace
+        const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
+        const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');
+        if (huiRoot && huiRoot.shadowRoot) {
+          ensureStyleTag(huiRoot.shadowRoot, 'thassi-lovelace-fullbleed', LOVELACE_FULLBLEED_CSS);
+        }
+      } catch (_err) {
+        // Cross-origin fallback (when opened directly on :8099 outside Home Assistant)
+      }
+    }
+
+    window.syncThassiSidebarSky = function(skyOverlayGradient) {
+      try {
+        if (!window.top || window.top === window) return;
+        const ha = window.top.document.querySelector('home-assistant');
+        const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector('home-assistant-main');
+        const drawer = main && main.shadowRoot && main.shadowRoot.querySelector('ha-drawer');
+        if (drawer) {
+          drawer.style.setProperty('--thassi-sidebar-bg', skyOverlayGradient);
+        }
+      } catch (_e) {}
+    };
+
+    applyThassiChromeToParent();
+    setInterval(applyThassiChromeToParent, 1200);
+  })();
+  `;
+}
+function syncHassFrontendFiles() {
+  const candidateConfigDirs = ["/homeassistant", "/config"];
+  for (const cfgDir of candidateConfigDirs) {
+    if (!fs2.existsSync(path2.join(cfgDir, "configuration.yaml"))) continue;
+    try {
+      const wwwDir = path2.join(cfgDir, "www");
+      fs2.mkdirSync(wwwDir, { recursive: true });
+      const stylerJs = getHassSidebarStylerScript();
+      fs2.writeFileSync(path2.join(wwwDir, "thassi-ui.js"), stylerJs, "utf-8");
+      const loaderHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>html,body{margin:0;padding:0;background:#040711;overflow:hidden;}</style>
+</head>
+<body>
+  <script>${stylerJs}
+  try {
+    if (window.top && window.top.location.pathname.startsWith('/lovelace')) {
+      window.top.history.replaceState(null, '', '/44ec3c40_thassi_host');
+      window.top.dispatchEvent(new CustomEvent('location-changed'));
+    }
+  } catch (e) {}
+  </script>
+</body>
+</html>`;
+      fs2.writeFileSync(path2.join(wwwDir, "thassi-loader.html"), loaderHtml, "utf-8");
+      console.log(`[Thassi] Synced /local/thassi-ui.js and /local/thassi-loader.html to ${wwwDir}`);
+    } catch (err) {
+      console.warn("[Thassi] Could not write to www dir:", err);
+    }
+  }
+}
+
 // thassi_host/src/ambient-dashboard.ts
 function renderUnifiedDashboardHtml(ingressPath) {
+  const sidebarStylerScript = getHassSidebarStylerScript();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thassi Ambient Horizon</title>
+  <title>Thassi Horizon</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -844,22 +1131,22 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .moon-core {
       position: absolute;
-      width: 48px;
-      height: 48px;
-      left: -24px;
-      top: -24px;
+      width: 46px;
+      height: 46px;
+      left: -23px;
+      top: -23px;
       border-radius: 50%;
       background: radial-gradient(circle at 35% 35%, #f8fafc 0%, #cbd5e1 65%, #64748b 100%);
-      box-shadow: 0 0 45px 12px rgba(186, 230, 253, 0.35), 0 0 110px 35px rgba(56, 189, 248, 0.15);
+      box-shadow: 0 0 45px 12px rgba(186, 230, 253, 0.32), 0 0 110px 35px rgba(56, 189, 248, 0.14);
     }
 
     /* 2. MONUMENTAL DATE & TIME TYPOGRAPHY */
     #hero-clock-region {
       position: fixed;
       top: 5.5vh;
-      left: 4.5vw;
+      left: 4.2vw;
       z-index: 15;
-      pointer-events: auto;
+      pointer-events: none;
     }
     .clock-row {
       display: flex;
@@ -868,7 +1155,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       line-height: 0.92;
     }
     #hero-time {
-      font-size: clamp(5rem, 10.5vw, 9.6rem);
+      font-size: clamp(5rem, 10.2vw, 9.4rem);
       font-weight: 200;
       letter-spacing: -0.045em;
       font-variant-numeric: tabular-nums;
@@ -876,53 +1163,27 @@ function renderUnifiedDashboardHtml(ingressPath) {
       text-shadow: 0 12px 45px rgba(0, 0, 0, 0.35);
     }
     #hero-seconds {
-      font-size: clamp(1.5rem, 2.8vw, 2.6rem);
+      font-size: clamp(1.4rem, 2.6vw, 2.4rem);
       font-weight: 300;
-      color: rgba(255, 255, 255, 0.62);
+      color: rgba(255, 255, 255, 0.56);
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
     }
     #hero-date {
       margin-top: 10px;
-      font-size: clamp(1.2rem, 2.1vw, 1.9rem);
+      font-size: clamp(1.15rem, 1.9vw, 1.75rem);
       font-weight: 300;
       letter-spacing: 0.06em;
-      color: rgba(255, 255, 255, 0.88);
+      color: rgba(255, 255, 255, 0.84);
       text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
     #solar-telemetry {
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-size: 12.5px;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      color: rgba(255, 255, 255, 0.62);
-    }
-    .sky-scrubber-wrap {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      opacity: 0.55;
-      transition: opacity 0.25s ease;
-    }
-    .sky-scrubber-wrap:hover { opacity: 1; }
-    .sky-scrubber-wrap input[type="range"] {
-      width: 90px;
-      height: 3px;
-      accent-color: #fbbf24;
-      cursor: pointer;
-    }
-    .sky-reset-btn {
-      background: none;
-      border: none;
-      color: #fbbf24;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      padding: 0;
-      display: none;
+      margin-top: 6px;
+      font-size: 11.5px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.45);
     }
 
     /* 5. TOP-RIGHT BORDERLESS EXPANDABLE SERVICE WIDGETS */
@@ -953,12 +1214,12 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .ambient-widget.expanded {
       cursor: default;
       padding: 18px 22px;
-      background: rgba(8, 13, 26, 0.52);
+      background: rgba(6, 10, 22, 0.56);
       backdrop-filter: blur(28px) saturate(140%);
       -webkit-backdrop-filter: blur(28px) saturate(140%);
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
       transform: translateX(-4px);
-      width: 350px;
+      width: 340px;
     }
     .w-header {
       display: flex;
@@ -971,11 +1232,11 @@ function renderUnifiedDashboardHtml(ingressPath) {
       display: flex;
       align-items: center;
       gap: 7px;
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.52);
+      color: rgba(255, 255, 255, 0.48);
     }
     .w-dot {
       width: 6px;
@@ -999,8 +1260,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
       font-weight: 500;
     }
     .w-sub {
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.58);
+      font-size: 11.5px;
+      color: rgba(255, 255, 255, 0.52);
       font-weight: 400;
     }
     .w-expand-body {
@@ -1041,7 +1302,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       display: inline-block;
       margin-top: 6px;
       font-size: 11.5px;
-      font-weight: 600;
+      font-weight: 500;
       letter-spacing: 0.04em;
       color: #38bdf8;
       text-decoration: none;
@@ -1088,13 +1349,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
       left: 0;
       right: 0;
       bottom: 0;
-      height: 35vh;
-      min-height: 255px;
+      height: 34vh;
+      min-height: 245px;
       z-index: 20;
       background: linear-gradient(
         to top,
-        rgba(3, 6, 15, 0.92) 0%,
-        rgba(5, 10, 24, 0.68) 55%,
+        rgba(3, 6, 15, 0.90) 0%,
+        rgba(5, 10, 24, 0.62) 55%,
         rgba(5, 10, 24, 0.0) 100%
       );
       display: flex;
@@ -1102,49 +1363,51 @@ function renderUnifiedDashboardHtml(ingressPath) {
       justify-content: flex-end;
     }
 
-    /* Subtle floating controls right above the timeline */
+    /* Whisper-quiet minimal controls right above the timeline */
     #timeline-toolbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 4.5vw 8px 4.5vw;
-      font-size: 11.5px;
-      letter-spacing: 0.06em;
-      color: rgba(255, 255, 255, 0.55);
+      padding: 0 4.2vw 6px 4.2vw;
+      font-size: 11px;
+      letter-spacing: 0.08em;
     }
     .tl-controls {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 14px;
+      opacity: 0.42;
+      transition: opacity 0.25s ease;
+    }
+    .tl-controls:hover {
+      opacity: 0.95;
     }
     .tl-pill {
       background: none;
       border: none;
-      color: rgba(255, 255, 255, 0.48);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       cursor: pointer;
-      padding: 3px 0;
+      padding: 2px 0;
       transition: color 0.2s ease;
     }
     .tl-pill:hover, .tl-pill.active {
       color: #ffffff;
     }
-    .tl-pill.live-dot {
+    .tl-pill.return-now {
       color: #38bdf8;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
+      display: none;
     }
 
     /* Timeline viewport & moving canvas */
     #timeline-viewport {
       position: relative;
       width: 100vw;
-      height: calc(35vh - 34px);
-      min-height: 220px;
+      height: calc(34vh - 28px);
+      min-height: 215px;
       overflow: hidden;
       cursor: grab;
     }
@@ -1156,7 +1419,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       left: 22vw;
       top: 6px;
       bottom: 0;
-      width: 2px;
+      width: 1.5px;
       background: linear-gradient(
         to bottom,
         rgba(56, 189, 248, 0) 0%,
@@ -1173,24 +1436,23 @@ function renderUnifiedDashboardHtml(ingressPath) {
       top: 4px;
       left: 0;
       transform: translateX(-50%);
-      padding: 3px 9px;
+      padding: 2px 8px;
       border-radius: 99px;
-      background: rgba(56, 189, 248, 0.2);
+      background: rgba(56, 189, 248, 0.16);
       backdrop-filter: blur(12px);
       color: #e0f2fe;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
       white-space: nowrap;
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
     }
     #fixed-now-orb {
       position: absolute;
       bottom: 37px;
-      left: 1px;
+      left: 0.75px;
       transform: translate(-50%, 50%);
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       background: #fbbf24;
       box-shadow: 0 0 16px 4px rgba(251, 191, 36, 0.9);
@@ -1212,7 +1474,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       width: 40000px;
       bottom: 38px;
       height: 1px;
-      background: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.14);
       pointer-events: none;
     }
 
@@ -1229,32 +1491,32 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .tl-tick-mark {
       width: 1px;
-      height: 7px;
-      background: rgba(255, 255, 255, 0.22);
+      height: 6px;
+      background: rgba(255, 255, 255, 0.2);
       margin-bottom: 6px;
     }
     .tl-tick.major .tl-tick-mark {
-      height: 12px;
-      background: rgba(255, 255, 255, 0.45);
+      height: 11px;
+      background: rgba(255, 255, 255, 0.42);
     }
     .tl-tick-label {
-      font-size: 10.5px;
+      font-size: 10px;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
-      color: rgba(255, 255, 255, 0.42);
+      color: rgba(255, 255, 255, 0.38);
       white-space: nowrap;
     }
     .tl-tick.day-start .tl-tick-mark {
-      height: 185px;
-      margin-top: -147px;
-      background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.42));
+      height: 180px;
+      margin-top: -142px;
+      background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.38));
     }
     .tl-tick.day-start .tl-tick-label {
       color: #38bdf8;
-      font-weight: 700;
+      font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      font-size: 11px;
+      font-size: 10.5px;
     }
 
     /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE */
@@ -1263,11 +1525,11 @@ function renderUnifiedDashboardHtml(ingressPath) {
       height: 44px;
       border-radius: 10px;
       padding: 6px 12px;
-      background: rgba(15, 23, 42, 0.62);
+      background: rgba(12, 19, 36, 0.62);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border-left: 3px solid var(--ev-color, #38bdf8);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      border-left: 2.5px solid var(--ev-color, #38bdf8);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -1277,7 +1539,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .tl-event-rect:hover {
       transform: translateY(-3px) scale(1.01);
-      background: rgba(30, 41, 59, 0.85);
+      background: rgba(24, 35, 58, 0.85);
       box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 20px var(--ev-glow, rgba(56, 189, 248, 0.25));
       z-index: 18;
     }
@@ -1286,11 +1548,11 @@ function renderUnifiedDashboardHtml(ingressPath) {
       box-shadow: 0 0 28px rgba(56, 189, 248, 0.35);
     }
     .tl-event-rect.is-past {
-      opacity: 0.48;
+      opacity: 0.45;
     }
     .tl-ev-title {
-      font-size: 12.5px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 500;
       color: #ffffff;
       white-space: nowrap;
       overflow: hidden;
@@ -1298,8 +1560,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
       line-height: 1.2;
     }
     .tl-ev-meta {
-      font-size: 10.5px;
-      color: rgba(255, 255, 255, 0.62);
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.56);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1309,16 +1571,16 @@ function renderUnifiedDashboardHtml(ingressPath) {
     /* Quick Event Creator Popover */
     #quick-event-modal {
       position: fixed;
-      bottom: 36vh;
-      left: 4.5vw;
+      bottom: 35vh;
+      right: 4.2vw;
       z-index: 40;
-      background: rgba(8, 13, 26, 0.72);
+      background: rgba(6, 10, 22, 0.78);
       backdrop-filter: blur(28px);
       padding: 18px 22px;
       border-radius: 18px;
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
       display: none;
-      width: 340px;
+      width: 320px;
     }
 
     /* Fullscreen Service Overlay Iframe */
@@ -1326,7 +1588,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       position: fixed;
       inset: 0;
       z-index: 100;
-      background: #060913;
+      background: #040711;
       display: none;
       flex-direction: column;
     }
@@ -1336,7 +1598,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #090d16;
+      background: #060914;
     }
     #full-app-frame {
       flex: 1;
@@ -1351,8 +1613,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
     <div id="starfield"></div>
     <div id="horizon-glow"></div>
     <svg id="solar-arc-svg" preserveAspectRatio="none">
-      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.2" stroke-dasharray="4 6" />
-      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.22)" stroke-width="1.5" />
+      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4 6" />
+      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="1.4" />
     </svg>
     <div id="moon-assembly">
       <div class="moon-core"></div>
@@ -1369,14 +1631,9 @@ function renderUnifiedDashboardHtml(ingressPath) {
       <div id="hero-time">--:--</div>
       <div id="hero-seconds">--</div>
     </div>
-    <div id="hero-date">Loading date...</div>
+    <div id="hero-date"></div>
     <div id="solar-telemetry">
-      <span id="solar-phase-text">Calculating solar position...</span>
-      <span class="sky-scrubber-wrap" title="Drag to preview sun rising & setting across the day">
-        <span>\u2600\uFE0F</span>
-        <input id="sky-scrubber" type="range" min="0" max="24" step="0.05" oninput="onScrubSky(this.value)" />
-        <button id="sky-reset-btn" class="sky-reset-btn" onclick="resetSkyToLive()">LIVE</button>
-      </span>
+      <span id="solar-phase-text"></span>
     </div>
   </div>
 
@@ -1389,7 +1646,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
           <span>health</span>
           <span class="w-dot" id="dot-health" style="background:#4ade80; box-shadow:0 0 10px #4ade80;"></span>
         </div>
-        <div class="w-primary" id="compact-health">Loading...</div>
+        <div class="w-primary" id="compact-health">--</div>
         <div class="w-sub" id="sub-health">Pixel 10 Health Connect</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
@@ -1401,7 +1658,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
           <div class="w-stat-item"><span class="w-stat-k">Sleep Duration</span><span class="w-stat-v" id="eh-sleep">--</span></div>
           <div class="w-stat-item"><span class="w-stat-k">Burned / Distance</span><span class="w-stat-v" id="eh-burn">--</span></div>
         </div>
-        <button class="w-action-link" onclick="openFullService('google-health', 'Google Health & Readiness')">Open Health Studio \u2192</button>
+        <button class="w-action-link" onclick="openFullService('google-health', 'Health')">Open Health \u2192</button>
       </div>
     </div>
 
@@ -1412,7 +1669,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
           <span>finances</span>
           <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7;"></span>
         </div>
-        <div class="w-primary" id="compact-finances">Loading...</div>
+        <div class="w-primary" id="compact-finances">--</div>
         <div class="w-sub" id="sub-finances">Sparkasse George</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
@@ -1422,7 +1679,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
           <div class="w-stat-item"><span class="w-stat-k">Investments</span><span class="w-stat-v" id="ef-inv" style="color:#38bdf8;">--</span></div>
           <div class="w-stat-item"><span class="w-stat-k">Groceries</span><span class="w-stat-v" id="ef-groc" style="color:#fbbf24;">--</span></div>
         </div>
-        <button class="w-action-link" onclick="openFullService('finance-analytics', 'Finance & Budget')">Open Finance Analytics \u2192</button>
+        <button class="w-action-link" onclick="openFullService('finance-analytics', 'Finances')">Open Finances \u2192</button>
       </div>
     </div>
 
@@ -1456,7 +1713,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
         <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
-        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meal Planner')">Open Meal Planner \u2192</button>
+        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals \u2192</button>
       </div>
     </div>
   </div>
@@ -1464,7 +1721,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <!-- QUICK EVENT MODAL -->
   <div id="quick-event-modal">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <span style="font-size:12px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#38bdf8;">New Calendar Event</span>
+      <span style="font-size:11px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:#38bdf8;">New Event</span>
       <button onclick="toggleEventModal(false)" style="background:none; border:none; color:rgba(255,255,255,0.5); cursor:pointer;">\u2715</button>
     </div>
     <form onsubmit="createQuickEvent(event)" style="display:flex; flex-direction:column; gap:10px;">
@@ -1472,59 +1729,23 @@ function renderUnifiedDashboardHtml(ingressPath) {
       <input id="qe-start" type="datetime-local" class="minimal-input" required />
       <div style="display:flex; gap:8px;">
         <input id="qe-dur" type="number" value="60" min="15" step="15" class="minimal-input" placeholder="Minutes" />
-        <button type="submit" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 16px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">Add</button>
+        <button type="submit" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 16px; font-weight:600; font-size:12px; cursor:pointer; white-space:nowrap;">Add</button>
       </div>
     </form>
-  </div>
-
-  <!-- VOICE & SIGNALR ORCHESTRATOR DRAWER -->
-  <div id="orchestrator-modal" style="display:none; position:fixed; left:24px; bottom:246px; z-index:48; width:min(460px, calc(100vw - 48px)); max-height:62vh; background:rgba(7, 11, 25, 0.92); backdrop-filter:blur(28px); -webkit-backdrop-filter:blur(28px); border-radius:18px; padding:18px; box-shadow:0 24px 60px rgba(0,0,0,0.75); color:#f8fafc; overflow-y:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <div>
-        <div style="font-size:11px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#38bdf8;">\u26A1 THASSI ORCHESTRATOR \xB7 SIGNALR LIVE</div>
-        <div id="orch-conn-label" style="font-size:11px; color:#94a3b8; margin-top:2px;">Verbunden via Hass-PC Relay \u2194 Dev-PC :5180</div>
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <a href="/download/thassi-control.apk" target="_blank" style="text-decoration:none; background:rgba(16,185,129,0.18); color:#34d399; font-size:11px; font-weight:600; padding:5px 10px; border-radius:8px;">\u{1F4F2} MAUI APK</a>
-        <button onclick="toggleOrchestratorModal(false)" style="background:none; border:none; color:rgba(255,255,255,0.5); font-size:15px; cursor:pointer;">\u2715</button>
-      </div>
-    </div>
-
-    <div style="display:flex; gap:8px; margin-bottom:10px;">
-      <button id="orch-mic-btn" type="button" onclick="startWebVoiceRecognition()" style="background:#4f46e5; color:#fff; border:none; border-radius:10px; width:40px; height:40px; font-size:16px; cursor:pointer;" title="Sprachbefehl (Speech-to-Text)">\u{1F3A4}</button>
-      <input id="orch-prompt-input" class="minimal-input" style="flex:1;" placeholder="Sprachbefehl oder Add-on Auftrag..." value="Erstelle und deploye das HASS Add-on thassi_system_monitor auf Hass OS" />
-      <button id="orch-run-btn" type="button" onclick="submitOrchestratorTask()" style="background:#0ea5e9; color:#fff; border:none; border-radius:10px; padding:0 14px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">\u{1F680} Start</button>
-    </div>
-
-    <div style="margin-bottom:10px;">
-      <div style="display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; margin-bottom:4px;">
-        <span id="orch-stage-label">Bereit f\xFCr Pipeline-Lauf</span>
-        <span id="orch-pct-label" style="color:#38bdf8; font-weight:700;">0%</span>
-      </div>
-      <div style="height:5px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden;">
-        <div id="orch-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #38bdf8, #10b981); transition:width 0.35s ease;"></div>
-      </div>
-    </div>
-
-    <div id="orch-events-feed" style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto; font-size:11.5px;"></div>
   </div>
 
   <!-- 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER & GCAL EVENT RECTANGLES -->
   <div id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
-        <button class="tl-pill live-dot" id="btn-live-now" onclick="snapToLiveNow()">\u25CF LIVE STREAM</button>
-        <span id="tl-status-label">Google Calendar Timeline</span>
-        <button class="tl-pill" onclick="toggleEventModal(true)">+ Event</button>
-        <button class="tl-pill" onclick="syncCalendars()">\u21BB Sync</button>
-        <button class="tl-pill" style="color:#38bdf8;" onclick="toggleOrchestratorModal()">\u{1F3A4} Pipeline / Voice</button>
+        <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">\u21BA Return to Now</button>
       </div>
       <div class="tl-controls">
-        <button class="tl-pill" id="zoom-12" onclick="setTimelineSpan(12)">12H</button>
-        <button class="tl-pill active" id="zoom-24" onclick="setTimelineSpan(24)">24H</button>
-        <button class="tl-pill" id="zoom-72" onclick="setTimelineSpan(72)">3D</button>
-        <button class="tl-pill" id="zoom-168" onclick="setTimelineSpan(168)">7D</button>
-        <button class="tl-pill" onclick="openFullService('smart-canvas', 'Smart Controls')">\u{1F39B}\uFE0F Lights</button>
+        <button class="tl-pill" id="zoom-12" onclick="setTimelineSpan(12)">12h</button>
+        <button class="tl-pill active" id="zoom-24" onclick="setTimelineSpan(24)">24h</button>
+        <button class="tl-pill" id="zoom-72" onclick="setTimelineSpan(72)">3d</button>
+        <button class="tl-pill" id="zoom-168" onclick="setTimelineSpan(168)">7d</button>
+        <button class="tl-pill" onclick="toggleEventModal(true)" title="New Calendar Event">+</button>
       </div>
     </div>
 
@@ -1547,22 +1768,23 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <!-- FULL SERVICE OVERLAY (WHEN LAUNCHING FULL VIEW) -->
   <div id="full-app-overlay">
     <div id="full-app-bar">
-      <button onclick="closeFullService()" style="background:none; border:none; color:#38bdf8; font-size:13px; font-weight:600; cursor:pointer;">\u2190 Back to Horizon</button>
-      <span id="full-app-title" style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.7);"></span>
+      <button onclick="closeFullService()" style="background:none; border:none; color:#38bdf8; font-size:12.5px; font-weight:500; cursor:pointer;">\u2190 Back to Horizon</button>
+      <span id="full-app-title" style="font-size:12.5px; font-weight:500; color:rgba(255,255,255,0.65);"></span>
       <span></span>
     </div>
     <iframe id="full-app-frame" src="about:blank"></iframe>
   </div>
 
   <script>
+    ${sidebarStylerScript}
+
     const base = window.__THASSI_INGRESS_PATH__ || '';
-    const NOW_ANCHOR_RATIO = 0.22; // Fixed "NOW" marker sits at 22% from the left edge
+    const NOW_ANCHOR_RATIO = 0.22;
 
     let calendarEvents = [];
-    let visibleHoursSpan = 24; // Default 24 hours across viewport width
-    let panOffsetMs = 0; // Manual drag offset (0 = locked to real-time NOW)
-    let scrubbedHour = null; // null = live real-time sun
-    let timelineBaseEpochMs = Date.now(); // Reference epoch for pixel coordinates
+    let visibleHoursSpan = 24;
+    let panOffsetMs = 0;
+    let timelineBaseEpochMs = Date.now();
 
     // Generate twinkling stars once
     (function initStars() {
@@ -1586,6 +1808,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 5.2 || h >= 21.2) {
         return {
           sky: 'linear-gradient(180deg, #02040a 0%, #070d1f 48%, #0f172a 78%, #172554 100%)',
+          sidebarBg: 'linear-gradient(180deg, #02040a 0%, #060b1a 55%, #03060f 100%)',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(56, 189, 248, 0.18), transparent 70%)',
           stars: 0.9,
           phase: 'Astronomical Night'
@@ -1594,6 +1817,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 6.5) {
         return {
           sky: 'linear-gradient(180deg, #090d1e 0%, #1e1b4b 42%, #6d28d9 74%, #f97316 100%)',
+          sidebarBg: 'linear-gradient(180deg, #070a18 0%, #131130 60%, #060813 100%)',
           glow: 'radial-gradient(ellipse at 25% 100%, rgba(251, 146, 60, 0.65), transparent 72%)',
           stars: 0.45,
           phase: 'Dawn Twilight'
@@ -1602,6 +1826,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 8.0) {
         return {
           sky: 'linear-gradient(180deg, #1d4ed8 0%, #3b82f6 42%, #f472b6 75%, #fbbf24 100%)',
+          sidebarBg: 'linear-gradient(180deg, #0c1f5e 0%, #172554 60%, #060b19 100%)',
           glow: 'radial-gradient(ellipse at 22% 100%, rgba(253, 224, 71, 0.8), transparent 75%)',
           stars: 0.05,
           phase: 'Golden Sunrise'
@@ -1610,6 +1835,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 16.5) {
         return {
           sky: 'linear-gradient(180deg, #0369a1 0%, #0284c7 45%, #38bdf8 80%, #bae6fd 100%)',
+          sidebarBg: 'linear-gradient(180deg, #042f4e 0%, #073b61 55%, #040917 100%)',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(254, 249, 195, 0.45), transparent 75%)',
           stars: 0,
           phase: h < 11.5 ? 'Morning Sky' : h < 14 ? 'Solar Noon' : 'Afternoon Sun'
@@ -1618,13 +1844,15 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 18.8) {
         return {
           sky: 'linear-gradient(180deg, #1e1b4b 0%, #3730a3 36%, #c2410c 72%, #facc15 100%)',
+          sidebarBg: 'linear-gradient(180deg, #0f0e29 0%, #1e1b4b 58%, #060814 100%)',
           glow: 'radial-gradient(ellipse at 78% 100%, rgba(251, 146, 60, 0.85), transparent 75%)',
           stars: 0.15,
-          phase: 'Golden Hour & Sunset'
+          phase: 'Golden Hour'
         };
       }
       return {
         sky: 'linear-gradient(180deg, #050814 0%, #1e1b4b 46%, #4c1d95 76%, #9a3412 100%)',
+        sidebarBg: 'linear-gradient(180deg, #040711 0%, #110f2b 58%, #04060f 100%)',
         glow: 'radial-gradient(ellipse at 82% 100%, rgba(234, 88, 12, 0.45), transparent 70%)',
         stars: 0.65,
         phase: 'Dusk Twilight'
@@ -1664,18 +1892,16 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
 
     function updateSkyAndSun(now) {
-      const liveHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
-      const effectiveHour = scrubbedHour !== null ? scrubbedHour : liveHour;
-
-      if (scrubbedHour === null) {
-        const scrubber = document.getElementById('sky-scrubber');
-        if (scrubber) scrubber.value = liveHour.toFixed(2);
-      }
-
+      const effectiveHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
       const palette = getSkyPalette(effectiveHour);
+
       document.getElementById('sky-stage').style.background = palette.sky;
       document.getElementById('horizon-glow').style.background = palette.glow;
       document.getElementById('starfield').style.opacity = String(palette.stars);
+
+      if (window.syncThassiSidebarSky) {
+        window.syncThassiSidebarSky(palette.sidebarBg);
+      }
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -1693,22 +1919,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
       moonEl.style.top = moonPt.y.toFixed(1) + 'px';
       moonEl.style.opacity = sunPt.aboveHorizon ? '0' : '0.92';
 
-      const phaseLabel = scrubbedHour !== null
-        ? \`Previewing \${Math.floor(effectiveHour).toString().padStart(2,'0')}:\${Math.floor((effectiveHour%1)*60).toString().padStart(2,'0')} \xB7 \${palette.phase}\`
-        : \`\${palette.phase} \xB7 Sunrise 06:45 \xB7 Sunset 18:30\`;
-      document.getElementById('solar-phase-text').textContent = phaseLabel;
-    }
-
-    function onScrubSky(val) {
-      scrubbedHour = parseFloat(val);
-      document.getElementById('sky-reset-btn').style.display = 'inline';
-      updateSkyAndSun(new Date());
-    }
-
-    function resetSkyToLive() {
-      scrubbedHour = null;
-      document.getElementById('sky-reset-btn').style.display = 'none';
-      updateSkyAndSun(new Date());
+      document.getElementById('solar-phase-text').textContent =
+        \`\${palette.phase}  \xB7  Sunrise 06:45  \xB7  Sunset 18:30\`;
     }
 
     // 2. LARGE CLOCK & CONTINUOUS LEFTWARD TIMELINE LOOP
@@ -1730,7 +1942,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
         day: 'numeric',
         year: 'numeric'
       });
-      document.getElementById('fixed-now-badge').textContent = \`NOW \xB7 \${hh}:\${mm}:\${ss}\`;
+      document.getElementById('fixed-now-badge').textContent = \`NOW \xB7 \${hh}:\${mm}\`;
 
       updateSkyAndSun(now);
 
@@ -1845,7 +2057,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
     function snapToLiveNow() {
       panOffsetMs = 0;
-      document.getElementById('btn-live-now').textContent = '\u25CF LIVE STREAM';
+      document.getElementById('btn-live-now').style.display = 'none';
       tickClockAndTimeline();
     }
 
@@ -1866,7 +2078,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
         if (!dragging) return;
         const dx = e.clientX - startX;
         panOffsetMs = startPanMs - dx / getPxPerMs();
-        document.getElementById('btn-live-now').textContent = '\u21BA RETURN TO NOW';
+        document.getElementById('btn-live-now').style.display = 'inline-block';
         tickClockAndTimeline();
       });
       vp.addEventListener('pointerup', () => { dragging = false; });
@@ -1932,12 +2144,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
       await loadAllLiveData();
     }
 
-    async function syncCalendars() {
-      document.getElementById('tl-status-label').textContent = 'Syncing Google Calendar...';
-      await fetch(base + '/api/apps/google-calendar/sync', { method: 'POST' });
-      await loadAllLiveData();
-    }
-
     async function addNote(e) {
       e.preventDefault();
       const input = document.getElementById('note-input');
@@ -1967,11 +2173,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
         const calData = calRes && calRes.ok ? await calRes.json() : { events: [] };
 
         calendarEvents = calData.events || [];
-        document.getElementById('tl-status-label').textContent =
-          calendarEvents.length > 0
-            ? \`\${calendarEvents.length} Google Calendar events on stream\`
-            : 'No upcoming events';
-
         renderTimelineGeometry();
 
         // 1. Update HEALTH widget
@@ -2052,95 +2253,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
       }
     }
 
-    // 6. VOICE-TO-TEXT & SIGNALR ORCHESTRATOR RELAY
-    let orchPollTimer = null;
-
-    function toggleOrchestratorModal(forceShow) {
-      const m = document.getElementById('orchestrator-modal');
-      const next = typeof forceShow === 'boolean' ? forceShow : m.style.display === 'none';
-      m.style.display = next ? 'block' : 'none';
-      if (next) {
-        pollOrchestratorState();
-        if (!orchPollTimer) orchPollTimer = setInterval(pollOrchestratorState, 2500);
-      }
-    }
-
-    function startWebVoiceRecognition() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const btn = document.getElementById('orch-mic-btn');
-      if (!SR) {
-        document.getElementById('orch-prompt-input').focus();
-        return;
-      }
-      const rec = new SR();
-      rec.lang = 'de-DE';
-      rec.interimResults = false;
-      btn.textContent = '\u{1F534}';
-      rec.onresult = (ev) => {
-        const text = ev.results?.[0]?.[0]?.transcript || '';
-        if (text) {
-          document.getElementById('orch-prompt-input').value = text;
-          submitOrchestratorTask();
-        }
-      };
-      rec.onend = () => { btn.textContent = '\u{1F3A4}'; };
-      rec.onerror = () => { btn.textContent = '\u{1F3A4}'; };
-      rec.start();
-    }
-
-    async function submitOrchestratorTask() {
-      const input = document.getElementById('orch-prompt-input');
-      const btn = document.getElementById('orch-run-btn');
-      const prompt = (input.value || '').trim();
-      if (!prompt) return;
-      btn.disabled = true;
-      btn.textContent = '\u23F3...';
-      try {
-        await fetch(base + '/api/orchestrator/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt,
-            deviceName: 'Pixel 10 (Horizon WebView)'
-          })
-        });
-        await pollOrchestratorState();
-      } catch (err) {
-        console.error('Failed submitting orchestrator task:', err);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '\u{1F680} Start';
-      }
-    }
-
-    async function pollOrchestratorState() {
-      try {
-        const res = await fetch(base + '/api/orchestrator/state');
-        if (!res.ok) return;
-        const data = await res.json();
-        const events = data.recentEvents || [];
-        if (events.length > 0) {
-          const latest = events[0];
-          const pct = Math.min(100, Math.max(0, Number(latest.progressPercent || 0)));
-          document.getElementById('orch-stage-label').textContent = \`\${latest.eventType}: \${latest.title || latest.message}\`;
-          document.getElementById('orch-pct-label').textContent = pct + '%';
-          document.getElementById('orch-progress-bar').style.width = pct + '%';
-        }
-        const feed = document.getElementById('orch-events-feed');
-        feed.innerHTML = events.slice(0, 12).map((ev) => {
-          const col = (ev.severity || '').toLowerCase() === 'success' ? '#10b981' : (ev.severity || '').toLowerCase().includes('err') || (ev.severity || '').toLowerCase().includes('crit') ? '#ef4444' : '#38bdf8';
-          const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-          return \`<div style="background:rgba(255,255,255,0.04); border-left:3px solid \${col}; padding:6px 10px; border-radius:6px;">
-            <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8;">
-              <strong style="color:\${col};">\${ev.eventType} \${ev.addonSlug ? '[' + ev.addonSlug + ']' : ''}</strong>
-              <span>\${ts}</span>
-            </div>
-            <div style="color:#f1f5f9; margin-top:2px;">\${ev.message}</div>
-          </div>\`;
-        }).join('');
-      } catch (e) {}
-    }
-
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
       renderTimelineGeometry();
@@ -2151,7 +2263,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     setInterval(loadAllLiveData, 60000);
-    pollOrchestratorState();
   </script>
 </body>
 </html>`;
@@ -2159,11 +2270,11 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
 // thassi_host/src/server.ts
 var __filename = fileURLToPath(import.meta.url);
-var __dirname = path2.dirname(__filename);
+var __dirname = path3.dirname(__filename);
 function loadDotEnv() {
-  const envPath = path2.resolve(process.cwd(), ".env");
-  if (!fs2.existsSync(envPath)) return;
-  const content = fs2.readFileSync(envPath, "utf-8");
+  const envPath = path3.resolve(process.cwd(), ".env");
+  if (!fs3.existsSync(envPath)) return;
+  const content = fs3.readFileSync(envPath, "utf-8");
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -2179,17 +2290,17 @@ function loadDotEnv() {
 }
 loadDotEnv();
 var PORT = Number(process.env.PORT || 8099);
-var DATA_DIR = path2.resolve(
-  process.env.THASSI_DATA_DIR || (fs2.existsSync("/data") ? "/data" : "./data")
+var DATA_DIR = path3.resolve(
+  process.env.THASSI_DATA_DIR || (fs3.existsSync("/data") ? "/data" : "./data")
 );
 var STANDALONE_APP_ID = process.env.THASSI_STANDALONE_APP || "";
-fs2.mkdirSync(path2.join(DATA_DIR, "apps"), { recursive: true });
-fs2.mkdirSync(path2.join(DATA_DIR, "deployed_apps"), { recursive: true });
-var legacyStarterDir = path2.join(DATA_DIR, "deployed_apps", "data-workbench");
-if (fs2.existsSync(legacyStarterDir)) {
-  fs2.rmSync(legacyStarterDir, { recursive: true, force: true });
+fs3.mkdirSync(path3.join(DATA_DIR, "apps"), { recursive: true });
+fs3.mkdirSync(path3.join(DATA_DIR, "deployed_apps"), { recursive: true });
+var legacyStarterDir = path3.join(DATA_DIR, "deployed_apps", "data-workbench");
+if (fs3.existsSync(legacyStarterDir)) {
+  fs3.rmSync(legacyStarterDir, { recursive: true, force: true });
 }
-var sharedDb = new ThassiAppDatabase(path2.join(DATA_DIR, "shared.db"));
+var sharedDb = new ThassiAppDatabase(path3.join(DATA_DIR, "shared.db"));
 sharedDb.exec(`
   CREATE TABLE IF NOT EXISTS system_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2203,14 +2314,14 @@ var googleOAuth = new ThassiGoogleOAuthManager(sharedDb);
 var systemHaBridge = new ThassiHaBridge("hub", sharedDb);
 var loadedApps = /* @__PURE__ */ new Map();
 async function loadAppFromDirectory(appDir, source) {
-  const manifestPath = path2.join(appDir, "thassi.app.json");
-  if (!fs2.existsSync(manifestPath)) return;
-  const manifest = JSON.parse(fs2.readFileSync(manifestPath, "utf-8"));
+  const manifestPath = path3.join(appDir, "thassi.app.json");
+  if (!fs3.existsSync(manifestPath)) return;
+  const manifest = JSON.parse(fs3.readFileSync(manifestPath, "utf-8"));
   const appId = manifest.id;
   if (appId === "data-workbench") return;
   scheduler.clearAppJobs(appId);
   const existing = loadedApps.get(appId);
-  const appDb = existing?.db || new ThassiAppDatabase(path2.join(DATA_DIR, "apps", `${appId}.db`));
+  const appDb = existing?.db || new ThassiAppDatabase(path3.join(DATA_DIR, "apps", `${appId}.db`));
   const appHa = new ThassiHaBridge(appId, sharedDb);
   const routes = /* @__PURE__ */ new Map();
   const ctx = {
@@ -2225,9 +2336,9 @@ async function loadAppFromDirectory(appDir, source) {
       routes.set(`${method.toUpperCase()} ${normalized}`, handler);
     }
   };
-  const compiledBackend = path2.join(appDir, "backend.mjs");
-  const devBackend = path2.join(appDir, "backend", "index.ts");
-  const backendFile = fs2.existsSync(compiledBackend) ? compiledBackend : fs2.existsSync(devBackend) ? devBackend : null;
+  const compiledBackend = path3.join(appDir, "backend.mjs");
+  const devBackend = path3.join(appDir, "backend", "index.ts");
+  const backendFile = fs3.existsSync(compiledBackend) ? compiledBackend : fs3.existsSync(devBackend) ? devBackend : null;
   if (backendFile) {
     const fileUrl = `${pathToFileURL(backendFile).href}?t=${Date.now()}`;
     const mod = await import(fileUrl);
@@ -2235,7 +2346,7 @@ async function loadAppFromDirectory(appDir, source) {
       await mod.default.setup(ctx);
     }
   }
-  const distFrontend = path2.join(appDir, "frontend");
+  const distFrontend = path3.join(appDir, "frontend");
   loadedApps.set(appId, {
     manifest,
     source,
@@ -2249,15 +2360,15 @@ async function loadAppFromDirectory(appDir, source) {
 }
 async function discoverAllApps() {
   const candidateBuiltInDirs = [
-    path2.join(__dirname, "apps"),
-    path2.resolve(process.cwd(), "thassi_host", "dist", "apps"),
-    path2.resolve(process.cwd(), "apps")
+    path3.join(__dirname, "apps"),
+    path3.resolve(process.cwd(), "thassi_host", "dist", "apps"),
+    path3.resolve(process.cwd(), "apps")
   ];
   for (const baseDir of candidateBuiltInDirs) {
-    if (!fs2.existsSync(baseDir)) continue;
-    for (const entry of fs2.readdirSync(baseDir, { withFileTypes: true })) {
+    if (!fs3.existsSync(baseDir)) continue;
+    for (const entry of fs3.readdirSync(baseDir, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== "data-workbench") {
-        const appDir = path2.join(baseDir, entry.name);
+        const appDir = path3.join(baseDir, entry.name);
         if (!loadedApps.has(entry.name)) {
           try {
             await loadAppFromDirectory(appDir, "built-in");
@@ -2268,12 +2379,12 @@ async function discoverAllApps() {
       }
     }
   }
-  const deployedBase = path2.join(DATA_DIR, "deployed_apps");
-  if (fs2.existsSync(deployedBase)) {
-    for (const entry of fs2.readdirSync(deployedBase, { withFileTypes: true })) {
+  const deployedBase = path3.join(DATA_DIR, "deployed_apps");
+  if (fs3.existsSync(deployedBase)) {
+    for (const entry of fs3.readdirSync(deployedBase, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== "data-workbench") {
         try {
-          await loadAppFromDirectory(path2.join(deployedBase, entry.name), "hot-deployed");
+          await loadAppFromDirectory(path3.join(deployedBase, entry.name), "hot-deployed");
         } catch (err) {
           console.error(`[Thassi] Error loading hot-deployed app ${entry.name}:`, err);
         }
@@ -2312,29 +2423,29 @@ var MIME_TYPES = {
 function serveAppStaticFile(req, res, app, subPath, mountPrefix = "") {
   const ingressPath = (req.headers["x-ingress-path"] || "").replace(/\/+$/, "");
   const cleanSub = subPath.replace(/^\/+/, "") || "index.html";
-  let filePath = path2.join(app.frontendDir, cleanSub);
-  if (!fs2.existsSync(filePath) || fs2.statSync(filePath).isDirectory()) {
-    filePath = path2.join(app.frontendDir, "index.html");
+  let filePath = path3.join(app.frontendDir, cleanSub);
+  if (!fs3.existsSync(filePath) || fs3.statSync(filePath).isDirectory()) {
+    filePath = path3.join(app.frontendDir, "index.html");
   }
-  if (!fs2.existsSync(filePath)) {
+  if (!fs3.existsSync(filePath)) {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end(`Frontend bundle not found for app "${app.manifest.id}". Run "npm run build" first.`);
     return;
   }
-  const ext = path2.extname(filePath).toLowerCase();
+  const ext = path3.extname(filePath).toLowerCase();
   const mime = MIME_TYPES[ext] || "application/octet-stream";
   if (ext === ".html") {
-    let html = fs2.readFileSync(filePath, "utf-8");
+    let html = fs3.readFileSync(filePath, "utf-8");
     const assetBase = `${ingressPath}${mountPrefix}`.replace(/\/+$/, "");
     html = html.replace(/(src|href)="\.\/assets\//g, `$1="${assetBase}/assets/`).replace(/(src|href)="\/assets\//g, `$1="${assetBase}/assets/`);
-    const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};</script>`;
+    const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};${getHassSidebarStylerScript()}</script>`;
     html = html.includes("</head>") ? html.replace("</head>", `${injection}</head>`) : `${injection}${html}`;
     res.writeHead(200, { "Content-Type": mime });
     res.end(html);
     return;
   }
   res.writeHead(200, { "Content-Type": mime });
-  fs2.createReadStream(filePath).pipe(res);
+  fs3.createReadStream(filePath).pipe(res);
 }
 async function handleAppApiRequest(req, res, app, subRoute, queryObj) {
   const method = (req.method || "GET").toUpperCase();
@@ -2450,6 +2561,7 @@ async function handleAppApiRequest(req, res, app, subRoute, queryObj) {
   return sendJson(res, 200, result);
 }
 async function startServer() {
+  syncHassFrontendFiles();
   await discoverAllApps();
   const server = http.createServer(async (req, res) => {
     try {
@@ -2465,7 +2577,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.0.5",
+          version: "1.0.7",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
@@ -2509,24 +2621,24 @@ async function startServer() {
       if (pathname === "/api/orchestrator/apk-upload" && req.method === "POST") {
         const body = JSON.parse(await readRequestBody(req) || "{}");
         if (!body.base64) return sendJson(res, 400, { error: "Missing base64 APK payload" });
-        const apkPath = path2.join(DATA_DIR, "thassi-control.apk");
-        fs2.writeFileSync(apkPath, Buffer.from(body.base64, "base64"));
-        return sendJson(res, 200, { uploaded: true, size: fs2.statSync(apkPath).size });
+        const apkPath = path3.join(DATA_DIR, "thassi-control.apk");
+        fs3.writeFileSync(apkPath, Buffer.from(body.base64, "base64"));
+        return sendJson(res, 200, { uploaded: true, size: fs3.statSync(apkPath).size });
       }
       if (pathname === "/download/thassi-control.apk" && req.method === "GET") {
-        const apkPath = path2.join(DATA_DIR, "thassi-control.apk");
-        if (!fs2.existsSync(apkPath)) {
+        const apkPath = path3.join(DATA_DIR, "thassi-control.apk");
+        if (!fs3.existsSync(apkPath)) {
           res.writeHead(404, { "Content-Type": "text/plain" });
           res.end("APK not uploaded yet.");
           return;
         }
-        const stat = fs2.statSync(apkPath);
+        const stat = fs3.statSync(apkPath);
         res.writeHead(200, {
           "Content-Type": "application/vnd.android.package-archive",
           "Content-Disposition": 'attachment; filename="ThassiControl.apk"',
           "Content-Length": String(stat.size)
         });
-        fs2.createReadStream(apkPath).pipe(res);
+        fs3.createReadStream(apkPath).pipe(res);
         return;
       }
       if (pathname === "/api/system/status" && req.method === "GET") {
@@ -2608,23 +2720,23 @@ async function startServer() {
           return sendJson(res, 400, { error: "Invalid deployment bundle: missing manifest.id" });
         }
         const appId = payload.manifest.id.replace(/[^a-z0-9-_]/gi, "");
-        const targetDir = path2.join(DATA_DIR, "deployed_apps", appId);
-        fs2.mkdirSync(targetDir, { recursive: true });
-        fs2.writeFileSync(
-          path2.join(targetDir, "thassi.app.json"),
+        const targetDir = path3.join(DATA_DIR, "deployed_apps", appId);
+        fs3.mkdirSync(targetDir, { recursive: true });
+        fs3.writeFileSync(
+          path3.join(targetDir, "thassi.app.json"),
           JSON.stringify(payload.manifest, null, 2)
         );
         if (payload.backendCode) {
-          fs2.writeFileSync(path2.join(targetDir, "backend.mjs"), payload.backendCode, "utf-8");
+          fs3.writeFileSync(path3.join(targetDir, "backend.mjs"), payload.backendCode, "utf-8");
         }
-        const frontendDir = path2.join(targetDir, "frontend");
-        fs2.rmSync(frontendDir, { recursive: true, force: true });
-        fs2.mkdirSync(frontendDir, { recursive: true });
+        const frontendDir = path3.join(targetDir, "frontend");
+        fs3.rmSync(frontendDir, { recursive: true, force: true });
+        fs3.mkdirSync(frontendDir, { recursive: true });
         for (const [relFile, b64] of Object.entries(payload.frontendFiles || {})) {
           const safeRel = relFile.replace(/^(\.\.[/\\])+/, "");
-          const destFile = path2.join(frontendDir, safeRel);
-          fs2.mkdirSync(path2.dirname(destFile), { recursive: true });
-          fs2.writeFileSync(destFile, Buffer.from(b64, "base64"));
+          const destFile = path3.join(frontendDir, safeRel);
+          fs3.mkdirSync(path3.dirname(destFile), { recursive: true });
+          fs3.writeFileSync(destFile, Buffer.from(b64, "base64"));
         }
         await loadAppFromDirectory(targetDir, "hot-deployed");
         return sendJson(res, 200, {

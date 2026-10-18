@@ -1,10 +1,14 @@
+import { getHassSidebarStylerScript } from './hass-sidebar-sync.js';
+
 export function renderUnifiedDashboardHtml(ingressPath: string): string {
+  const sidebarStylerScript = getHassSidebarStylerScript();
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thassi Ambient Horizon</title>
+  <title>Thassi Horizon</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -139,22 +143,22 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .moon-core {
       position: absolute;
-      width: 48px;
-      height: 48px;
-      left: -24px;
-      top: -24px;
+      width: 46px;
+      height: 46px;
+      left: -23px;
+      top: -23px;
       border-radius: 50%;
       background: radial-gradient(circle at 35% 35%, #f8fafc 0%, #cbd5e1 65%, #64748b 100%);
-      box-shadow: 0 0 45px 12px rgba(186, 230, 253, 0.35), 0 0 110px 35px rgba(56, 189, 248, 0.15);
+      box-shadow: 0 0 45px 12px rgba(186, 230, 253, 0.32), 0 0 110px 35px rgba(56, 189, 248, 0.14);
     }
 
     /* 2. MONUMENTAL DATE & TIME TYPOGRAPHY */
     #hero-clock-region {
       position: fixed;
       top: 5.5vh;
-      left: 4.5vw;
+      left: 4.2vw;
       z-index: 15;
-      pointer-events: auto;
+      pointer-events: none;
     }
     .clock-row {
       display: flex;
@@ -163,7 +167,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       line-height: 0.92;
     }
     #hero-time {
-      font-size: clamp(5rem, 10.5vw, 9.6rem);
+      font-size: clamp(5rem, 10.2vw, 9.4rem);
       font-weight: 200;
       letter-spacing: -0.045em;
       font-variant-numeric: tabular-nums;
@@ -171,53 +175,27 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       text-shadow: 0 12px 45px rgba(0, 0, 0, 0.35);
     }
     #hero-seconds {
-      font-size: clamp(1.5rem, 2.8vw, 2.6rem);
+      font-size: clamp(1.4rem, 2.6vw, 2.4rem);
       font-weight: 300;
-      color: rgba(255, 255, 255, 0.62);
+      color: rgba(255, 255, 255, 0.56);
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
     }
     #hero-date {
       margin-top: 10px;
-      font-size: clamp(1.2rem, 2.1vw, 1.9rem);
+      font-size: clamp(1.15rem, 1.9vw, 1.75rem);
       font-weight: 300;
       letter-spacing: 0.06em;
-      color: rgba(255, 255, 255, 0.88);
+      color: rgba(255, 255, 255, 0.84);
       text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
     #solar-telemetry {
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-size: 12.5px;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      color: rgba(255, 255, 255, 0.62);
-    }
-    .sky-scrubber-wrap {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      opacity: 0.55;
-      transition: opacity 0.25s ease;
-    }
-    .sky-scrubber-wrap:hover { opacity: 1; }
-    .sky-scrubber-wrap input[type="range"] {
-      width: 90px;
-      height: 3px;
-      accent-color: #fbbf24;
-      cursor: pointer;
-    }
-    .sky-reset-btn {
-      background: none;
-      border: none;
-      color: #fbbf24;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      padding: 0;
-      display: none;
+      margin-top: 6px;
+      font-size: 11.5px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.45);
     }
 
     /* 5. TOP-RIGHT BORDERLESS EXPANDABLE SERVICE WIDGETS */
@@ -248,12 +226,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     .ambient-widget.expanded {
       cursor: default;
       padding: 18px 22px;
-      background: rgba(8, 13, 26, 0.52);
+      background: rgba(6, 10, 22, 0.56);
       backdrop-filter: blur(28px) saturate(140%);
       -webkit-backdrop-filter: blur(28px) saturate(140%);
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
       transform: translateX(-4px);
-      width: 350px;
+      width: 340px;
     }
     .w-header {
       display: flex;
@@ -266,11 +244,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       display: flex;
       align-items: center;
       gap: 7px;
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.52);
+      color: rgba(255, 255, 255, 0.48);
     }
     .w-dot {
       width: 6px;
@@ -294,8 +272,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       font-weight: 500;
     }
     .w-sub {
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.58);
+      font-size: 11.5px;
+      color: rgba(255, 255, 255, 0.52);
       font-weight: 400;
     }
     .w-expand-body {
@@ -336,7 +314,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       display: inline-block;
       margin-top: 6px;
       font-size: 11.5px;
-      font-weight: 600;
+      font-weight: 500;
       letter-spacing: 0.04em;
       color: #38bdf8;
       text-decoration: none;
@@ -383,13 +361,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       left: 0;
       right: 0;
       bottom: 0;
-      height: 35vh;
-      min-height: 255px;
+      height: 34vh;
+      min-height: 245px;
       z-index: 20;
       background: linear-gradient(
         to top,
-        rgba(3, 6, 15, 0.92) 0%,
-        rgba(5, 10, 24, 0.68) 55%,
+        rgba(3, 6, 15, 0.90) 0%,
+        rgba(5, 10, 24, 0.62) 55%,
         rgba(5, 10, 24, 0.0) 100%
       );
       display: flex;
@@ -397,49 +375,51 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       justify-content: flex-end;
     }
 
-    /* Subtle floating controls right above the timeline */
+    /* Whisper-quiet minimal controls right above the timeline */
     #timeline-toolbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 4.5vw 8px 4.5vw;
-      font-size: 11.5px;
-      letter-spacing: 0.06em;
-      color: rgba(255, 255, 255, 0.55);
+      padding: 0 4.2vw 6px 4.2vw;
+      font-size: 11px;
+      letter-spacing: 0.08em;
     }
     .tl-controls {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 14px;
+      opacity: 0.42;
+      transition: opacity 0.25s ease;
+    }
+    .tl-controls:hover {
+      opacity: 0.95;
     }
     .tl-pill {
       background: none;
       border: none;
-      color: rgba(255, 255, 255, 0.48);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       cursor: pointer;
-      padding: 3px 0;
+      padding: 2px 0;
       transition: color 0.2s ease;
     }
     .tl-pill:hover, .tl-pill.active {
       color: #ffffff;
     }
-    .tl-pill.live-dot {
+    .tl-pill.return-now {
       color: #38bdf8;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
+      display: none;
     }
 
     /* Timeline viewport & moving canvas */
     #timeline-viewport {
       position: relative;
       width: 100vw;
-      height: calc(35vh - 34px);
-      min-height: 220px;
+      height: calc(34vh - 28px);
+      min-height: 215px;
       overflow: hidden;
       cursor: grab;
     }
@@ -451,7 +431,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       left: 22vw;
       top: 6px;
       bottom: 0;
-      width: 2px;
+      width: 1.5px;
       background: linear-gradient(
         to bottom,
         rgba(56, 189, 248, 0) 0%,
@@ -468,24 +448,23 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       top: 4px;
       left: 0;
       transform: translateX(-50%);
-      padding: 3px 9px;
+      padding: 2px 8px;
       border-radius: 99px;
-      background: rgba(56, 189, 248, 0.2);
+      background: rgba(56, 189, 248, 0.16);
       backdrop-filter: blur(12px);
       color: #e0f2fe;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
       white-space: nowrap;
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
     }
     #fixed-now-orb {
       position: absolute;
       bottom: 37px;
-      left: 1px;
+      left: 0.75px;
       transform: translate(-50%, 50%);
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       background: #fbbf24;
       box-shadow: 0 0 16px 4px rgba(251, 191, 36, 0.9);
@@ -507,7 +486,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       width: 40000px;
       bottom: 38px;
       height: 1px;
-      background: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.14);
       pointer-events: none;
     }
 
@@ -524,32 +503,32 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .tl-tick-mark {
       width: 1px;
-      height: 7px;
-      background: rgba(255, 255, 255, 0.22);
+      height: 6px;
+      background: rgba(255, 255, 255, 0.2);
       margin-bottom: 6px;
     }
     .tl-tick.major .tl-tick-mark {
-      height: 12px;
-      background: rgba(255, 255, 255, 0.45);
+      height: 11px;
+      background: rgba(255, 255, 255, 0.42);
     }
     .tl-tick-label {
-      font-size: 10.5px;
+      font-size: 10px;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
-      color: rgba(255, 255, 255, 0.42);
+      color: rgba(255, 255, 255, 0.38);
       white-space: nowrap;
     }
     .tl-tick.day-start .tl-tick-mark {
-      height: 185px;
-      margin-top: -147px;
-      background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.42));
+      height: 180px;
+      margin-top: -142px;
+      background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.38));
     }
     .tl-tick.day-start .tl-tick-label {
       color: #38bdf8;
-      font-weight: 700;
+      font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      font-size: 11px;
+      font-size: 10.5px;
     }
 
     /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE */
@@ -558,11 +537,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       height: 44px;
       border-radius: 10px;
       padding: 6px 12px;
-      background: rgba(15, 23, 42, 0.62);
+      background: rgba(12, 19, 36, 0.62);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border-left: 3px solid var(--ev-color, #38bdf8);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      border-left: 2.5px solid var(--ev-color, #38bdf8);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -572,7 +551,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .tl-event-rect:hover {
       transform: translateY(-3px) scale(1.01);
-      background: rgba(30, 41, 59, 0.85);
+      background: rgba(24, 35, 58, 0.85);
       box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 20px var(--ev-glow, rgba(56, 189, 248, 0.25));
       z-index: 18;
     }
@@ -581,11 +560,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       box-shadow: 0 0 28px rgba(56, 189, 248, 0.35);
     }
     .tl-event-rect.is-past {
-      opacity: 0.48;
+      opacity: 0.45;
     }
     .tl-ev-title {
-      font-size: 12.5px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 500;
       color: #ffffff;
       white-space: nowrap;
       overflow: hidden;
@@ -593,8 +572,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       line-height: 1.2;
     }
     .tl-ev-meta {
-      font-size: 10.5px;
-      color: rgba(255, 255, 255, 0.62);
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.56);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -604,16 +583,16 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     /* Quick Event Creator Popover */
     #quick-event-modal {
       position: fixed;
-      bottom: 36vh;
-      left: 4.5vw;
+      bottom: 35vh;
+      right: 4.2vw;
       z-index: 40;
-      background: rgba(8, 13, 26, 0.72);
+      background: rgba(6, 10, 22, 0.78);
       backdrop-filter: blur(28px);
       padding: 18px 22px;
       border-radius: 18px;
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
       display: none;
-      width: 340px;
+      width: 320px;
     }
 
     /* Fullscreen Service Overlay Iframe */
@@ -621,7 +600,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       position: fixed;
       inset: 0;
       z-index: 100;
-      background: #060913;
+      background: #040711;
       display: none;
       flex-direction: column;
     }
@@ -631,7 +610,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #090d16;
+      background: #060914;
     }
     #full-app-frame {
       flex: 1;
@@ -646,8 +625,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     <div id="starfield"></div>
     <div id="horizon-glow"></div>
     <svg id="solar-arc-svg" preserveAspectRatio="none">
-      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.2" stroke-dasharray="4 6" />
-      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.22)" stroke-width="1.5" />
+      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4 6" />
+      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="1.4" />
     </svg>
     <div id="moon-assembly">
       <div class="moon-core"></div>
@@ -664,14 +643,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       <div id="hero-time">--:--</div>
       <div id="hero-seconds">--</div>
     </div>
-    <div id="hero-date">Loading date...</div>
+    <div id="hero-date"></div>
     <div id="solar-telemetry">
-      <span id="solar-phase-text">Calculating solar position...</span>
-      <span class="sky-scrubber-wrap" title="Drag to preview sun rising & setting across the day">
-        <span>☀️</span>
-        <input id="sky-scrubber" type="range" min="0" max="24" step="0.05" oninput="onScrubSky(this.value)" />
-        <button id="sky-reset-btn" class="sky-reset-btn" onclick="resetSkyToLive()">LIVE</button>
-      </span>
+      <span id="solar-phase-text"></span>
     </div>
   </div>
 
@@ -684,7 +658,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           <span>health</span>
           <span class="w-dot" id="dot-health" style="background:#4ade80; box-shadow:0 0 10px #4ade80;"></span>
         </div>
-        <div class="w-primary" id="compact-health">Loading...</div>
+        <div class="w-primary" id="compact-health">--</div>
         <div class="w-sub" id="sub-health">Pixel 10 Health Connect</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
@@ -696,7 +670,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           <div class="w-stat-item"><span class="w-stat-k">Sleep Duration</span><span class="w-stat-v" id="eh-sleep">--</span></div>
           <div class="w-stat-item"><span class="w-stat-k">Burned / Distance</span><span class="w-stat-v" id="eh-burn">--</span></div>
         </div>
-        <button class="w-action-link" onclick="openFullService('google-health', 'Google Health & Readiness')">Open Health Studio →</button>
+        <button class="w-action-link" onclick="openFullService('google-health', 'Health')">Open Health →</button>
       </div>
     </div>
 
@@ -707,7 +681,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           <span>finances</span>
           <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7;"></span>
         </div>
-        <div class="w-primary" id="compact-finances">Loading...</div>
+        <div class="w-primary" id="compact-finances">--</div>
         <div class="w-sub" id="sub-finances">Sparkasse George</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
@@ -717,7 +691,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           <div class="w-stat-item"><span class="w-stat-k">Investments</span><span class="w-stat-v" id="ef-inv" style="color:#38bdf8;">--</span></div>
           <div class="w-stat-item"><span class="w-stat-k">Groceries</span><span class="w-stat-v" id="ef-groc" style="color:#fbbf24;">--</span></div>
         </div>
-        <button class="w-action-link" onclick="openFullService('finance-analytics', 'Finance & Budget')">Open Finance Analytics →</button>
+        <button class="w-action-link" onclick="openFullService('finance-analytics', 'Finances')">Open Finances →</button>
       </div>
     </div>
 
@@ -751,7 +725,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
         <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
-        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meal Planner')">Open Meal Planner →</button>
+        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals →</button>
       </div>
     </div>
   </div>
@@ -759,7 +733,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <!-- QUICK EVENT MODAL -->
   <div id="quick-event-modal">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <span style="font-size:12px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#38bdf8;">New Calendar Event</span>
+      <span style="font-size:11px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:#38bdf8;">New Event</span>
       <button onclick="toggleEventModal(false)" style="background:none; border:none; color:rgba(255,255,255,0.5); cursor:pointer;">✕</button>
     </div>
     <form onsubmit="createQuickEvent(event)" style="display:flex; flex-direction:column; gap:10px;">
@@ -767,59 +741,23 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       <input id="qe-start" type="datetime-local" class="minimal-input" required />
       <div style="display:flex; gap:8px;">
         <input id="qe-dur" type="number" value="60" min="15" step="15" class="minimal-input" placeholder="Minutes" />
-        <button type="submit" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 16px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">Add</button>
+        <button type="submit" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 16px; font-weight:600; font-size:12px; cursor:pointer; white-space:nowrap;">Add</button>
       </div>
     </form>
-  </div>
-
-  <!-- VOICE & SIGNALR ORCHESTRATOR DRAWER -->
-  <div id="orchestrator-modal" style="display:none; position:fixed; left:24px; bottom:246px; z-index:48; width:min(460px, calc(100vw - 48px)); max-height:62vh; background:rgba(7, 11, 25, 0.92); backdrop-filter:blur(28px); -webkit-backdrop-filter:blur(28px); border-radius:18px; padding:18px; box-shadow:0 24px 60px rgba(0,0,0,0.75); color:#f8fafc; overflow-y:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <div>
-        <div style="font-size:11px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#38bdf8;">⚡ THASSI ORCHESTRATOR · SIGNALR LIVE</div>
-        <div id="orch-conn-label" style="font-size:11px; color:#94a3b8; margin-top:2px;">Verbunden via Hass-PC Relay ↔ Dev-PC :5180</div>
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <a href="/download/thassi-control.apk" target="_blank" style="text-decoration:none; background:rgba(16,185,129,0.18); color:#34d399; font-size:11px; font-weight:600; padding:5px 10px; border-radius:8px;">📲 MAUI APK</a>
-        <button onclick="toggleOrchestratorModal(false)" style="background:none; border:none; color:rgba(255,255,255,0.5); font-size:15px; cursor:pointer;">✕</button>
-      </div>
-    </div>
-
-    <div style="display:flex; gap:8px; margin-bottom:10px;">
-      <button id="orch-mic-btn" type="button" onclick="startWebVoiceRecognition()" style="background:#4f46e5; color:#fff; border:none; border-radius:10px; width:40px; height:40px; font-size:16px; cursor:pointer;" title="Sprachbefehl (Speech-to-Text)">🎤</button>
-      <input id="orch-prompt-input" class="minimal-input" style="flex:1;" placeholder="Sprachbefehl oder Add-on Auftrag..." value="Erstelle und deploye das HASS Add-on thassi_system_monitor auf Hass OS" />
-      <button id="orch-run-btn" type="button" onclick="submitOrchestratorTask()" style="background:#0ea5e9; color:#fff; border:none; border-radius:10px; padding:0 14px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">🚀 Start</button>
-    </div>
-
-    <div style="margin-bottom:10px;">
-      <div style="display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; margin-bottom:4px;">
-        <span id="orch-stage-label">Bereit für Pipeline-Lauf</span>
-        <span id="orch-pct-label" style="color:#38bdf8; font-weight:700;">0%</span>
-      </div>
-      <div style="height:5px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden;">
-        <div id="orch-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #38bdf8, #10b981); transition:width 0.35s ease;"></div>
-      </div>
-    </div>
-
-    <div id="orch-events-feed" style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto; font-size:11.5px;"></div>
   </div>
 
   <!-- 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER & GCAL EVENT RECTANGLES -->
   <div id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
-        <button class="tl-pill live-dot" id="btn-live-now" onclick="snapToLiveNow()">● LIVE STREAM</button>
-        <span id="tl-status-label">Google Calendar Timeline</span>
-        <button class="tl-pill" onclick="toggleEventModal(true)">+ Event</button>
-        <button class="tl-pill" onclick="syncCalendars()">↻ Sync</button>
-        <button class="tl-pill" style="color:#38bdf8;" onclick="toggleOrchestratorModal()">🎤 Pipeline / Voice</button>
+        <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">↺ Return to Now</button>
       </div>
       <div class="tl-controls">
-        <button class="tl-pill" id="zoom-12" onclick="setTimelineSpan(12)">12H</button>
-        <button class="tl-pill active" id="zoom-24" onclick="setTimelineSpan(24)">24H</button>
-        <button class="tl-pill" id="zoom-72" onclick="setTimelineSpan(72)">3D</button>
-        <button class="tl-pill" id="zoom-168" onclick="setTimelineSpan(168)">7D</button>
-        <button class="tl-pill" onclick="openFullService('smart-canvas', 'Smart Controls')">🎛️ Lights</button>
+        <button class="tl-pill" id="zoom-12" onclick="setTimelineSpan(12)">12h</button>
+        <button class="tl-pill active" id="zoom-24" onclick="setTimelineSpan(24)">24h</button>
+        <button class="tl-pill" id="zoom-72" onclick="setTimelineSpan(72)">3d</button>
+        <button class="tl-pill" id="zoom-168" onclick="setTimelineSpan(168)">7d</button>
+        <button class="tl-pill" onclick="toggleEventModal(true)" title="New Calendar Event">+</button>
       </div>
     </div>
 
@@ -842,22 +780,23 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <!-- FULL SERVICE OVERLAY (WHEN LAUNCHING FULL VIEW) -->
   <div id="full-app-overlay">
     <div id="full-app-bar">
-      <button onclick="closeFullService()" style="background:none; border:none; color:#38bdf8; font-size:13px; font-weight:600; cursor:pointer;">← Back to Horizon</button>
-      <span id="full-app-title" style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.7);"></span>
+      <button onclick="closeFullService()" style="background:none; border:none; color:#38bdf8; font-size:12.5px; font-weight:500; cursor:pointer;">← Back to Horizon</button>
+      <span id="full-app-title" style="font-size:12.5px; font-weight:500; color:rgba(255,255,255,0.65);"></span>
       <span></span>
     </div>
     <iframe id="full-app-frame" src="about:blank"></iframe>
   </div>
 
   <script>
+    ${sidebarStylerScript}
+
     const base = window.__THASSI_INGRESS_PATH__ || '';
-    const NOW_ANCHOR_RATIO = 0.22; // Fixed "NOW" marker sits at 22% from the left edge
+    const NOW_ANCHOR_RATIO = 0.22;
 
     let calendarEvents = [];
-    let visibleHoursSpan = 24; // Default 24 hours across viewport width
-    let panOffsetMs = 0; // Manual drag offset (0 = locked to real-time NOW)
-    let scrubbedHour = null; // null = live real-time sun
-    let timelineBaseEpochMs = Date.now(); // Reference epoch for pixel coordinates
+    let visibleHoursSpan = 24;
+    let panOffsetMs = 0;
+    let timelineBaseEpochMs = Date.now();
 
     // Generate twinkling stars once
     (function initStars() {
@@ -881,6 +820,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 5.2 || h >= 21.2) {
         return {
           sky: 'linear-gradient(180deg, #02040a 0%, #070d1f 48%, #0f172a 78%, #172554 100%)',
+          sidebarBg: 'linear-gradient(180deg, #02040a 0%, #060b1a 55%, #03060f 100%)',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(56, 189, 248, 0.18), transparent 70%)',
           stars: 0.9,
           phase: 'Astronomical Night'
@@ -889,6 +829,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 6.5) {
         return {
           sky: 'linear-gradient(180deg, #090d1e 0%, #1e1b4b 42%, #6d28d9 74%, #f97316 100%)',
+          sidebarBg: 'linear-gradient(180deg, #070a18 0%, #131130 60%, #060813 100%)',
           glow: 'radial-gradient(ellipse at 25% 100%, rgba(251, 146, 60, 0.65), transparent 72%)',
           stars: 0.45,
           phase: 'Dawn Twilight'
@@ -897,6 +838,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 8.0) {
         return {
           sky: 'linear-gradient(180deg, #1d4ed8 0%, #3b82f6 42%, #f472b6 75%, #fbbf24 100%)',
+          sidebarBg: 'linear-gradient(180deg, #0c1f5e 0%, #172554 60%, #060b19 100%)',
           glow: 'radial-gradient(ellipse at 22% 100%, rgba(253, 224, 71, 0.8), transparent 75%)',
           stars: 0.05,
           phase: 'Golden Sunrise'
@@ -905,6 +847,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 16.5) {
         return {
           sky: 'linear-gradient(180deg, #0369a1 0%, #0284c7 45%, #38bdf8 80%, #bae6fd 100%)',
+          sidebarBg: 'linear-gradient(180deg, #042f4e 0%, #073b61 55%, #040917 100%)',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(254, 249, 195, 0.45), transparent 75%)',
           stars: 0,
           phase: h < 11.5 ? 'Morning Sky' : h < 14 ? 'Solar Noon' : 'Afternoon Sun'
@@ -913,13 +856,15 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 18.8) {
         return {
           sky: 'linear-gradient(180deg, #1e1b4b 0%, #3730a3 36%, #c2410c 72%, #facc15 100%)',
+          sidebarBg: 'linear-gradient(180deg, #0f0e29 0%, #1e1b4b 58%, #060814 100%)',
           glow: 'radial-gradient(ellipse at 78% 100%, rgba(251, 146, 60, 0.85), transparent 75%)',
           stars: 0.15,
-          phase: 'Golden Hour & Sunset'
+          phase: 'Golden Hour'
         };
       }
       return {
         sky: 'linear-gradient(180deg, #050814 0%, #1e1b4b 46%, #4c1d95 76%, #9a3412 100%)',
+        sidebarBg: 'linear-gradient(180deg, #040711 0%, #110f2b 58%, #04060f 100%)',
         glow: 'radial-gradient(ellipse at 82% 100%, rgba(234, 88, 12, 0.45), transparent 70%)',
         stars: 0.65,
         phase: 'Dusk Twilight'
@@ -959,18 +904,16 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
 
     function updateSkyAndSun(now) {
-      const liveHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
-      const effectiveHour = scrubbedHour !== null ? scrubbedHour : liveHour;
-
-      if (scrubbedHour === null) {
-        const scrubber = document.getElementById('sky-scrubber');
-        if (scrubber) scrubber.value = liveHour.toFixed(2);
-      }
-
+      const effectiveHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
       const palette = getSkyPalette(effectiveHour);
+
       document.getElementById('sky-stage').style.background = palette.sky;
       document.getElementById('horizon-glow').style.background = palette.glow;
       document.getElementById('starfield').style.opacity = String(palette.stars);
+
+      if (window.syncThassiSidebarSky) {
+        window.syncThassiSidebarSky(palette.sidebarBg);
+      }
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -988,22 +931,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       moonEl.style.top = moonPt.y.toFixed(1) + 'px';
       moonEl.style.opacity = sunPt.aboveHorizon ? '0' : '0.92';
 
-      const phaseLabel = scrubbedHour !== null
-        ? \`Previewing \${Math.floor(effectiveHour).toString().padStart(2,'0')}:\${Math.floor((effectiveHour%1)*60).toString().padStart(2,'0')} · \${palette.phase}\`
-        : \`\${palette.phase} · Sunrise 06:45 · Sunset 18:30\`;
-      document.getElementById('solar-phase-text').textContent = phaseLabel;
-    }
-
-    function onScrubSky(val) {
-      scrubbedHour = parseFloat(val);
-      document.getElementById('sky-reset-btn').style.display = 'inline';
-      updateSkyAndSun(new Date());
-    }
-
-    function resetSkyToLive() {
-      scrubbedHour = null;
-      document.getElementById('sky-reset-btn').style.display = 'none';
-      updateSkyAndSun(new Date());
+      document.getElementById('solar-phase-text').textContent =
+        \`\${palette.phase}  ·  Sunrise 06:45  ·  Sunset 18:30\`;
     }
 
     // 2. LARGE CLOCK & CONTINUOUS LEFTWARD TIMELINE LOOP
@@ -1025,7 +954,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         day: 'numeric',
         year: 'numeric'
       });
-      document.getElementById('fixed-now-badge').textContent = \`NOW · \${hh}:\${mm}:\${ss}\`;
+      document.getElementById('fixed-now-badge').textContent = \`NOW · \${hh}:\${mm}\`;
 
       updateSkyAndSun(now);
 
@@ -1140,7 +1069,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
     function snapToLiveNow() {
       panOffsetMs = 0;
-      document.getElementById('btn-live-now').textContent = '● LIVE STREAM';
+      document.getElementById('btn-live-now').style.display = 'none';
       tickClockAndTimeline();
     }
 
@@ -1161,7 +1090,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         if (!dragging) return;
         const dx = e.clientX - startX;
         panOffsetMs = startPanMs - dx / getPxPerMs();
-        document.getElementById('btn-live-now').textContent = '↺ RETURN TO NOW';
+        document.getElementById('btn-live-now').style.display = 'inline-block';
         tickClockAndTimeline();
       });
       vp.addEventListener('pointerup', () => { dragging = false; });
@@ -1227,12 +1156,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       await loadAllLiveData();
     }
 
-    async function syncCalendars() {
-      document.getElementById('tl-status-label').textContent = 'Syncing Google Calendar...';
-      await fetch(base + '/api/apps/google-calendar/sync', { method: 'POST' });
-      await loadAllLiveData();
-    }
-
     async function addNote(e) {
       e.preventDefault();
       const input = document.getElementById('note-input');
@@ -1262,11 +1185,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         const calData = calRes && calRes.ok ? await calRes.json() : { events: [] };
 
         calendarEvents = calData.events || [];
-        document.getElementById('tl-status-label').textContent =
-          calendarEvents.length > 0
-            ? \`\${calendarEvents.length} Google Calendar events on stream\`
-            : 'No upcoming events';
-
         renderTimelineGeometry();
 
         // 1. Update HEALTH widget
@@ -1347,95 +1265,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       }
     }
 
-    // 6. VOICE-TO-TEXT & SIGNALR ORCHESTRATOR RELAY
-    let orchPollTimer = null;
-
-    function toggleOrchestratorModal(forceShow) {
-      const m = document.getElementById('orchestrator-modal');
-      const next = typeof forceShow === 'boolean' ? forceShow : m.style.display === 'none';
-      m.style.display = next ? 'block' : 'none';
-      if (next) {
-        pollOrchestratorState();
-        if (!orchPollTimer) orchPollTimer = setInterval(pollOrchestratorState, 2500);
-      }
-    }
-
-    function startWebVoiceRecognition() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const btn = document.getElementById('orch-mic-btn');
-      if (!SR) {
-        document.getElementById('orch-prompt-input').focus();
-        return;
-      }
-      const rec = new SR();
-      rec.lang = 'de-DE';
-      rec.interimResults = false;
-      btn.textContent = '🔴';
-      rec.onresult = (ev) => {
-        const text = ev.results?.[0]?.[0]?.transcript || '';
-        if (text) {
-          document.getElementById('orch-prompt-input').value = text;
-          submitOrchestratorTask();
-        }
-      };
-      rec.onend = () => { btn.textContent = '🎤'; };
-      rec.onerror = () => { btn.textContent = '🎤'; };
-      rec.start();
-    }
-
-    async function submitOrchestratorTask() {
-      const input = document.getElementById('orch-prompt-input');
-      const btn = document.getElementById('orch-run-btn');
-      const prompt = (input.value || '').trim();
-      if (!prompt) return;
-      btn.disabled = true;
-      btn.textContent = '⏳...';
-      try {
-        await fetch(base + '/api/orchestrator/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt,
-            deviceName: 'Pixel 10 (Horizon WebView)'
-          })
-        });
-        await pollOrchestratorState();
-      } catch (err) {
-        console.error('Failed submitting orchestrator task:', err);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '🚀 Start';
-      }
-    }
-
-    async function pollOrchestratorState() {
-      try {
-        const res = await fetch(base + '/api/orchestrator/state');
-        if (!res.ok) return;
-        const data = await res.json();
-        const events = data.recentEvents || [];
-        if (events.length > 0) {
-          const latest = events[0];
-          const pct = Math.min(100, Math.max(0, Number(latest.progressPercent || 0)));
-          document.getElementById('orch-stage-label').textContent = \`\${latest.eventType}: \${latest.title || latest.message}\`;
-          document.getElementById('orch-pct-label').textContent = pct + '%';
-          document.getElementById('orch-progress-bar').style.width = pct + '%';
-        }
-        const feed = document.getElementById('orch-events-feed');
-        feed.innerHTML = events.slice(0, 12).map((ev) => {
-          const col = (ev.severity || '').toLowerCase() === 'success' ? '#10b981' : (ev.severity || '').toLowerCase().includes('err') || (ev.severity || '').toLowerCase().includes('crit') ? '#ef4444' : '#38bdf8';
-          const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-          return \`<div style="background:rgba(255,255,255,0.04); border-left:3px solid \${col}; padding:6px 10px; border-radius:6px;">
-            <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8;">
-              <strong style="color:\${col};">\${ev.eventType} \${ev.addonSlug ? '[' + ev.addonSlug + ']' : ''}</strong>
-              <span>\${ts}</span>
-            </div>
-            <div style="color:#f1f5f9; margin-top:2px;">\${ev.message}</div>
-          </div>\`;
-        }).join('');
-      } catch (e) {}
-    }
-
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
       renderTimelineGeometry();
@@ -1446,7 +1275,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     setInterval(loadAllLiveData, 60000);
-    pollOrchestratorState();
   </script>
 </body>
 </html>`;
