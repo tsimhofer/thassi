@@ -1,8 +1,0 @@
-{
-  "id": "google-health",
-  "name": "Google Health & Readiness",
-  "version": "1.0.1",
-  "description": "Daily steps, current & resting heart rate, physiological readiness score calculator, workout options & logger, and Pixel Watch / Google Fit / Home Assistant bridge.",
-  "icon": "mdi:heart-pulse",
-  "category": "health"
-}

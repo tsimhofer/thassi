@@ -16,7 +16,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load local .env if present during development
 function loadDotEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
@@ -37,11 +36,19 @@ function loadDotEnv() {
 loadDotEnv();
 
 const PORT = Number(process.env.PORT || 8099);
-const DATA_DIR = path.resolve(process.env.THASSI_DATA_DIR || (fs.existsSync('/data') ? '/data' : './data'));
+const DATA_DIR = path.resolve(
+  process.env.THASSI_DATA_DIR || (fs.existsSync('/data') ? '/data' : './data')
+);
 const STANDALONE_APP_ID = process.env.THASSI_STANDALONE_APP || '';
 
 fs.mkdirSync(path.join(DATA_DIR, 'apps'), { recursive: true });
 fs.mkdirSync(path.join(DATA_DIR, 'deployed_apps'), { recursive: true });
+
+// Remove legacy starter 'data-workbench' if it was previously deployed to /data/deployed_apps
+const legacyStarterDir = path.join(DATA_DIR, 'deployed_apps', 'data-workbench');
+if (fs.existsSync(legacyStarterDir)) {
+  fs.rmSync(legacyStarterDir, { recursive: true, force: true });
+}
 
 const sharedDb = new ThassiAppDatabase(path.join(DATA_DIR, 'shared.db'));
 const scheduler = new ThassiCronScheduler();
@@ -69,8 +76,8 @@ async function loadAppFromDirectory(
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as ThassiAppManifest;
   const appId = manifest.id;
+  if (appId === 'data-workbench') return;
 
-  // Clear previous jobs if reloading
   scheduler.clearAppJobs(appId);
   const existing = loadedApps.get(appId);
   const appDb = existing?.db || new ThassiAppDatabase(path.join(DATA_DIR, 'apps', `${appId}.db`));
@@ -90,7 +97,6 @@ async function loadAppFromDirectory(
     },
   };
 
-  // Find backend entry (either compiled backend.mjs or source backend/index.ts in dev)
   const compiledBackend = path.join(appDir, 'backend.mjs');
   const devBackend = path.join(appDir, 'backend', 'index.ts');
   const backendFile = fs.existsSync(compiledBackend)
@@ -100,7 +106,6 @@ async function loadAppFromDirectory(
       : null;
 
   if (backendFile) {
-    // Cache-bust import URL for hot-reload support
     const fileUrl = `${pathToFileURL(backendFile).href}?t=${Date.now()}`;
     const mod = (await import(fileUrl)) as { default?: ThassiBackendModule };
     if (mod.default && typeof mod.default.setup === 'function') {
@@ -123,7 +128,6 @@ async function loadAppFromDirectory(
 }
 
 async function discoverAllApps(): Promise<void> {
-  // 1. Check built-in apps in dist/apps (production) or repo apps/ (dev)
   const candidateBuiltInDirs = [
     path.join(__dirname, 'apps'),
     path.resolve(process.cwd(), 'thassi_host', 'dist', 'apps'),
@@ -133,7 +137,7 @@ async function discoverAllApps(): Promise<void> {
   for (const baseDir of candidateBuiltInDirs) {
     if (!fs.existsSync(baseDir)) continue;
     for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && entry.name !== 'data-workbench') {
         const appDir = path.join(baseDir, entry.name);
         if (!loadedApps.has(entry.name)) {
           try {
@@ -146,11 +150,10 @@ async function discoverAllApps(): Promise<void> {
     }
   }
 
-  // 2. Check hot-deployed apps in /data/deployed_apps (overrides built-in)
   const deployedBase = path.join(DATA_DIR, 'deployed_apps');
   if (fs.existsSync(deployedBase)) {
     for (const entry of fs.readdirSync(deployedBase, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && entry.name !== 'data-workbench') {
         try {
           await loadAppFromDirectory(path.join(deployedBase, entry.name), 'hot-deployed');
         } catch (err) {
@@ -161,7 +164,12 @@ async function discoverAllApps(): Promise<void> {
   }
 }
 
-function sendJson(res: http.ServerResponse, status: number, data: unknown, extraHeaders: Record<string, string> = {}) {
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  data: unknown,
+  extraHeaders: Record<string, string> = {}
+) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
@@ -235,13 +243,13 @@ function serveAppStaticFile(
   fs.createReadStream(filePath).pipe(res);
 }
 
-function renderHubHtml(ingressPath: string): string {
+function renderUnifiedDashboardHtml(ingressPath: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thassi Personal App Hub</title>
+  <title>Thassi Unified Dashboard</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -264,24 +272,31 @@ function renderHubHtml(ingressPath: string): string {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 14px 24px;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px 20px;
       background: #0f172a;
       border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      font-weight: 700;
-      font-size: 18px;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 17px;
       color: var(--accent);
+      cursor: pointer;
     }
     .nav-tabs {
       display: flex;
-      gap: 8px;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .btn {
-      padding: 8px 14px;
+      padding: 7px 13px;
       border-radius: 8px;
       border: 1px solid var(--border);
       background: var(--card);
@@ -289,37 +304,75 @@ function renderHubHtml(ingressPath: string): string {
       font-weight: 600;
       cursor: pointer;
       font-size: 13px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      border-color: var(--accent);
     }
     .btn.active, .btn.primary {
       background: var(--accent-dark);
       border-color: var(--accent);
+      color: #fff;
     }
     .container {
-      max-width: 1200px;
+      max-width: 1320px;
       margin: 0 auto;
       padding: 24px;
     }
-    .grid {
+    .hero-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
       gap: 18px;
+      margin-bottom: 24px;
     }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
     .badge {
       display: inline-block;
-      padding: 2px 8px;
+      padding: 3px 9px;
       border-radius: 99px;
       font-size: 11px;
+      font-weight: 700;
       background: #0f172a;
       color: var(--accent);
       border: 1px solid var(--border);
     }
-    input, textarea {
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #0f172a;
+      font-size: 13px;
+    }
+    .switch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .switch-pill {
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.15s;
+    }
+    .switch-pill.on {
+      border-color: #facc15;
+      background: linear-gradient(135deg, rgba(250,204,21,0.16) 0%, #0f172a 100%);
+    }
+    input {
       width: 100%;
       padding: 8px 12px;
       border-radius: 6px;
@@ -336,7 +389,7 @@ function renderHubHtml(ingressPath: string): string {
     }
     #app-iframe-container {
       display: none;
-      height: calc(100vh - 59px);
+      height: calc(100vh - 57px);
       width: 100%;
     }
     iframe {
@@ -344,25 +397,22 @@ function renderHubHtml(ingressPath: string): string {
       height: 100%;
       border: none;
     }
-    code {
-      background: #0f172a;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #7dd3fc;
-    }
   </style>
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">
-      <span>⚡ Thassi Personal App Hub</span>
-      <span id="ha-pill" class="badge">Checking HA...</span>
+    <div class="brand" onclick="switchView('overview')">
+      <span>⚡ Thassi Command Center</span>
+      <span id="ha-pill" class="badge">Connecting...</span>
     </div>
     <div class="nav-tabs">
-      <button class="btn active" id="tab-apps" onclick="switchView('apps')">🚀 Installed WebApps</button>
-      <button class="btn" id="tab-integrations" onclick="switchView('integrations')">🔐 HA & Google OAuth Vault</button>
-      <button class="btn" id="tab-workflow" onclick="switchView('workflow')">🛠️ CLI & Git Add-on Workflow</button>
+      <button class="btn active" id="nav-overview" onclick="switchView('overview')">🏠 Unified Overview</button>
+      <button class="btn" id="nav-smart-canvas" onclick="openApp('smart-canvas')">🎛️ Smart Canvas</button>
+      <button class="btn" id="nav-google-health" onclick="openApp('google-health')">❤️ Health &amp; Readiness</button>
+      <button class="btn" id="nav-meal-planner" onclick="openApp('meal-planner')">🍲 Meal Planner</button>
+      <button class="btn" id="nav-google-calendar" onclick="openApp('google-calendar')">📅 Google Calendar</button>
+      <button class="btn" id="nav-finance-analytics" onclick="openApp('finance-analytics')">💶 Finance &amp; Budget</button>
+      <button class="btn" id="nav-settings" onclick="switchView('settings')">🔐 OAuth &amp; Settings</button>
     </div>
   </div>
 
@@ -371,71 +421,124 @@ function renderHubHtml(ingressPath: string): string {
   </div>
 
   <div class="container" id="main-container">
-    <div id="view-apps">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <div>
-          <h2 style="margin:0;">Your Installed WebApps</h2>
-          <p style="margin:4px 0 0; color:var(--muted); font-size:14px;">
-            Launch any app below inside Home Assistant, or deploy new apps in &lt;1s with <code>npm run deploy &lt;app&gt;</code>.
-          </p>
+    <div id="view-overview">
+      <!-- Section 1: Smart Home Quick Switches & Room Climate -->
+      <div class="card" style="margin-bottom: 22px; border-top: 3px solid #facc15;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="margin:0; font-size:18px; color:#facc15;">🎛️ Smart Home Quick Controls &amp; Room Climate</h3>
+            <p style="margin:4px 0 0; font-size:13px; color:var(--muted);">
+              Click any light or Shelly switch below to toggle immediately, or open the full drag-and-drop canvas.
+            </p>
+          </div>
+          <button class="btn primary" onclick="openApp('smart-canvas')">Open Full Smart Canvas →</button>
+        </div>
+        <div class="switch-grid" id="quick-switches"></div>
+      </div>
+
+      <!-- Section 2: 4 Personal Life & Data Pillars -->
+      <div class="hero-grid">
+        <!-- Pillar 1: Google Health & Readiness -->
+        <div class="card" style="border-top: 3px solid #4ade80;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#4ade80; font-weight:700;">❤️ Google Health &amp; Readiness</span>
+              <span class="badge" id="health-status-badge">Peak Recovery</span>
+            </div>
+            <div style="font-size:32px; font-weight:800; color:#4ade80; margin-bottom:12px;" id="health-score-val">--/100</div>
+            <div class="metric-row"><span>👟 Daily Steps</span><strong id="health-steps-val">--</strong></div>
+            <div class="metric-row"><span>❤️ Current Heart Rate</span><strong id="health-hr-val">-- bpm</strong></div>
+            <div class="metric-row"><span>🌙 Resting Heart Rate</span><strong id="health-rhr-val">-- bpm</strong></div>
+            <div class="metric-row"><span>⌚ Pixel Watch / Weight</span><strong id="health-watch-val">--</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('google-health')">
+            Open Health &amp; Workouts →
+          </button>
+        </div>
+
+        <!-- Pillar 2: Meal Planner & Nutrition -->
+        <div class="card" style="border-top: 3px solid #fb923c;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#fb923c; font-weight:700;">🍲 Meal Planner &amp; Macros</span>
+              <span class="badge" id="meal-kcal-badge">-- kcal</span>
+            </div>
+            <div style="font-size:18px; font-weight:700; color:#f8fafc; margin-bottom:12px;" id="meal-dinner-val">Loading...</div>
+            <div class="metric-row"><span>🌅 Breakfast</span><strong id="meal-breakfast-val">--</strong></div>
+            <div class="metric-row"><span>☀️ Lunch</span><strong id="meal-lunch-val">--</strong></div>
+            <div class="metric-row"><span>💪 Daily Protein</span><strong id="meal-protein-val">-- g</strong></div>
+            <div class="metric-row"><span>🛒 Open Groceries</span><strong id="meal-groceries-val">0 items</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('meal-planner')">
+            Open Weekly Meal Planner →
+          </button>
+        </div>
+
+        <!-- Pillar 3: Google Calendar & Schedule -->
+        <div class="card" style="border-top: 3px solid #38bdf8;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#38bdf8; font-weight:700;">📅 Google Calendar &amp; Time</span>
+              <span class="badge" id="cal-count-badge">-- events today</span>
+            </div>
+            <div style="font-size:18px; font-weight:700; color:#f8fafc; margin-bottom:12px;" id="cal-next-val">Loading...</div>
+            <div class="metric-row"><span>⏱️ Busy Hours Today</span><strong id="cal-hours-val">-- h</strong></div>
+            <div class="metric-row"><span>🗓️ Next Event Start</span><strong id="cal-start-val">--</strong></div>
+            <div class="metric-row"><span>🔗 Sync Status</span><strong style="color:#4ade80;">Active (15m Cron)</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('google-calendar')">
+            Open Calendar &amp; Analytics →
+          </button>
+        </div>
+
+        <!-- Pillar 4: Finance & Budget -->
+        <div class="card" style="border-top: 3px solid #a855f7;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#a855f7; font-weight:700;">💶 Finance &amp; Cashflow</span>
+              <span class="badge" id="fin-rate-badge">--% Savings Rate</span>
+            </div>
+            <div style="font-size:28px; font-weight:800; color:#4ade80; margin-bottom:12px;" id="fin-net-val">+€--</div>
+            <div class="metric-row"><span>📥 Monthly Income</span><strong id="fin-inc-val" style="color:#4ade80;">+€--</strong></div>
+            <div class="metric-row"><span>📤 Living Expenses</span><strong id="fin-exp-val" style="color:#f43f5e;">-€--</strong></div>
+            <div class="metric-row"><span>📈 ETF Investments</span><strong id="fin-inv-val" style="color:#a855f7;">€--</strong></div>
+            <div class="metric-row"><span>🛒 Grocery Spend</span><strong id="fin-groc-val">€--</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('finance-analytics')">
+            Open Finance &amp; CSV Analyzer →
+          </button>
         </div>
       </div>
-      <div class="grid" id="apps-grid"></div>
     </div>
 
-    <div id="view-integrations" style="display:none;">
-      <div class="grid" style="grid-template-columns: 1fr 1fr;">
+    <div id="view-settings" style="display:none;">
+      <div class="hero-grid" style="grid-template-columns: 1fr 1fr;">
         <div class="card">
-          <h3 style="margin-top:0;">🏠 Home Assistant Connection</h3>
-          <p id="ha-status-text" style="color:var(--muted); font-size:13px;"></p>
-          <p style="font-size:12px; color:var(--muted);">
-            When running as a Home Assistant Add-on, <code>SUPERVISOR_TOKEN</code> is injected automatically. For local dev or custom override, configure below:
-          </p>
-          <label>Home Assistant URL</label>
-          <input id="ha-url-input" placeholder="http://192.168.188.92:8123" />
-          <label>Long-Lived Access Token</label>
-          <input id="ha-token-input" type="password" placeholder="Paste HA Long-Lived Access Token" />
-          <button class="btn primary" onclick="saveHaConfig()">Save & Test HA Connection</button>
+          <div>
+            <h3 style="margin-top:0;">🏠 Home Assistant Connection</h3>
+            <p id="ha-status-text" style="color:var(--muted); font-size:13px;"></p>
+            <label>Home Assistant URL</label>
+            <input id="ha-url-input" placeholder="http://192.168.188.92:8123" />
+            <label>Long-Lived Access Token (Optional override)</label>
+            <input id="ha-token-input" type="password" placeholder="Uses SUPERVISOR_TOKEN automatically in HA OS" />
+          </div>
+          <button class="btn primary" onclick="saveHaConfig()">Save &amp; Test HA Connection</button>
         </div>
 
         <div class="card">
-          <h3 style="margin-top:0;">📅 Shared Google OAuth2 Vault (Calendar & Health)</h3>
-          <p id="google-status-text" style="color:var(--muted); font-size:13px;"></p>
-          <label>Google OAuth Client ID</label>
-          <input id="google-client-id" placeholder="xxx.apps.googleusercontent.com" />
-          <label>Google OAuth Client Secret</label>
-          <input id="google-client-secret" type="password" placeholder="GOCSPX-..." />
-          <label>Redirect URI</label>
-          <input id="google-redirect-uri" placeholder="http://192.168.188.92:8099/api/system/google/callback" />
+          <div>
+            <h3 style="margin-top:0;">📅 Shared Google OAuth2 Vault (Calendar &amp; Health)</h3>
+            <p id="google-status-text" style="color:var(--muted); font-size:13px;"></p>
+            <label>Google OAuth Client ID</label>
+            <input id="google-client-id" placeholder="xxx.apps.googleusercontent.com" />
+            <label>Google OAuth Client Secret</label>
+            <input id="google-client-secret" type="password" placeholder="GOCSPX-..." />
+            <label>Redirect URI</label>
+            <input id="google-redirect-uri" placeholder="http://192.168.188.92:8099/api/system/google/callback" />
+          </div>
           <div style="display:flex; gap:8px;">
             <button class="btn primary" onclick="saveGoogleConfig()">Save Credentials</button>
             <button class="btn" onclick="startGoogleOAuth()">Authorize with Google ↗</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="view-workflow" style="display:none;">
-      <div class="card">
-        <h3 style="margin-top:0;">🛠️ Thassi Developer & Deployment Commands</h3>
-        <p style="color:var(--muted); font-size:14px;">
-          Run these commands in your <code>c:\\Users\\thoma\\source\\repos\\thassi</code> repository:
-        </p>
-        <div style="display:grid; gap:12px; margin-top:16px;">
-          <div style="padding:12px; background:#0f172a; border-radius:8px; border:1px solid var(--border);">
-            <strong>1. Scaffold a New Full-Stack App (e.g. Meal Planner, Finance, Health, Notes)</strong>
-            <div style="margin-top:6px;"><code>npm.cmd run create -- meal-planner "Meal Planner"</code></div>
-          </div>
-          <div style="padding:12px; background:#0f172a; border-radius:8px; border:1px solid var(--border);">
-            <strong>2. Hot-Deploy an App to Running Thassi Hub in &lt;1 second (No Docker Rebuild!)</strong>
-            <div style="margin-top:6px;"><code>npm.cmd run deploy -- meal-planner</code></div>
-          </div>
-          <div style="padding:12px; background:#0f172a; border-radius:8px; border:1px solid var(--border);">
-            <strong>3. Export an App as a Standalone Home Assistant Add-on (Dedicated Sidebar Tab in Git Repo)</strong>
-            <div style="margin-top:6px;"><code>npm.cmd run export -- meal-planner</code></div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">
-              Generates a top-level <code>thassi_app_meal_planner/</code> folder with its own <code>config.yaml</code> &amp; <code>Dockerfile</code> so you can install it as an independent add-on from the HA Add-on Store.
-            </div>
           </div>
         </div>
       </div>
@@ -444,15 +547,22 @@ function renderHubHtml(ingressPath: string): string {
 
   <script>
     const base = window.__THASSI_INGRESS_PATH__ ? window.__THASSI_INGRESS_PATH__.replace(/\\/+$/, '') : '';
+    const NAV_IDS = ['overview', 'smart-canvas', 'google-health', 'meal-planner', 'google-calendar', 'finance-analytics', 'settings'];
+
+    function setActiveNav(id) {
+      NAV_IDS.forEach(k => {
+        const el = document.getElementById('nav-' + k);
+        if (el) el.className = (k === id) ? 'btn active' : 'btn';
+      });
+    }
 
     function switchView(view) {
       document.getElementById('app-iframe-container').style.display = 'none';
       document.getElementById('main-container').style.display = 'block';
-      ['apps', 'integrations', 'workflow'].forEach(v => {
-        document.getElementById('view-' + v).style.display = (v === view) ? 'block' : 'none';
-        const btn = document.getElementById('tab-' + v);
-        if (btn) btn.className = (v === view) ? 'btn active' : 'btn';
-      });
+      document.getElementById('view-overview').style.display = (view === 'overview') ? 'block' : 'none';
+      document.getElementById('view-settings').style.display = (view === 'settings') ? 'block' : 'none';
+      setActiveNav(view);
+      if (view === 'overview') loadCommandCenter();
     }
 
     function openApp(appId) {
@@ -461,49 +571,103 @@ function renderHubHtml(ingressPath: string): string {
       const frame = document.getElementById('app-frame');
       frame.src = base + '/apps/' + encodeURIComponent(appId) + '/';
       container.style.display = 'block';
-      ['apps', 'integrations', 'workflow'].forEach(v => {
-        const btn = document.getElementById('tab-' + v);
-        if (btn) btn.className = 'btn';
-      });
+      setActiveNav(appId);
     }
 
-    async function loadDashboard() {
-      const res = await fetch(base + '/api/system/status');
-      const data = await res.json();
+    async function toggleSwitch(entityId) {
+      await fetch(base + '/api/apps/smart-canvas/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_id: entityId })
+      });
+      await loadCommandCenter();
+    }
+
+    async function loadCommandCenter() {
+      const [sysRes, boardRes] = await Promise.all([
+        fetch(base + '/api/system/status'),
+        fetch(base + '/api/apps/smart-canvas/board').catch(() => null)
+      ]);
+      const data = await sysRes.json();
 
       const pill = document.getElementById('ha-pill');
-      pill.textContent = data.ha.connected ? ('HA Connected (' + data.ha.mode + ')') : 'HA Token Needed';
+      pill.textContent = data.ha.connected ? 'HA Connected' : 'HA Token Needed';
       pill.style.color = data.ha.connected ? '#4ade80' : '#facc15';
 
       document.getElementById('ha-status-text').textContent = data.ha.message || '';
       document.getElementById('ha-url-input').value = data.ha.haUrl || 'http://192.168.188.92:8123';
-
       document.getElementById('google-status-text').textContent = data.google.authorized
         ? '✅ Authorized with Google OAuth2'
         : (data.google.configured ? 'Credentials saved — click Authorize with Google' : 'Not configured yet');
-      if (data.google.redirectUri) {
-        document.getElementById('google-redirect-uri').value = data.google.redirectUri;
+
+      // Populate Health
+      const h = data.summaries?.health;
+      if (h) {
+        document.getElementById('health-score-val').textContent = h.readinessScore + '/100';
+        document.getElementById('health-status-badge').textContent = h.readinessStatus || 'Ready';
+        document.getElementById('health-steps-val').textContent = (h.steps || 0).toLocaleString() + ' / ' + (h.stepGoal || 10000).toLocaleString();
+        document.getElementById('health-hr-val').textContent = (h.currentHr || 68) + ' bpm';
+        document.getElementById('health-rhr-val').textContent = (h.restingHr || 56) + ' bpm';
+        document.getElementById('health-watch-val').textContent = (h.pixelWatchBattery !== null ? h.pixelWatchBattery + '% • ' : '') + (h.weightKg || 85.5) + ' kg';
       }
 
-      const grid = document.getElementById('apps-grid');
-      grid.innerHTML = '';
-      data.apps.forEach(app => {
-        const div = document.createElement('div');
-        div.className = 'card';
-        div.innerHTML = \`
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <span class="badge">\${app.source}</span>
-            <span style="font-size:12px; color:var(--muted);">v\${app.version}</span>
-          </div>
-          <h3 style="margin:0 0 8px 0; color:var(--accent);">\${app.name}</h3>
-          <p style="margin:0 0 16px 0; color:var(--muted); font-size:13px; line-height:1.4;">\${app.description}</p>
-          <div style="display:flex; gap:8px;">
-            <button class="btn primary" style="flex:1;" onclick="openApp('\${app.id}')">Launch App</button>
-            <a class="btn" href="\${base}/apps/\${encodeURIComponent(app.id)}/" target="_blank" style="text-decoration:none;">↗</a>
-          </div>
-        \`;
-        grid.appendChild(div);
-      });
+      // Populate Meals
+      const m = data.summaries?.meals;
+      if (m) {
+        document.getElementById('meal-kcal-badge').textContent = (m.totalCalories || 0) + ' kcal';
+        document.getElementById('meal-dinner-val').textContent = '🌙 ' + (m.dinner || 'Unplanned');
+        document.getElementById('meal-breakfast-val').textContent = (m.breakfast || '—').slice(0, 26);
+        document.getElementById('meal-lunch-val').textContent = (m.lunch || '—').slice(0, 26);
+        document.getElementById('meal-protein-val').textContent = (m.totalProtein || 0) + 'g';
+        document.getElementById('meal-groceries-val').textContent = (m.openGroceries || 0) + ' items';
+      }
+
+      // Populate Calendar
+      const c = data.summaries?.calendar;
+      if (c) {
+        document.getElementById('cal-count-badge').textContent = (c.todayEventCount || 0) + ' events today';
+        document.getElementById('cal-next-val').textContent = c.nextEventTitle || 'None Scheduled';
+        document.getElementById('cal-hours-val').textContent = (c.busyHoursToday || 0) + ' h';
+        document.getElementById('cal-start-val').textContent = c.nextEventStart ? new Date(c.nextEventStart).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—';
+      }
+
+      // Populate Finance
+      const f = data.summaries?.finance;
+      if (f) {
+        document.getElementById('fin-rate-badge').textContent = (f.savingsRatePct || 0) + '% Savings Rate';
+        document.getElementById('fin-net-val').textContent = '+€' + Number(f.netCashflow || 0).toFixed(2);
+        document.getElementById('fin-inc-val').textContent = '+€' + Number(f.income || 0).toFixed(2);
+        document.getElementById('fin-exp-val').textContent = '-€' + Number(f.expenses || 0).toFixed(2);
+        document.getElementById('fin-inv-val').textContent = '€' + Number(f.investments || 0).toFixed(2);
+        document.getElementById('fin-groc-val').textContent = '€' + Number(f.grocerySpend || 0).toFixed(2);
+      }
+
+      // Populate Smart Home Quick Switches
+      if (boardRes && boardRes.ok) {
+        const board = await boardRes.json();
+        const swGrid = document.getElementById('quick-switches');
+        swGrid.innerHTML = '';
+        (board.tiles || []).slice(0, 10).forEach(t => {
+          const st = board.stateMap?.[t.entity_id];
+          const subSt = t.sub_entity_id ? board.stateMap?.[t.sub_entity_id] : null;
+          const isOn = st?.state === 'on';
+          const isToggle = ['light', 'switch'].includes(t.entity_id.split('.')[0]);
+          const div = document.createElement('div');
+          div.className = 'switch-pill' + (isOn ? ' on' : '');
+          div.onclick = () => isToggle ? toggleSwitch(t.entity_id) : openApp('smart-canvas');
+          div.innerHTML = \`
+            <div style="overflow:hidden; padding-right:6px;">
+              <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">\${t.icon} \${t.custom_label}</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">
+                \${st ? st.state : 'offline'} \${st?.attributes?.unit_of_measurement || ''}
+                \${subSt ? (' • ' + subSt.state + ' ' + (subSt.attributes?.unit_of_measurement || '')) : ''}
+              </div>
+            </div>
+            <span class="badge" style="color:\${isOn ? '#facc15' : '#94a3b8'};">\${isToggle ? (isOn ? 'ON' : 'OFF') : 'VIEW'}</span>
+          \`;
+          swGrid.appendChild(div);
+        });
+      }
     }
 
     async function saveHaConfig() {
@@ -514,7 +678,7 @@ function renderHubHtml(ingressPath: string): string {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ haUrl, haToken })
       });
-      await loadDashboard();
+      await loadCommandCenter();
     }
 
     async function saveGoogleConfig() {
@@ -526,20 +690,17 @@ function renderHubHtml(ingressPath: string): string {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, clientSecret, redirectUri })
       });
-      await loadDashboard();
+      await loadCommandCenter();
     }
 
     async function startGoogleOAuth() {
       const res = await fetch(base + '/api/system/google/auth-url');
       const data = await res.json();
-      if (data.url) {
-        window.open(data.url, '_blank');
-      } else {
-        alert(data.error || 'Configure Client ID & Secret first');
-      }
+      if (data.url) window.open(data.url, '_blank');
+      else alert(data.error || 'Configure Client ID & Secret first');
     }
 
-    loadDashboard();
+    loadCommandCenter();
   </script>
 </body>
 </html>`;
@@ -563,7 +724,6 @@ async function handleAppApiRequest(
     }
   }
 
-  // 1. Built-in SQLite & CSV Analysis Endpoints (`/_db/*`)
   if (subRoute === '/_db/tables' && method === 'GET') {
     return sendJson(res, 200, { tables: app.db.listTables() });
   }
@@ -602,7 +762,6 @@ async function handleAppApiRequest(
     }
   }
 
-  // 2. Built-in Home Assistant Bridge Endpoints (`/_ha/*`)
   if (subRoute === '/_ha/status' && method === 'GET') {
     return sendJson(res, 200, await app.ha.getStatus());
   }
@@ -611,7 +770,11 @@ async function handleAppApiRequest(
     return sendJson(res, 200, { states });
   }
   if (subRoute === '/_ha/service' && method === 'POST') {
-    const body = parsedBody as { domain: string; service: string; serviceData?: Record<string, unknown> };
+    const body = parsedBody as {
+      domain: string;
+      service: string;
+      serviceData?: Record<string, unknown>;
+    };
     const result = await app.ha.callService(body.domain, body.service, body.serviceData || {});
     return sendJson(res, 200, { result });
   }
@@ -625,7 +788,6 @@ async function handleAppApiRequest(
     return sendJson(res, 200, result);
   }
 
-  // 3. Built-in Background Cron Job Endpoints (`/_jobs/*`)
   if (subRoute === '/_jobs' && method === 'GET') {
     return sendJson(res, 200, { jobs: scheduler.listJobs(app.manifest.id) });
   }
@@ -635,7 +797,6 @@ async function handleAppApiRequest(
     return sendJson(res, 200, { job });
   }
 
-  // 4. Built-in Shared Google OAuth Endpoints (`/_google/*`)
   if (subRoute === '/_google/status' && method === 'GET') {
     return sendJson(res, 200, googleOAuth.getStatus());
   }
@@ -644,7 +805,6 @@ async function handleAppApiRequest(
     return sendJson(res, 200, { events });
   }
 
-  // 5. Custom App Route Handler (`ctx.route(...)`)
   const handler = app.routes.get(`${method} ${subRoute}`);
   if (!handler) {
     return sendJson(res, 404, {
@@ -702,7 +862,6 @@ async function startServer() {
       const queryObj = Object.fromEntries(parsedUrl.searchParams.entries());
       const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
 
-      // System API routes (`/api/system/*`)
       if (pathname === '/api/system/status' && req.method === 'GET') {
         const ha = await systemHaBridge.getStatus();
         const google = googleOAuth.getStatus();
@@ -711,10 +870,17 @@ async function startServer() {
           source: a.source,
           updatedAt: a.updatedAt,
         }));
+        const summaries = {
+          health: sharedDb.kvGet('google_health_today') || null,
+          meals: sharedDb.kvGet('meal_planner_today') || null,
+          calendar: sharedDb.kvGet('google_calendar_today') || null,
+          finance: sharedDb.kvGet('finance_summary') || null,
+        };
         return sendJson(res, 200, {
           ha,
           google,
           apps,
+          summaries,
           jobs: scheduler.listJobs(),
           standaloneAppId: STANDALONE_APP_ID || null,
         });
@@ -728,7 +894,8 @@ async function startServer() {
         const current = sharedDb.kvGet<{ haUrl?: string; haToken?: string }>('ha_connection') || {};
         sharedDb.kvSet('ha_connection', {
           haUrl: body.haUrl || current.haUrl || 'http://192.168.188.92:8123',
-          haToken: body.haToken !== undefined && body.haToken !== '' ? body.haToken : current.haToken,
+          haToken:
+            body.haToken !== undefined && body.haToken !== '' ? body.haToken : current.haToken,
         });
         return sendJson(res, 200, await systemHaBridge.getStatus());
       }
@@ -749,16 +916,17 @@ async function startServer() {
         }
         await googleOAuth.exchangeCode(queryObj.code);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<h2>✅ Google Account Connected to Thassi Hub!</h2><p>You can close this tab now.</p>');
+        res.end(
+          '<h2>✅ Google Account Connected to Thassi Dashboard!</h2><p>You can close this tab now.</p>'
+        );
         return;
       }
 
-      // Hot-Deploy endpoint (`POST /api/system/deploy`) called by `npm run deploy <app>`
       if (pathname === '/api/system/deploy' && req.method === 'POST') {
         const payload = JSON.parse(await readRequestBody(req)) as {
           manifest: ThassiAppManifest;
           backendCode: string;
-          frontendFiles: Record<string, string>; // relativePath -> base64 content
+          frontendFiles: Record<string, string>;
         };
 
         if (!payload?.manifest?.id) {
@@ -798,7 +966,6 @@ async function startServer() {
         });
       }
 
-      // App API routes (`/api/apps/<appId>/*`)
       const appApiMatch = pathname.match(/^\/api\/apps\/([^/]+)(\/.*)?$/);
       if (appApiMatch) {
         const appId = decodeURIComponent(appApiMatch[1]);
@@ -811,7 +978,6 @@ async function startServer() {
         return;
       }
 
-      // App Frontend routes (`/apps/<appId>/*`)
       const appUiMatch = pathname.match(/^\/apps\/([^/]+)(?:\/(.*))?$/);
       if (appUiMatch) {
         const appId = decodeURIComponent(appUiMatch[1]);
@@ -826,17 +992,15 @@ async function startServer() {
         return;
       }
 
-      // If running as a standalone exported Home Assistant Add-on, serve that app directly at `/`
       if (STANDALONE_APP_ID && loadedApps.has(STANDALONE_APP_ID)) {
         const standaloneApp = loadedApps.get(STANDALONE_APP_ID)!;
         serveAppStaticFile(req, res, standaloneApp, pathname, '');
         return;
       }
 
-      // Root `/` renders the Thassi App Launcher & Control Center UI
       if (pathname === '/' || pathname === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderHubHtml(ingressPath));
+        res.end(renderUnifiedDashboardHtml(ingressPath));
         return;
       }
 
@@ -851,8 +1015,10 @@ async function startServer() {
   });
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Thassi] Server listening on http://0.0.0.0:${PORT}`);
-    console.log(`[Thassi] Installed apps (${loadedApps.size}): ${Array.from(loadedApps.keys()).join(', ')}`);
+    console.log(`[Thassi] Unified Dashboard listening on http://0.0.0.0:${PORT}`);
+    console.log(
+      `[Thassi] Installed services (${loadedApps.size}): ${Array.from(loadedApps.keys()).join(', ')}`
+    );
   });
 }
 

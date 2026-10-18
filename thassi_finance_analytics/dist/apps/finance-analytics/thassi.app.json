@@ -1,8 +1,0 @@
-{
-  "id": "finance-analytics",
-  "name": "Finance & Budget",
-  "version": "1.0.1",
-  "description": "Personal finance & bank CSV export analyzer with auto-categorization, monthly cashflow & savings rate tracking, budget targets, and Home Assistant finance sensors.",
-  "icon": "mdi:finance",
-  "category": "finance"
-}

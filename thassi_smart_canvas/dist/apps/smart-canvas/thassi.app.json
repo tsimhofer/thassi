@@ -1,8 +1,0 @@
-{
-  "id": "smart-canvas",
-  "name": "Smart Control Canvas",
-  "version": "1.0.1",
-  "description": "Dynamic drag-and-drop & freeform 2D spatial control panel for rearranging Home Assistant lights, Shelly switches, power meters, and sensors.",
-  "icon": "mdi:view-dashboard-edit",
-  "category": "automation"
-}

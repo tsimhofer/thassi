@@ -718,10 +718,16 @@ function loadDotEnv() {
 }
 loadDotEnv();
 var PORT = Number(process.env.PORT || 8099);
-var DATA_DIR = path2.resolve(process.env.THASSI_DATA_DIR || (fs2.existsSync("/data") ? "/data" : "./data"));
+var DATA_DIR = path2.resolve(
+  process.env.THASSI_DATA_DIR || (fs2.existsSync("/data") ? "/data" : "./data")
+);
 var STANDALONE_APP_ID = process.env.THASSI_STANDALONE_APP || "";
 fs2.mkdirSync(path2.join(DATA_DIR, "apps"), { recursive: true });
 fs2.mkdirSync(path2.join(DATA_DIR, "deployed_apps"), { recursive: true });
+var legacyStarterDir = path2.join(DATA_DIR, "deployed_apps", "data-workbench");
+if (fs2.existsSync(legacyStarterDir)) {
+  fs2.rmSync(legacyStarterDir, { recursive: true, force: true });
+}
 var sharedDb = new ThassiAppDatabase(path2.join(DATA_DIR, "shared.db"));
 var scheduler = new ThassiCronScheduler();
 var googleOAuth = new ThassiGoogleOAuthManager(sharedDb);
@@ -732,6 +738,7 @@ async function loadAppFromDirectory(appDir, source) {
   if (!fs2.existsSync(manifestPath)) return;
   const manifest = JSON.parse(fs2.readFileSync(manifestPath, "utf-8"));
   const appId = manifest.id;
+  if (appId === "data-workbench") return;
   scheduler.clearAppJobs(appId);
   const existing = loadedApps.get(appId);
   const appDb = existing?.db || new ThassiAppDatabase(path2.join(DATA_DIR, "apps", `${appId}.db`));
@@ -780,7 +787,7 @@ async function discoverAllApps() {
   for (const baseDir of candidateBuiltInDirs) {
     if (!fs2.existsSync(baseDir)) continue;
     for (const entry of fs2.readdirSync(baseDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && entry.name !== "data-workbench") {
         const appDir = path2.join(baseDir, entry.name);
         if (!loadedApps.has(entry.name)) {
           try {
@@ -795,7 +802,7 @@ async function discoverAllApps() {
   const deployedBase = path2.join(DATA_DIR, "deployed_apps");
   if (fs2.existsSync(deployedBase)) {
     for (const entry of fs2.readdirSync(deployedBase, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && entry.name !== "data-workbench") {
         try {
           await loadAppFromDirectory(path2.join(deployedBase, entry.name), "hot-deployed");
         } catch (err) {
@@ -860,13 +867,13 @@ function serveAppStaticFile(req, res, app, subPath, mountPrefix = "") {
   res.writeHead(200, { "Content-Type": mime });
   fs2.createReadStream(filePath).pipe(res);
 }
-function renderHubHtml(ingressPath) {
+function renderUnifiedDashboardHtml(ingressPath) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thassi Personal App Hub</title>
+  <title>Thassi Unified Dashboard</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -889,24 +896,31 @@ function renderHubHtml(ingressPath) {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 14px 24px;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px 20px;
       background: #0f172a;
       border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      font-weight: 700;
-      font-size: 18px;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 17px;
       color: var(--accent);
+      cursor: pointer;
     }
     .nav-tabs {
       display: flex;
-      gap: 8px;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .btn {
-      padding: 8px 14px;
+      padding: 7px 13px;
       border-radius: 8px;
       border: 1px solid var(--border);
       background: var(--card);
@@ -914,37 +928,75 @@ function renderHubHtml(ingressPath) {
       font-weight: 600;
       cursor: pointer;
       font-size: 13px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      border-color: var(--accent);
     }
     .btn.active, .btn.primary {
       background: var(--accent-dark);
       border-color: var(--accent);
+      color: #fff;
     }
     .container {
-      max-width: 1200px;
+      max-width: 1320px;
       margin: 0 auto;
       padding: 24px;
     }
-    .grid {
+    .hero-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
       gap: 18px;
+      margin-bottom: 24px;
     }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
     .badge {
       display: inline-block;
-      padding: 2px 8px;
+      padding: 3px 9px;
       border-radius: 99px;
       font-size: 11px;
+      font-weight: 700;
       background: #0f172a;
       color: var(--accent);
       border: 1px solid var(--border);
     }
-    input, textarea {
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #0f172a;
+      font-size: 13px;
+    }
+    .switch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .switch-pill {
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.15s;
+    }
+    .switch-pill.on {
+      border-color: #facc15;
+      background: linear-gradient(135deg, rgba(250,204,21,0.16) 0%, #0f172a 100%);
+    }
+    input {
       width: 100%;
       padding: 8px 12px;
       border-radius: 6px;
@@ -961,7 +1013,7 @@ function renderHubHtml(ingressPath) {
     }
     #app-iframe-container {
       display: none;
-      height: calc(100vh - 59px);
+      height: calc(100vh - 57px);
       width: 100%;
     }
     iframe {
@@ -969,25 +1021,22 @@ function renderHubHtml(ingressPath) {
       height: 100%;
       border: none;
     }
-    code {
-      background: #0f172a;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #7dd3fc;
-    }
   </style>
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">
-      <span>\u26A1 Thassi Personal App Hub</span>
-      <span id="ha-pill" class="badge">Checking HA...</span>
+    <div class="brand" onclick="switchView('overview')">
+      <span>\u26A1 Thassi Command Center</span>
+      <span id="ha-pill" class="badge">Connecting...</span>
     </div>
     <div class="nav-tabs">
-      <button class="btn active" id="tab-apps" onclick="switchView('apps')">\u{1F680} Installed WebApps</button>
-      <button class="btn" id="tab-integrations" onclick="switchView('integrations')">\u{1F510} HA & Google OAuth Vault</button>
-      <button class="btn" id="tab-workflow" onclick="switchView('workflow')">\u{1F6E0}\uFE0F CLI & Git Add-on Workflow</button>
+      <button class="btn active" id="nav-overview" onclick="switchView('overview')">\u{1F3E0} Unified Overview</button>
+      <button class="btn" id="nav-smart-canvas" onclick="openApp('smart-canvas')">\u{1F39B}\uFE0F Smart Canvas</button>
+      <button class="btn" id="nav-google-health" onclick="openApp('google-health')">\u2764\uFE0F Health &amp; Readiness</button>
+      <button class="btn" id="nav-meal-planner" onclick="openApp('meal-planner')">\u{1F372} Meal Planner</button>
+      <button class="btn" id="nav-google-calendar" onclick="openApp('google-calendar')">\u{1F4C5} Google Calendar</button>
+      <button class="btn" id="nav-finance-analytics" onclick="openApp('finance-analytics')">\u{1F4B6} Finance &amp; Budget</button>
+      <button class="btn" id="nav-settings" onclick="switchView('settings')">\u{1F510} OAuth &amp; Settings</button>
     </div>
   </div>
 
@@ -996,71 +1045,124 @@ function renderHubHtml(ingressPath) {
   </div>
 
   <div class="container" id="main-container">
-    <div id="view-apps">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <div>
-          <h2 style="margin:0;">Your Installed WebApps</h2>
-          <p style="margin:4px 0 0; color:var(--muted); font-size:14px;">
-            Launch any app below inside Home Assistant, or deploy new apps in &lt;1s with <code>npm run deploy &lt;app&gt;</code>.
-          </p>
+    <div id="view-overview">
+      <!-- Section 1: Smart Home Quick Switches & Room Climate -->
+      <div class="card" style="margin-bottom: 22px; border-top: 3px solid #facc15;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="margin:0; font-size:18px; color:#facc15;">\u{1F39B}\uFE0F Smart Home Quick Controls &amp; Room Climate</h3>
+            <p style="margin:4px 0 0; font-size:13px; color:var(--muted);">
+              Click any light or Shelly switch below to toggle immediately, or open the full drag-and-drop canvas.
+            </p>
+          </div>
+          <button class="btn primary" onclick="openApp('smart-canvas')">Open Full Smart Canvas \u2192</button>
+        </div>
+        <div class="switch-grid" id="quick-switches"></div>
+      </div>
+
+      <!-- Section 2: 4 Personal Life & Data Pillars -->
+      <div class="hero-grid">
+        <!-- Pillar 1: Google Health & Readiness -->
+        <div class="card" style="border-top: 3px solid #4ade80;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#4ade80; font-weight:700;">\u2764\uFE0F Google Health &amp; Readiness</span>
+              <span class="badge" id="health-status-badge">Peak Recovery</span>
+            </div>
+            <div style="font-size:32px; font-weight:800; color:#4ade80; margin-bottom:12px;" id="health-score-val">--/100</div>
+            <div class="metric-row"><span>\u{1F45F} Daily Steps</span><strong id="health-steps-val">--</strong></div>
+            <div class="metric-row"><span>\u2764\uFE0F Current Heart Rate</span><strong id="health-hr-val">-- bpm</strong></div>
+            <div class="metric-row"><span>\u{1F319} Resting Heart Rate</span><strong id="health-rhr-val">-- bpm</strong></div>
+            <div class="metric-row"><span>\u231A Pixel Watch / Weight</span><strong id="health-watch-val">--</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('google-health')">
+            Open Health &amp; Workouts \u2192
+          </button>
+        </div>
+
+        <!-- Pillar 2: Meal Planner & Nutrition -->
+        <div class="card" style="border-top: 3px solid #fb923c;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#fb923c; font-weight:700;">\u{1F372} Meal Planner &amp; Macros</span>
+              <span class="badge" id="meal-kcal-badge">-- kcal</span>
+            </div>
+            <div style="font-size:18px; font-weight:700; color:#f8fafc; margin-bottom:12px;" id="meal-dinner-val">Loading...</div>
+            <div class="metric-row"><span>\u{1F305} Breakfast</span><strong id="meal-breakfast-val">--</strong></div>
+            <div class="metric-row"><span>\u2600\uFE0F Lunch</span><strong id="meal-lunch-val">--</strong></div>
+            <div class="metric-row"><span>\u{1F4AA} Daily Protein</span><strong id="meal-protein-val">-- g</strong></div>
+            <div class="metric-row"><span>\u{1F6D2} Open Groceries</span><strong id="meal-groceries-val">0 items</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('meal-planner')">
+            Open Weekly Meal Planner \u2192
+          </button>
+        </div>
+
+        <!-- Pillar 3: Google Calendar & Schedule -->
+        <div class="card" style="border-top: 3px solid #38bdf8;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#38bdf8; font-weight:700;">\u{1F4C5} Google Calendar &amp; Time</span>
+              <span class="badge" id="cal-count-badge">-- events today</span>
+            </div>
+            <div style="font-size:18px; font-weight:700; color:#f8fafc; margin-bottom:12px;" id="cal-next-val">Loading...</div>
+            <div class="metric-row"><span>\u23F1\uFE0F Busy Hours Today</span><strong id="cal-hours-val">-- h</strong></div>
+            <div class="metric-row"><span>\u{1F5D3}\uFE0F Next Event Start</span><strong id="cal-start-val">--</strong></div>
+            <div class="metric-row"><span>\u{1F517} Sync Status</span><strong style="color:#4ade80;">Active (15m Cron)</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('google-calendar')">
+            Open Calendar &amp; Analytics \u2192
+          </button>
+        </div>
+
+        <!-- Pillar 4: Finance & Budget -->
+        <div class="card" style="border-top: 3px solid #a855f7;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:12px; text-transform:uppercase; color:#a855f7; font-weight:700;">\u{1F4B6} Finance &amp; Cashflow</span>
+              <span class="badge" id="fin-rate-badge">--% Savings Rate</span>
+            </div>
+            <div style="font-size:28px; font-weight:800; color:#4ade80; margin-bottom:12px;" id="fin-net-val">+\u20AC--</div>
+            <div class="metric-row"><span>\u{1F4E5} Monthly Income</span><strong id="fin-inc-val" style="color:#4ade80;">+\u20AC--</strong></div>
+            <div class="metric-row"><span>\u{1F4E4} Living Expenses</span><strong id="fin-exp-val" style="color:#f43f5e;">-\u20AC--</strong></div>
+            <div class="metric-row"><span>\u{1F4C8} ETF Investments</span><strong id="fin-inv-val" style="color:#a855f7;">\u20AC--</strong></div>
+            <div class="metric-row"><span>\u{1F6D2} Grocery Spend</span><strong id="fin-groc-val">\u20AC--</strong></div>
+          </div>
+          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('finance-analytics')">
+            Open Finance &amp; CSV Analyzer \u2192
+          </button>
         </div>
       </div>
-      <div class="grid" id="apps-grid"></div>
     </div>
 
-    <div id="view-integrations" style="display:none;">
-      <div class="grid" style="grid-template-columns: 1fr 1fr;">
+    <div id="view-settings" style="display:none;">
+      <div class="hero-grid" style="grid-template-columns: 1fr 1fr;">
         <div class="card">
-          <h3 style="margin-top:0;">\u{1F3E0} Home Assistant Connection</h3>
-          <p id="ha-status-text" style="color:var(--muted); font-size:13px;"></p>
-          <p style="font-size:12px; color:var(--muted);">
-            When running as a Home Assistant Add-on, <code>SUPERVISOR_TOKEN</code> is injected automatically. For local dev or custom override, configure below:
-          </p>
-          <label>Home Assistant URL</label>
-          <input id="ha-url-input" placeholder="http://192.168.188.92:8123" />
-          <label>Long-Lived Access Token</label>
-          <input id="ha-token-input" type="password" placeholder="Paste HA Long-Lived Access Token" />
-          <button class="btn primary" onclick="saveHaConfig()">Save & Test HA Connection</button>
+          <div>
+            <h3 style="margin-top:0;">\u{1F3E0} Home Assistant Connection</h3>
+            <p id="ha-status-text" style="color:var(--muted); font-size:13px;"></p>
+            <label>Home Assistant URL</label>
+            <input id="ha-url-input" placeholder="http://192.168.188.92:8123" />
+            <label>Long-Lived Access Token (Optional override)</label>
+            <input id="ha-token-input" type="password" placeholder="Uses SUPERVISOR_TOKEN automatically in HA OS" />
+          </div>
+          <button class="btn primary" onclick="saveHaConfig()">Save &amp; Test HA Connection</button>
         </div>
 
         <div class="card">
-          <h3 style="margin-top:0;">\u{1F4C5} Shared Google OAuth2 Vault (Calendar & Health)</h3>
-          <p id="google-status-text" style="color:var(--muted); font-size:13px;"></p>
-          <label>Google OAuth Client ID</label>
-          <input id="google-client-id" placeholder="xxx.apps.googleusercontent.com" />
-          <label>Google OAuth Client Secret</label>
-          <input id="google-client-secret" type="password" placeholder="GOCSPX-..." />
-          <label>Redirect URI</label>
-          <input id="google-redirect-uri" placeholder="http://192.168.188.92:8099/api/system/google/callback" />
+          <div>
+            <h3 style="margin-top:0;">\u{1F4C5} Shared Google OAuth2 Vault (Calendar &amp; Health)</h3>
+            <p id="google-status-text" style="color:var(--muted); font-size:13px;"></p>
+            <label>Google OAuth Client ID</label>
+            <input id="google-client-id" placeholder="xxx.apps.googleusercontent.com" />
+            <label>Google OAuth Client Secret</label>
+            <input id="google-client-secret" type="password" placeholder="GOCSPX-..." />
+            <label>Redirect URI</label>
+            <input id="google-redirect-uri" placeholder="http://192.168.188.92:8099/api/system/google/callback" />
+          </div>
           <div style="display:flex; gap:8px;">
             <button class="btn primary" onclick="saveGoogleConfig()">Save Credentials</button>
             <button class="btn" onclick="startGoogleOAuth()">Authorize with Google \u2197</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="view-workflow" style="display:none;">
-      <div class="card">
-        <h3 style="margin-top:0;">\u{1F6E0}\uFE0F Thassi Developer & Deployment Commands</h3>
-        <p style="color:var(--muted); font-size:14px;">
-          Run these commands in your <code>c:\\Users\\thoma\\source\\repos\\thassi</code> repository:
-        </p>
-        <div style="display:grid; gap:12px; margin-top:16px;">
-          <div style="padding:12px; background:#0f172a; border-radius:8px; border:1px solid var(--border);">
-            <strong>1. Scaffold a New Full-Stack App (e.g. Meal Planner, Finance, Health, Notes)</strong>
-            <div style="margin-top:6px;"><code>npm.cmd run create -- meal-planner "Meal Planner"</code></div>
-          </div>
-          <div style="padding:12px; background:#0f172a; border-radius:8px; border:1px solid var(--border);">
-            <strong>2. Hot-Deploy an App to Running Thassi Hub in &lt;1 second (No Docker Rebuild!)</strong>
-            <div style="margin-top:6px;"><code>npm.cmd run deploy -- meal-planner</code></div>
-          </div>
-          <div style="padding:12px; background:#0f172a; border-radius:8px; border:1px solid var(--border);">
-            <strong>3. Export an App as a Standalone Home Assistant Add-on (Dedicated Sidebar Tab in Git Repo)</strong>
-            <div style="margin-top:6px;"><code>npm.cmd run export -- meal-planner</code></div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">
-              Generates a top-level <code>thassi_app_meal_planner/</code> folder with its own <code>config.yaml</code> &amp; <code>Dockerfile</code> so you can install it as an independent add-on from the HA Add-on Store.
-            </div>
           </div>
         </div>
       </div>
@@ -1069,15 +1171,22 @@ function renderHubHtml(ingressPath) {
 
   <script>
     const base = window.__THASSI_INGRESS_PATH__ ? window.__THASSI_INGRESS_PATH__.replace(/\\/+$/, '') : '';
+    const NAV_IDS = ['overview', 'smart-canvas', 'google-health', 'meal-planner', 'google-calendar', 'finance-analytics', 'settings'];
+
+    function setActiveNav(id) {
+      NAV_IDS.forEach(k => {
+        const el = document.getElementById('nav-' + k);
+        if (el) el.className = (k === id) ? 'btn active' : 'btn';
+      });
+    }
 
     function switchView(view) {
       document.getElementById('app-iframe-container').style.display = 'none';
       document.getElementById('main-container').style.display = 'block';
-      ['apps', 'integrations', 'workflow'].forEach(v => {
-        document.getElementById('view-' + v).style.display = (v === view) ? 'block' : 'none';
-        const btn = document.getElementById('tab-' + v);
-        if (btn) btn.className = (v === view) ? 'btn active' : 'btn';
-      });
+      document.getElementById('view-overview').style.display = (view === 'overview') ? 'block' : 'none';
+      document.getElementById('view-settings').style.display = (view === 'settings') ? 'block' : 'none';
+      setActiveNav(view);
+      if (view === 'overview') loadCommandCenter();
     }
 
     function openApp(appId) {
@@ -1086,49 +1195,103 @@ function renderHubHtml(ingressPath) {
       const frame = document.getElementById('app-frame');
       frame.src = base + '/apps/' + encodeURIComponent(appId) + '/';
       container.style.display = 'block';
-      ['apps', 'integrations', 'workflow'].forEach(v => {
-        const btn = document.getElementById('tab-' + v);
-        if (btn) btn.className = 'btn';
-      });
+      setActiveNav(appId);
     }
 
-    async function loadDashboard() {
-      const res = await fetch(base + '/api/system/status');
-      const data = await res.json();
+    async function toggleSwitch(entityId) {
+      await fetch(base + '/api/apps/smart-canvas/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_id: entityId })
+      });
+      await loadCommandCenter();
+    }
+
+    async function loadCommandCenter() {
+      const [sysRes, boardRes] = await Promise.all([
+        fetch(base + '/api/system/status'),
+        fetch(base + '/api/apps/smart-canvas/board').catch(() => null)
+      ]);
+      const data = await sysRes.json();
 
       const pill = document.getElementById('ha-pill');
-      pill.textContent = data.ha.connected ? ('HA Connected (' + data.ha.mode + ')') : 'HA Token Needed';
+      pill.textContent = data.ha.connected ? 'HA Connected' : 'HA Token Needed';
       pill.style.color = data.ha.connected ? '#4ade80' : '#facc15';
 
       document.getElementById('ha-status-text').textContent = data.ha.message || '';
       document.getElementById('ha-url-input').value = data.ha.haUrl || 'http://192.168.188.92:8123';
-
       document.getElementById('google-status-text').textContent = data.google.authorized
         ? '\u2705 Authorized with Google OAuth2'
         : (data.google.configured ? 'Credentials saved \u2014 click Authorize with Google' : 'Not configured yet');
-      if (data.google.redirectUri) {
-        document.getElementById('google-redirect-uri').value = data.google.redirectUri;
+
+      // Populate Health
+      const h = data.summaries?.health;
+      if (h) {
+        document.getElementById('health-score-val').textContent = h.readinessScore + '/100';
+        document.getElementById('health-status-badge').textContent = h.readinessStatus || 'Ready';
+        document.getElementById('health-steps-val').textContent = (h.steps || 0).toLocaleString() + ' / ' + (h.stepGoal || 10000).toLocaleString();
+        document.getElementById('health-hr-val').textContent = (h.currentHr || 68) + ' bpm';
+        document.getElementById('health-rhr-val').textContent = (h.restingHr || 56) + ' bpm';
+        document.getElementById('health-watch-val').textContent = (h.pixelWatchBattery !== null ? h.pixelWatchBattery + '% \u2022 ' : '') + (h.weightKg || 85.5) + ' kg';
       }
 
-      const grid = document.getElementById('apps-grid');
-      grid.innerHTML = '';
-      data.apps.forEach(app => {
-        const div = document.createElement('div');
-        div.className = 'card';
-        div.innerHTML = \`
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <span class="badge">\${app.source}</span>
-            <span style="font-size:12px; color:var(--muted);">v\${app.version}</span>
-          </div>
-          <h3 style="margin:0 0 8px 0; color:var(--accent);">\${app.name}</h3>
-          <p style="margin:0 0 16px 0; color:var(--muted); font-size:13px; line-height:1.4;">\${app.description}</p>
-          <div style="display:flex; gap:8px;">
-            <button class="btn primary" style="flex:1;" onclick="openApp('\${app.id}')">Launch App</button>
-            <a class="btn" href="\${base}/apps/\${encodeURIComponent(app.id)}/" target="_blank" style="text-decoration:none;">\u2197</a>
-          </div>
-        \`;
-        grid.appendChild(div);
-      });
+      // Populate Meals
+      const m = data.summaries?.meals;
+      if (m) {
+        document.getElementById('meal-kcal-badge').textContent = (m.totalCalories || 0) + ' kcal';
+        document.getElementById('meal-dinner-val').textContent = '\u{1F319} ' + (m.dinner || 'Unplanned');
+        document.getElementById('meal-breakfast-val').textContent = (m.breakfast || '\u2014').slice(0, 26);
+        document.getElementById('meal-lunch-val').textContent = (m.lunch || '\u2014').slice(0, 26);
+        document.getElementById('meal-protein-val').textContent = (m.totalProtein || 0) + 'g';
+        document.getElementById('meal-groceries-val').textContent = (m.openGroceries || 0) + ' items';
+      }
+
+      // Populate Calendar
+      const c = data.summaries?.calendar;
+      if (c) {
+        document.getElementById('cal-count-badge').textContent = (c.todayEventCount || 0) + ' events today';
+        document.getElementById('cal-next-val').textContent = c.nextEventTitle || 'None Scheduled';
+        document.getElementById('cal-hours-val').textContent = (c.busyHoursToday || 0) + ' h';
+        document.getElementById('cal-start-val').textContent = c.nextEventStart ? new Date(c.nextEventStart).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '\u2014';
+      }
+
+      // Populate Finance
+      const f = data.summaries?.finance;
+      if (f) {
+        document.getElementById('fin-rate-badge').textContent = (f.savingsRatePct || 0) + '% Savings Rate';
+        document.getElementById('fin-net-val').textContent = '+\u20AC' + Number(f.netCashflow || 0).toFixed(2);
+        document.getElementById('fin-inc-val').textContent = '+\u20AC' + Number(f.income || 0).toFixed(2);
+        document.getElementById('fin-exp-val').textContent = '-\u20AC' + Number(f.expenses || 0).toFixed(2);
+        document.getElementById('fin-inv-val').textContent = '\u20AC' + Number(f.investments || 0).toFixed(2);
+        document.getElementById('fin-groc-val').textContent = '\u20AC' + Number(f.grocerySpend || 0).toFixed(2);
+      }
+
+      // Populate Smart Home Quick Switches
+      if (boardRes && boardRes.ok) {
+        const board = await boardRes.json();
+        const swGrid = document.getElementById('quick-switches');
+        swGrid.innerHTML = '';
+        (board.tiles || []).slice(0, 10).forEach(t => {
+          const st = board.stateMap?.[t.entity_id];
+          const subSt = t.sub_entity_id ? board.stateMap?.[t.sub_entity_id] : null;
+          const isOn = st?.state === 'on';
+          const isToggle = ['light', 'switch'].includes(t.entity_id.split('.')[0]);
+          const div = document.createElement('div');
+          div.className = 'switch-pill' + (isOn ? ' on' : '');
+          div.onclick = () => isToggle ? toggleSwitch(t.entity_id) : openApp('smart-canvas');
+          div.innerHTML = \`
+            <div style="overflow:hidden; padding-right:6px;">
+              <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">\${t.icon} \${t.custom_label}</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">
+                \${st ? st.state : 'offline'} \${st?.attributes?.unit_of_measurement || ''}
+                \${subSt ? (' \u2022 ' + subSt.state + ' ' + (subSt.attributes?.unit_of_measurement || '')) : ''}
+              </div>
+            </div>
+            <span class="badge" style="color:\${isOn ? '#facc15' : '#94a3b8'};">\${isToggle ? (isOn ? 'ON' : 'OFF') : 'VIEW'}</span>
+          \`;
+          swGrid.appendChild(div);
+        });
+      }
     }
 
     async function saveHaConfig() {
@@ -1139,7 +1302,7 @@ function renderHubHtml(ingressPath) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ haUrl, haToken })
       });
-      await loadDashboard();
+      await loadCommandCenter();
     }
 
     async function saveGoogleConfig() {
@@ -1151,20 +1314,17 @@ function renderHubHtml(ingressPath) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, clientSecret, redirectUri })
       });
-      await loadDashboard();
+      await loadCommandCenter();
     }
 
     async function startGoogleOAuth() {
       const res = await fetch(base + '/api/system/google/auth-url');
       const data = await res.json();
-      if (data.url) {
-        window.open(data.url, '_blank');
-      } else {
-        alert(data.error || 'Configure Client ID & Secret first');
-      }
+      if (data.url) window.open(data.url, '_blank');
+      else alert(data.error || 'Configure Client ID & Secret first');
     }
 
-    loadDashboard();
+    loadCommandCenter();
   </script>
 </body>
 </html>`;
@@ -1302,10 +1462,17 @@ async function startServer() {
           source: a.source,
           updatedAt: a.updatedAt
         }));
+        const summaries = {
+          health: sharedDb.kvGet("google_health_today") || null,
+          meals: sharedDb.kvGet("meal_planner_today") || null,
+          calendar: sharedDb.kvGet("google_calendar_today") || null,
+          finance: sharedDb.kvGet("finance_summary") || null
+        };
         return sendJson(res, 200, {
           ha,
           google,
           apps,
+          summaries,
           jobs: scheduler.listJobs(),
           standaloneAppId: STANDALONE_APP_ID || null
         });
@@ -1333,7 +1500,9 @@ async function startServer() {
         }
         await googleOAuth.exchangeCode(queryObj.code);
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<h2>\u2705 Google Account Connected to Thassi Hub!</h2><p>You can close this tab now.</p>");
+        res.end(
+          "<h2>\u2705 Google Account Connected to Thassi Dashboard!</h2><p>You can close this tab now.</p>"
+        );
         return;
       }
       if (pathname === "/api/system/deploy" && req.method === "POST") {
@@ -1399,7 +1568,7 @@ async function startServer() {
       }
       if (pathname === "/" || pathname === "/index.html") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(renderHubHtml(ingressPath));
+        res.end(renderUnifiedDashboardHtml(ingressPath));
         return;
       }
       res.writeHead(404, { "Content-Type": "text/plain" });
@@ -1412,8 +1581,10 @@ async function startServer() {
     }
   });
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`[Thassi] Server listening on http://0.0.0.0:${PORT}`);
-    console.log(`[Thassi] Installed apps (${loadedApps.size}): ${Array.from(loadedApps.keys()).join(", ")}`);
+    console.log(`[Thassi] Unified Dashboard listening on http://0.0.0.0:${PORT}`);
+    console.log(
+      `[Thassi] Installed services (${loadedApps.size}): ${Array.from(loadedApps.keys()).join(", ")}`
+    );
   });
 }
 void startServer();
