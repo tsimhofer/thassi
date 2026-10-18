@@ -1,6 +1,18 @@
 {
   "Tasks": [
     {
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "Prompt": "F\u00FCge eine neue Modul Integration f\u00FCr Google Drive hinzu. Stelle eine Ordner \u00FCbersicht bereit, die \u00FCber einen quick access mit flyout f\u00FCr zuletzt ge\u00F6ffnete Ordner Dateien zum Download bereitstellt",
+      "RequestedBy": "Pixel 10",
+      "CurrentStage": "TestsPassed",
+      "ProgressPercent": 100,
+      "Status": "Completed",
+      "AddonSlug": "thassi_integration_google",
+      "IngressUrl": "/44ec3c40_thassi_integration_google",
+      "StartedAt": "2026-10-18T23:41:52.5294945+00:00",
+      "UpdatedAt": "2026-10-18T23:42:12.643+00:00"
+    },
+    {
       "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
       "Prompt": "F\u00FCge eine neue App zu meiner Home Assistant Installation hinzu die \u00FCber Google meine Notizen synchronisiert",
       "RequestedBy": "Pixel 10",
@@ -14,6 +26,214 @@
     }
   ],
   "Events": [
+    {
+      "EventId": "a86c1c4c-5d9f-4423-93ed-d2d2560d7ed8",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "TestsPassed",
+      "Severity": "Success",
+      "Title": "6/6 \u00B7 \u0022Integration Google\u0022 ist LIVE!",
+      "Message": "Container 44ec3c40_thassi_integration_google (v1.0.0) l\u00E4uft fehlerfrei auf Hass OS. Smoke-Tests bestanden!",
+      "ProgressPercent": 100,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:42:12.643+00:00",
+      "Metadata": {
+        "stageIndex": "6",
+        "ingressUrl": "/44ec3c40_thassi_integration_google",
+        "state": "started",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "EventId": "43bec0d1-7793-487f-afd0-065285003612",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "SmokeTestRunning",
+      "Severity": "Progress",
+      "Title": "6/6 \u00B7 Smoke- \u0026 Integrationstests",
+      "Message": "Pr\u00FCfe Container-State und Watchdog-Healthcheck f\u00FCr 44ec3c40_thassi_integration_google...",
+      "ProgressPercent": 94,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:42:11.122+00:00",
+      "Metadata": {
+        "stageIndex": "6"
+      }
+    },
+    {
+      "EventId": "fba5c034-69ec-46e9-a82e-4ed9660b717d",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "DockerBuildProgress",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Docker Build l\u00E4uft (8s)",
+      "Message": "Baue Image f\u00FCr Integration Google v1.0.0 auf Hass-PC...",
+      "ProgressPercent": 88,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:42:07.675+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "bf67f74c-478c-4169-97ad-26c34d7ec2d3",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "DockerBuildProgress",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Docker Build l\u00E4uft (5s)",
+      "Message": "Baue Image f\u00FCr Integration Google v1.0.0 auf Hass-PC...",
+      "ProgressPercent": 86,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:42:05.171+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "d2f2e9dc-6539-42f8-8e72-d7a7629d0d48",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "DockerBuildProgress",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Docker Build l\u00E4uft (3s)",
+      "Message": "Baue Image f\u00FCr Integration Google v1.0.0 auf Hass-PC...",
+      "ProgressPercent": 84,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:42:02.665+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "a64f67c5-58a2-4633-8b9f-2044d0098aeb",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "DockerBuildProgress",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Docker Build auf Hass-PC",
+      "Message": "Hass OS Supervisor baut Container 44ec3c40_thassi_integration_google (v1.0.0, amd64)...",
+      "ProgressPercent": 80,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:42:00.139+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "0ac73247-07fb-47e3-baf3-96108058eeb3",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "DeployingToHass",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Store Sync \u0026 Docker Build",
+      "Message": "Synchronisiere Add-on Store auf Hass-PC (192.168.188.92)...",
+      "ProgressPercent": 74,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:41:57.234+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "3c4df171-e4d3-4c9e-8339-a1d0381f712a",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "CodePushed",
+      "Severity": "Progress",
+      "Title": "4/6 \u00B7 Zu GitHub Cloud gepusht",
+      "Message": "Commit ed4a77b erfolgreich nach github.com/tsimhofer/thassi (main) \u00FCbertragen.",
+      "ProgressPercent": 64,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": "ed4a77b",
+      "Timestamp": "2026-10-18T23:41:57.23+00:00",
+      "Metadata": {
+        "stageIndex": "4"
+      }
+    },
+    {
+      "EventId": "bba553e2-c3c0-48f3-8f6f-c4929282fd55",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "CodeGenProgress",
+      "Severity": "Progress",
+      "Title": "3/6 \u00B7 Code \u0026 Dockerfile generiert",
+      "Message": "config.yaml, build.yaml, Dockerfile und /healthz Endpoint f\u00FCr Integration Google erstellt.",
+      "ProgressPercent": 48,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T23:41:54.439+00:00",
+      "Metadata": {
+        "stageIndex": "3",
+        "files": "config.yaml, build.yaml, Dockerfile, run.sh, server.mjs"
+      }
+    },
+    {
+      "EventId": "0df215d5-17cd-4edf-9fe2-d3baafcb2213",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "RepoCreated",
+      "Severity": "Progress",
+      "Title": "2/6 \u00B7 Add-on Modul initialisiert",
+      "Message": "Verzeichnis ./thassi_integration_google (v1.0.0) im Repository tsimhofer/thassi angelegt.",
+      "ProgressPercent": 32,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T23:41:54.428+00:00",
+      "Metadata": {
+        "stageIndex": "2",
+        "repoUrl": "https://github.com/tsimhofer/thassi",
+        "addonSlug": "44ec3c40_thassi_integration_google",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "EventId": "840d56f7-2e52-44be-90d2-103a03e0f624",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "PreflightChecked",
+      "Severity": "Info",
+      "Title": "1/6 \u00B7 Pre-Flight Checks OK",
+      "Message": "GitHub Auth OK \u00B7 Hass-PC (amd64, Supervisor 2026.10.2) bereit.",
+      "ProgressPercent": 18,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T23:41:54.413+00:00",
+      "Metadata": {
+        "stageIndex": "1",
+        "arch": "amd64",
+        "hassHost": "192.168.188.92"
+      }
+    },
+    {
+      "EventId": "7fd5822e-cf70-4859-9ed0-98980e80845a",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "TaskStarted",
+      "Severity": "Progress",
+      "Title": "0/6 \u00B7 Antigravity Pipeline gestartet",
+      "Message": "Starte Add-on-Erstellung \u0026 Hass-PC Deployment f\u00FCr \u0027thassi_integration_google\u0027...",
+      "ProgressPercent": 10,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T23:41:52.5379561+00:00",
+      "Metadata": {
+        "stageIndex": "1",
+        "prompt": "F\u00FCge eine neue Modul Integration f\u00FCr Google Drive hinzu. Stelle eine Ordner \u00FCbersicht bereit, die \u00FCber einen quick access mit flyout f\u00FCr zuletzt ge\u00F6ffnete Ordner Dateien zum Download bereitstellt",
+        "addonSlug": "thassi_integration_google"
+      }
+    },
+    {
+      "EventId": "550e64ac-9d6e-4c68-a751-81ccb6ae1a55",
+      "TaskId": "a315b0d5-b498-41aa-93e9-b2de35a16b2c",
+      "EventType": "VoiceCommandReceived",
+      "Severity": "Info",
+      "Title": "Sprachbefehl (Pixel 10)",
+      "Message": "\u0022F\u00FCge eine neue Modul Integration f\u00FCr Google Drive hinzu. Stelle eine Ordner \u00FCbersicht bereit, die \u00FCber einen quick access mit flyout f\u00FCr zuletzt ge\u00F6ffnete Ordner Dateien zum Download bereitstellt\u0022",
+      "ProgressPercent": 5,
+      "AddonSlug": "thassi_integration_google",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T23:41:52.5294945+00:00",
+      "Metadata": {
+        "stageIndex": "0",
+        "deviceName": "Pixel 10",
+        "rawTranscript": "F\u00FCge eine neue Modul Integration f\u00FCr Google Drive hinzu. Stelle eine Ordner \u00FCbersicht bereit, die \u00FCber einen quick access mit flyout f\u00FCr zuletzt ge\u00F6ffnete Ordner Dateien zum Download bereitstellt"
+      }
+    },
     {
       "EventId": "2726a702-d97f-4bbc-af90-b75d3d7dd08c",
       "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",

@@ -2460,18 +2460,28 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
           if (d.kind === 'camera') {
             const camLive = d.state === 'recording' || d.state === 'streaming';
+            const currentMode = (visionSummaryData?.cameraModes && visionSummaryData.cameraModes[d.entityId]) || 'Personen';
+            const modes = ['Personen', 'Fahrzeuge', 'Objekte', 'Kamera', 'Aktivit\xE4ten'];
             return \`
               <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
                 <div class="rf-dev-main">
                   <span class="rf-dev-label">\${d.label}</span>
                   <div class="rf-dev-right">
                     <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
-                      \${camLive ? 'Aktiv' : 'Standby / Re-Auth'}
+                      \${camLive ? 'Aktiv' : 'QR-Auth'}
                     </span>
                     <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
                       Abtasten
                     </button>
                   </div>
+                </div>
+                <div class="rf-effect-pills">
+                  \${modes
+                    .map(
+                      (m) =>
+                        \`<button class="rf-fx-pill \${currentMode === m ? 'active' : ''}" style="\${currentMode === m ? 'background:#38bdf8; color:#040711; font-weight:600;' : ''}" onclick="setCameraModeFromFlyout('\${d.entityId}', '\${m}')">\${m}</button>\`
+                    )
+                    .join('')}
                 </div>
               </div>
             \`;
@@ -2503,7 +2513,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
           ? \`
             <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
               <span style="font-size:11px; color:rgba(255,255,255,0.48);">
-                \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 36) : 'Zyklische Objekterkennung aktiv'}
+                \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 36) : 'Lokales COCO-SSD aktiv'}
               </span>
               <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('camera-vision', 'Camera Vision')">
                 Vision \xF6ffnen \u2192
@@ -2538,6 +2548,19 @@ function renderUnifiedDashboardHtml(ingressPath) {
         \${footerHtml}
       \`;
       flyout.style.display = 'flex';
+    }
+
+    async function setCameraModeFromFlyout(cameraId, mode) {
+      try {
+        await fetch(base + '/api/apps/camera-vision/camera-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ camera_id: cameraId, optimization_mode: mode }),
+        });
+        await loadRoomsQuickAccess();
+      } catch (e) {
+        console.error('Failed setting camera mode:', e);
+      }
     }
 
     async function triggerDeviceAction(entityId, action, extra) {
@@ -3078,7 +3101,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.0.8",
+          version: "1.0.9",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }

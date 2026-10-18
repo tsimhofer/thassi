@@ -39,6 +39,9 @@ async function buildHostServer(): Promise<void> {
     format: 'esm',
     outfile: path.join(HOST_DIST_DIR, 'server.mjs'),
     external: ['node:*'],
+    banner: {
+      js: "import { createRequire as __thassiCreateRequire } from 'node:module'; const require = __thassiCreateRequire(import.meta.url);",
+    },
     logLevel: 'warning',
   });
 }
@@ -70,6 +73,9 @@ async function buildSingleApp(appId: string): Promise<string> {
       format: 'esm',
       outfile: path.join(outAppDir, 'backend.mjs'),
       external: ['node:*'],
+      banner: {
+        js: "import { createRequire as __thassiCreateRequire } from 'node:module'; const require = __thassiCreateRequire(import.meta.url);",
+      },
       alias: {
         '@thassi/sdk': path.join(REPO_ROOT, 'packages/sdk/src/index.ts'),
       },

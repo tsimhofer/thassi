@@ -4,8 +4,21 @@ import { createAppClient } from '@thassi/sdk/client';
 
 const client = createAppClient('camera-vision');
 
+type OptimizationMode = 'Personen' | 'Fahrzeuge' | 'Objekte' | 'Kamera' | 'Aktivitäten';
+
+const MODES: OptimizationMode[] = ['Personen', 'Fahrzeuge', 'Objekte', 'Kamera', 'Aktivitäten'];
+
+const MODE_META: Record<OptimizationMode, { icon: string; desc: string; color: string }> = {
+  Personen: { icon: '👤', desc: 'Personenerkennung & Positions-Tracking', color: '#38bdf8' },
+  Fahrzeuge: { icon: '🚗', desc: 'Autos, LKW, Motorräder & Fahrräder', color: '#fbbf24' },
+  Objekte: { icon: '📦', desc: 'Alle 80 COCO-Objektklassen, Pakete & Tiere', color: '#a855f7' },
+  Kamera: { icon: '🎥', desc: 'Bildschärfe, Kontrast, Tag/Nacht & Sabotage-Check', color: '#4ade80' },
+  Aktivitäten: { icon: '🏃', desc: 'Pixel-Bewegungs-Delta + Zonen- & Objekt-Tracking', color: '#fb923c' },
+};
+
 interface DetectedObject {
   label: string;
+  rawClass?: string;
   confidence: number;
   count: number;
   details?: string;
@@ -20,7 +33,7 @@ interface CameraItem {
   lan_ip: string;
   enabled: number;
   sample_interval_sec: number;
-  target_classes_parsed: string[];
+  optimization_mode: OptimizationMode;
   last_sampled_at: string;
   last_status: string;
   last_error: string;
@@ -33,11 +46,23 @@ interface DetectionRecord {
   id: number;
   camera_id: string;
   camera_name: string;
+  optimization_mode: OptimizationMode;
   sampled_at: string;
   status: string;
   objects: DetectedObject[];
+  metrics?: {
+    luminancePct?: number;
+    contrastScore?: number;
+    sharpnessScore?: number;
+    lightingMode?: string;
+    occlusionAlert?: boolean;
+    motionPct?: number;
+    activeMotionZone?: string;
+  };
   total_objects: number;
   person_count: number;
+  vehicle_count: number;
+  motion_pct: number;
   scene_summary: string;
   engine_used: string;
   processing_ms: number;
@@ -49,12 +74,9 @@ interface DashboardPayload {
     cyclicEnabled: boolean;
     intervalSeconds: number;
     visionEngine: string;
-    geminiModel: string;
-    geminiApiKeyConfigured: boolean;
-    geminiApiKeyMasked: string;
     go2rtcUrl: string;
-    targetClasses: string[];
   };
+  optimizationModes: OptimizationMode[];
   go2rtc: {
     online: boolean;
     url: string;
@@ -69,8 +91,8 @@ function CameraVisionApp() {
   const [loading, setLoading] = useState(true);
   const [samplingId, setSamplingId] = useState<string | null>(null);
   const [editingCam, setEditingCam] = useState<CameraItem | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [intervalInput, setIntervalInput] = useState(300);
+  const [intervalInput, setIntervalInput] = useState(180);
+  const [testMode, setTestMode] = useState<OptimizationMode>('Personen');
   const [statusMsg, setStatusMsg] = useState('');
 
   async function refresh() {
@@ -91,9 +113,18 @@ function CameraVisionApp() {
     return () => clearInterval(timer);
   }, []);
 
+  async function setCameraOptimizationMode(cameraId: string, mode: OptimizationMode) {
+    setStatusMsg(`Optimierung für ${cameraId} auf „${mode}“ umgestellt.`);
+    await client.post('/camera-mode', {
+      camera_id: cameraId,
+      optimization_mode: mode,
+    });
+    await refresh();
+  }
+
   async function triggerSample(cameraId?: string) {
     setSamplingId(cameraId || 'ALL');
-    setStatusMsg('Kamerabild wird abgetastet & auf Objekte analysiert…');
+    setStatusMsg('Kamerabild wird lokal via COCO-SSD & Pixel-Analyse ausgewertet…');
     try {
       const res = await client.post<{ results: Array<{ error?: string; scene_summary?: string }> }>(
         '/sample-now',
@@ -101,11 +132,11 @@ function CameraVisionApp() {
       );
       const first = res.results?.[0];
       if (first?.error) {
-        setStatusMsg(`Hinweis: ${first.error}`);
+        setStatusMsg(`Status: ${first.error}`);
       } else if (first?.scene_summary) {
-        setStatusMsg(`Erkennung abgeschlossen: ${first.scene_summary}`);
+        setStatusMsg(`✅ ${first.scene_summary}`);
       } else {
-        setStatusMsg('Abtastung durchgeführt.');
+        setStatusMsg('Zyklische Abtastung ausgeführt.');
       }
       await refresh();
     } catch (e) {
@@ -119,7 +150,7 @@ function CameraVisionApp() {
     const file = e.target.files?.[0];
     if (!file) return;
     setSamplingId('UPLOAD');
-    setStatusMsg(`Analysiere Bild "${file.name}" mit Objekterkennungs-Pipeline…`);
+    setStatusMsg(`Analysiere „${file.name}“ lokal mit Profil „${testMode}“ (COCO-SSD)…`);
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -131,13 +162,12 @@ function CameraVisionApp() {
           processingMs: number;
         }>('/analyze-image', {
           camera_id: 'manual.snapshot',
-          camera_name: `Test-Bild (${file.name})`,
+          camera_name: `Test (${testMode}: ${file.name})`,
+          optimization_mode: testMode,
           image_base64: b64,
           mime_type: file.type || 'image/jpeg',
         });
-        setStatusMsg(
-          `✅ ${res.totalObjects} Objekte erkannt (${res.personCount} Personen) in ${res.processingMs}ms: ${res.sceneSummary}`
-        );
+        setStatusMsg(`✅ [${testMode}] in ${res.processingMs}ms: ${res.sceneSummary}`);
         await refresh();
       } catch (err) {
         setStatusMsg(`Analyse-Fehler: ${err instanceof Error ? err.message : String(err)}`);
@@ -160,18 +190,16 @@ function CameraVisionApp() {
   async function saveVisionConfig(cyclicEnabled: boolean) {
     await client.post('/config', {
       cyclicEnabled,
-      intervalSeconds: Number(intervalInput) || 300,
-      ...(apiKeyInput.trim() ? { geminiApiKey: apiKeyInput.trim() } : {}),
+      intervalSeconds: Number(intervalInput) || 180,
     });
-    setApiKeyInput('');
-    setStatusMsg('Zyklische Abtast-Konfiguration aktualisiert.');
+    setStatusMsg('Zyklische Abtast-Konfiguration gespeichert.');
     await refresh();
   }
 
   if (loading && !data) {
     return (
       <div style={{ padding: '48px', color: 'rgba(248,250,252,0.6)' }}>
-        Initialisiere Camera Vision & Netzwerk-Diagnose…
+        Lade lokale COCO-SSD Computer-Vision-Engine…
       </div>
     );
   }
@@ -197,7 +225,7 @@ function CameraVisionApp() {
           alignItems: 'flex-end',
           flexWrap: 'wrap',
           gap: '20px',
-          marginBottom: '32px',
+          marginBottom: '28px',
         }}
       >
         <div>
@@ -211,14 +239,14 @@ function CameraVisionApp() {
               marginBottom: '6px',
             }}
           >
-            THASSI VISION ENGINE · ZYKLISCHE OBJEKTERKENNung
+            THASSI LOCAL VISION ENGINE · COCO-SSD & PIXEL ANALYTICS
           </div>
-          <h1 style={{ margin: 0, fontSize: '32px', fontWeight: 200, letterSpacing: '-0.02em' }}>
-            Netzwerk-Kameras & Bildverarbeitung
+          <h1 style={{ margin: 0, fontSize: '30px', fontWeight: 200, letterSpacing: '-0.02em' }}>
+            Kamera-Abtastung & Objekterkennung
           </h1>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => triggerSample()}
             disabled={samplingId !== null}
@@ -236,9 +264,29 @@ function CameraVisionApp() {
             {samplingId === 'ALL' ? 'Abtastung läuft…' : '⟳ Alle aktiven Kameras jetzt abtasten'}
           </button>
 
+          <select
+            value={testMode}
+            onChange={(e) => setTestMode(e.target.value as OptimizationMode)}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: '#f8fafc',
+              border: 'none',
+              borderRadius: '99px',
+              padding: '10px 14px',
+              fontSize: '12px',
+              outline: 'none',
+            }}
+          >
+            {MODES.map((m) => (
+              <option key={m} value={m} style={{ background: '#080e20' }}>
+                Test-Profil: {m}
+              </option>
+            ))}
+          </select>
+
           <label
             style={{
-              background: 'rgba(255,255,255,0.07)',
+              background: 'rgba(255,255,255,0.08)',
               color: '#e2e8f0',
               borderRadius: '99px',
               padding: '10px 18px',
@@ -247,7 +295,7 @@ function CameraVisionApp() {
               cursor: 'pointer',
             }}
           >
-            📷 Test-Bild analysieren
+            📷 Bild lokal testen
             <input type="file" accept="image/*" onChange={handleFileUpload} style={{ display: 'none' }} />
           </label>
         </div>
@@ -256,7 +304,7 @@ function CameraVisionApp() {
       {statusMsg && (
         <div
           style={{
-            marginBottom: '24px',
+            marginBottom: '22px',
             padding: '12px 18px',
             borderRadius: '14px',
             background: 'rgba(56, 189, 248, 0.12)',
@@ -279,63 +327,68 @@ function CameraVisionApp() {
       >
         <div style={{ background: 'rgba(10,16,34,0.65)', padding: '18px 22px', borderRadius: '18px' }}>
           <div style={{ fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.45)' }}>
+            Lokale Objekterkennungs-Engine
+          </div>
+          <div style={{ fontSize: '19px', fontWeight: 500, marginTop: '6px', color: '#4ade80' }}>
+            COCO-SSD (lite_mobilenet_v2)
+          </div>
+          <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
+            100% lokal im Dienst · Keine Cloud-Kosten
+          </div>
+        </div>
+
+        <div style={{ background: 'rgba(10,16,34,0.65)', padding: '18px 22px', borderRadius: '18px' }}>
+          <div style={{ fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.45)' }}>
             Zyklischer Abtast-Dienst
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 500, marginTop: '6px', color: cfg?.cyclicEnabled ? '#4ade80' : '#fbbf24' }}>
-            {cfg?.cyclicEnabled ? `Aktiv (alle ${cfg?.intervalSeconds || 300}s)` : 'Pausiert'}
+          <div style={{ fontSize: '19px', fontWeight: 500, marginTop: '6px', color: cfg?.cyclicEnabled ? '#38bdf8' : '#fbbf24' }}>
+            {cfg?.cyclicEnabled ? `Aktiv (alle ${cfg?.intervalSeconds || 180}s)` : 'Pausiert'}
           </div>
           <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
-            Zielklassen: {(cfg?.targetClasses || []).join(', ')}
+            5 Optimierungs-Profile pro Kamera wählbar
           </div>
         </div>
 
         <div style={{ background: 'rgba(10,16,34,0.65)', padding: '18px 22px', borderRadius: '18px' }}>
           <div style={{ fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.45)' }}>
-            go2rtc Stream-Relay (192.168.188.92:1984)
+            Stream-Relay & HLS-Frame-Grabber
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 500, marginTop: '6px', color: data?.go2rtc?.online ? '#4ade80' : '#f87171' }}>
-            {data?.go2rtc?.online ? 'Verbunden (Port 1984 / 8554)' : 'Nicht erreichbar'}
-          </div>
-          <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
-            Streams: {Object.keys(data?.go2rtc?.streams || {}).join(', ') || 'Keine'}
-          </div>
-        </div>
-
-        <div style={{ background: 'rgba(10,16,34,0.65)', padding: '18px 22px', borderRadius: '18px' }}>
-          <div style={{ fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.45)' }}>
-            KI-Objekterkennungs-Engine
-          </div>
-          <div style={{ fontSize: '20px', fontWeight: 500, marginTop: '6px', color: cfg?.geminiApiKeyConfigured ? '#38bdf8' : '#fbbf24' }}>
-            {cfg?.geminiApiKeyConfigured ? `Gemini Vision (${cfg.geminiApiKeyMasked})` : 'API-Key fehlt'}
+          <div style={{ fontSize: '19px', fontWeight: 500, marginTop: '6px', color: data?.go2rtc?.online ? '#4ade80' : '#f87171' }}>
+            {data?.go2rtc?.online ? 'go2rtc (:1984 / :8554) bereit' : 'go2rtc offline'}
           </div>
           <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
-            Automatisches Modell-Routing aktiv
+            HA Proxy + HLS/RTSPS Einzelbild-Extraktion
           </div>
         </div>
       </div>
 
-      {/* DISCOVERED CAMERAS GRID */}
+      {/* DISCOVERED CAMERAS GRID WITH PER-CAMERA OPTIMIZATION MODE SELECTOR */}
       <h2 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'rgba(255,255,255,0.55)', marginBottom: '16px' }}>
-        Erkannte Kameras im Netzwerk & Home Assistant ({cams.length})
+        Kameras & Erkennungs-Optimierung pro Kamera ({cams.length})
       </h2>
 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(370px, 1fr))',
           gap: '18px',
           marginBottom: '40px',
         }}
       >
         {cams.map((cam) => {
           const isOnline = cam.last_status === 'online' || cam.ha_state === 'recording' || cam.ha_state === 'streaming';
+          const currentMode: OptimizationMode = MODES.includes(cam.optimization_mode)
+            ? cam.optimization_mode
+            : 'Personen';
+          const meta = MODE_META[currentMode];
+
           return (
             <div
               key={cam.id}
               style={{
-                background: 'rgba(10, 16, 34, 0.72)',
+                background: 'rgba(10, 16, 34, 0.74)',
                 backdropFilter: 'blur(20px)',
-                borderRadius: '20px',
+                borderRadius: '22px',
                 padding: '20px 22px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -364,14 +417,50 @@ function CameraVisionApp() {
                     {isOnline
                       ? 'Stream bereit'
                       : cam.lan_reachable_6668
-                        ? `LAN ${cam.lan_ip}:6668 aktiv · Tuya Re-Auth`
+                        ? `LAN ${cam.lan_ip}:6668 aktiv · Tuya QR-Auth`
                         : `HA: ${cam.ha_state}`}
                   </span>
                 </div>
 
                 <div style={{ fontSize: '18px', fontWeight: 500, color: '#fff' }}>{cam.name}</div>
-                <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.42)', fontFamily: 'monospace', marginTop: '2px' }}>
-                  {cam.id} {cam.stream_url ? `· ${cam.stream_url}` : ''}
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace', marginTop: '2px' }}>
+                  {cam.id}
+                </div>
+
+                {/* 5 OPTIMIZATION MODE PILLS PER CAMERA */}
+                <div style={{ marginTop: '14px' }}>
+                  <div style={{ fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.48)', marginBottom: '7px' }}>
+                    Erkennungs-Optimierung: <strong style={{ color: meta.color }}>{meta.icon} {currentMode}</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {MODES.map((m) => {
+                      const active = currentMode === m;
+                      const mInfo = MODE_META[m];
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => setCameraOptimizationMode(cam.id, m)}
+                          style={{
+                            border: 'none',
+                            borderRadius: '99px',
+                            padding: '5px 11px',
+                            fontSize: '11px',
+                            fontWeight: active ? 600 : 400,
+                            cursor: 'pointer',
+                            background: active ? mInfo.color : 'rgba(255,255,255,0.06)',
+                            color: active ? '#040711' : 'rgba(248,250,252,0.72)',
+                            transition: 'all 0.18s ease',
+                          }}
+                          title={mInfo.desc}
+                        >
+                          {mInfo.icon} {m}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '6px' }}>
+                    {meta.desc}
+                  </div>
                 </div>
 
                 {cam.last_error && (
@@ -379,8 +468,8 @@ function CameraVisionApp() {
                     style={{
                       marginTop: '10px',
                       fontSize: '11.5px',
-                      color: '#fca5a5',
-                      background: 'rgba(239, 68, 68, 0.09)',
+                      color: '#fcd34d',
+                      background: 'rgba(251, 191, 36, 0.08)',
                       padding: '8px 11px',
                       borderRadius: '10px',
                       lineHeight: 1.45,
@@ -391,9 +480,9 @@ function CameraVisionApp() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px' }}>
-                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
-                  {cam.enabled ? `Zyklisch alle ${cam.sample_interval_sec}s` : 'Zyklisch deaktiviert'}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px' }}>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.42)' }}>
+                  {cam.enabled ? `Zyklisch alle ${cam.sample_interval_sec}s` : 'Zyklisch pausiert'}
                 </span>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
@@ -408,7 +497,7 @@ function CameraVisionApp() {
                       cursor: 'pointer',
                     }}
                   >
-                    Stream / RTSP
+                    Einstellungen
                   </button>
                   <button
                     onClick={() => triggerSample(cam.id)}
@@ -433,7 +522,7 @@ function CameraVisionApp() {
         })}
       </div>
 
-      {/* EDIT CAMERA STREAM MODAL */}
+      {/* EDIT CAMERA MODAL */}
       {editingCam && (
         <div
           style={{
@@ -460,7 +549,7 @@ function CameraVisionApp() {
               gap: '14px',
             }}
           >
-            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 500 }}>Kamera-Stream konfigurieren</h3>
+            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 500 }}>Kamera konfigurieren</h3>
             <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>{editingCam.id}</div>
 
             <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
@@ -473,19 +562,25 @@ function CameraVisionApp() {
             </label>
 
             <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
-              Raum-Zuordnung
-              <input
-                value={editingCam.room}
-                onChange={(e) => setEditingCam({ ...editingCam, room: e.target.value })}
-                style={{ width: '100%', marginTop: '4px', padding: '9px 12px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.07)', color: '#fff' }}
-              />
+              Optimierungs-Profil
+              <select
+                value={editingCam.optimization_mode}
+                onChange={(e) => setEditingCam({ ...editingCam, optimization_mode: e.target.value as OptimizationMode })}
+                style={{ width: '100%', marginTop: '4px', padding: '9px 12px', borderRadius: '10px', border: 'none', background: '#111a33', color: '#fff' }}
+              >
+                {MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m} – {MODE_META[m].desc}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
-              Direkte RTSP / MJPEG / HTTP-Snapshot URL (optional, sonst via Home Assistant)
+              Optionale direkte Stream-/Snapshot-URL (sonst automatisch via Home Assistant)
               <input
                 value={editingCam.stream_url}
-                placeholder="z.B. rtsp://admin:pass@192.168.188.121:554/stream1"
+                placeholder="Leer lassen für Home Assistant Tuya/HLS Stream"
                 onChange={(e) => setEditingCam({ ...editingCam, stream_url: e.target.value })}
                 style={{ width: '100%', marginTop: '4px', padding: '9px 12px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.07)', color: '#fff' }}
               />
@@ -532,12 +627,12 @@ function CameraVisionApp() {
 
       {/* DETECTION LOG */}
       <h2 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'rgba(255,255,255,0.55)', marginBottom: '16px' }}>
-        Objekterkennungs-Protokoll ({dets.length})
+        Erkennungs- & Aktivitäts-Protokoll ({dets.length})
       </h2>
 
       {dets.length === 0 ? (
         <div style={{ background: 'rgba(10,16,34,0.5)', padding: '28px', borderRadius: '18px', color: 'rgba(255,255,255,0.5)', fontSize: '13.5px' }}>
-          Noch keine Kamerabilder ausgewertet. Klicke oben auf <strong>„📷 Test-Bild analysieren“</strong> oder authentifiziere die Tuya-Integration in Home Assistant neu, um Live-Kamerabilder abzutasten.
+          Noch keine Kamerabilder ausgewertet. Klicke oben auf <strong>„📷 Bild lokal testen“</strong> oder authentifiziere die Tuya-Integration in Home Assistant per QR-Code neu.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '40px' }}>
@@ -558,17 +653,30 @@ function CameraVisionApp() {
                 <img
                   src={`data:image/jpeg;base64,${d.snapshot_b64}`}
                   alt={d.camera_name}
-                  style={{ width: '120px', height: '78px', objectFit: 'cover', borderRadius: '10px' }}
+                  style={{ width: '124px', height: '82px', objectFit: 'cover', borderRadius: '10px' }}
                 />
               )}
               <div style={{ flex: 1, minWidth: '240px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 600, color: '#fff', fontSize: '15px' }}>{d.camera_name}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontWeight: 600, color: '#fff', fontSize: '15px' }}>{d.camera_name}</span>
+                    <span
+                      style={{
+                        fontSize: '10.5px',
+                        padding: '2px 8px',
+                        borderRadius: '99px',
+                        background: 'rgba(56,189,248,0.14)',
+                        color: '#38bdf8',
+                      }}
+                    >
+                      Profil: {d.optimization_mode || 'Objekte'}
+                    </span>
+                  </div>
                   <span style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.45)' }}>
                     {new Date(d.sampled_at).toLocaleString()} · {d.processing_ms}ms · {d.engine_used}
                   </span>
                 </div>
-                <div style={{ fontSize: '13.5px', color: 'rgba(255,255,255,0.85)', marginBottom: '8px' }}>
+                <div style={{ fontSize: '13.5px', color: 'rgba(255,255,255,0.88)', marginBottom: '8px' }}>
                   {d.scene_summary}
                 </div>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -583,46 +691,20 @@ function CameraVisionApp() {
                         color: '#7dd3fc',
                       }}
                     >
-                      {obj.count}× {obj.label} ({Math.round((obj.confidence || 0.9) * 100)}%)
+                      {obj.count}× {obj.label} ({Math.round((obj.confidence || 0.9) * 100)}%) {obj.details ? `· ${obj.details}` : ''}
                     </span>
                   ))}
+                  {d.metrics?.sharpnessScore != null && (
+                    <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '99px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}>
+                      Schärfe {d.metrics.sharpnessScore}% · Licht {d.metrics.luminancePct}% · Δ {d.motion_pct || 0}%
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
-
-      {/* SETTINGS FOOTER */}
-      <div style={{ background: 'rgba(10,16,34,0.55)', padding: '22px', borderRadius: '18px', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>Abtast-Zyklus (Sekunden)</div>
-          <input
-            type="number"
-            value={intervalInput}
-            onChange={(e) => setIntervalInput(Number(e.target.value))}
-            style={{ padding: '8px 12px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.07)', color: '#fff', width: '130px' }}
-          />
-        </div>
-        <div style={{ flex: 1, minWidth: '240px' }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>
-            Optionaler eigener Gemini Vision API-Key (überschreibt HA-Key)
-          </div>
-          <input
-            type="password"
-            placeholder={cfg?.geminiApiKeyMasked || 'AIza...'}
-            value={apiKeyInput}
-            onChange={(e) => setApiKeyInput(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.07)', color: '#fff', width: '100%' }}
-          />
-        </div>
-        <button
-          onClick={() => saveVisionConfig(cfg?.cyclicEnabled ?? true)}
-          style={{ background: '#38bdf8', color: '#040711', border: 'none', borderRadius: '10px', padding: '9px 18px', fontWeight: 600, cursor: 'pointer' }}
-        >
-          Konfiguration speichern
-        </button>
-      </div>
     </div>
   );
 }

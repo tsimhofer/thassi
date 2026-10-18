@@ -15,6 +15,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tensorflow-models/coco-ssd": "^2.2.3",
+    "@tensorflow/tfjs": "^4.22.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
