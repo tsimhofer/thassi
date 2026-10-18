@@ -1,0 +1,8 @@
+{
+  "id": "google-calendar",
+  "name": "Google Calendar & Time Analytics",
+  "version": "1.0.1",
+  "description": "Google Calendar OAuth2 & iCal (.ics) sync, SQLite event storage, time-allocation analytics, Meal Planner synergy, and Home Assistant next-event sensors.",
+  "icon": "mdi:calendar-clock",
+  "category": "calendar"
+}
