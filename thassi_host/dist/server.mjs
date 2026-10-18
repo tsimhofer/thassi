@@ -716,7 +716,8 @@ function getHassSidebarStylerScript() {
       'Google Health & Readiness': 'Health',
       'Finance & Budget': 'Finances',
       'Meal Planner': 'Meals',
-      'Smart Control Canvas': 'Smart Home'
+      'Smart Control Canvas': 'Smart Home',
+      'Camera Vision & Object Detection': 'Vision'
     };
 
     const ROOT_THEME_CSS = \`
@@ -1348,14 +1349,14 @@ function renderUnifiedDashboardHtml(ingressPath) {
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 0;
-      height: 34vh;
-      min-height: 245px;
+      bottom: 46px;
+      height: 31vh;
+      min-height: 220px;
       z-index: 20;
       background: linear-gradient(
         to top,
-        rgba(3, 6, 15, 0.90) 0%,
-        rgba(5, 10, 24, 0.62) 55%,
+        rgba(3, 6, 15, 0.88) 0%,
+        rgba(5, 10, 24, 0.58) 55%,
         rgba(5, 10, 24, 0.0) 100%
       );
       display: flex;
@@ -1406,8 +1407,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
     #timeline-viewport {
       position: relative;
       width: 100vw;
-      height: calc(34vh - 28px);
-      min-height: 215px;
+      height: calc(31vh - 28px);
+      min-height: 192px;
       overflow: hidden;
       cursor: grab;
     }
@@ -1605,6 +1606,217 @@ function renderUnifiedDashboardHtml(ingressPath) {
       width: 100%;
       border: none;
     }
+
+    /* 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR BELOW TIMELINE */
+    #room-dock-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 46px;
+      z-index: 28;
+      background: rgba(3, 6, 15, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4.2vw;
+      gap: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #room-dock-bar::-webkit-scrollbar { display: none; }
+
+    .room-dock-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .room-pill {
+      background: transparent;
+      border: none;
+      border-radius: 99px;
+      padding: 6px 13px;
+      color: rgba(248, 250, 252, 0.56);
+      font-family: var(--font-sans);
+      font-size: 11.5px;
+      font-weight: 400;
+      letter-spacing: 0.03em;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.22s ease, background 0.22s ease, transform 0.2s ease;
+    }
+    .room-pill:hover {
+      color: rgba(248, 250, 252, 0.92);
+      background: rgba(255, 255, 255, 0.045);
+    }
+    .room-pill.active-flyout {
+      color: #ffffff;
+      background: rgba(56, 189, 248, 0.13);
+    }
+    .room-pill.has-on {
+      color: rgba(248, 250, 252, 0.88);
+    }
+    .room-dot {
+      width: 5.5px;
+      height: 5.5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      transition: background 0.25s ease, box-shadow 0.25s ease;
+    }
+    .room-pill.has-on .room-dot {
+      background: #fbbf24;
+      box-shadow: 0 0 9px rgba(251, 191, 36, 0.85);
+    }
+    .room-pill.has-motion .room-dot {
+      background: #4ade80;
+      box-shadow: 0 0 9px rgba(74, 222, 128, 0.85);
+    }
+    .room-meta {
+      font-size: 10px;
+      color: rgba(248, 250, 252, 0.36);
+      font-variant-numeric: tabular-nums;
+    }
+    .room-pill.has-on .room-meta {
+      color: rgba(251, 191, 36, 0.78);
+    }
+
+    /* Upward Glassmorphic Room Flyout */
+    #room-flyout {
+      position: fixed;
+      bottom: 54px;
+      left: 4.2vw;
+      z-index: 45;
+      width: 340px;
+      max-width: 92vw;
+      background: rgba(6, 10, 22, 0.78);
+      backdrop-filter: blur(32px) saturate(150%);
+      -webkit-backdrop-filter: blur(32px) saturate(150%);
+      border-radius: 22px;
+      padding: 18px 20px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      animation: flyoutRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes flyoutRise {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .rf-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 4px;
+    }
+    .rf-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+    .rf-subtitle {
+      font-size: 11px;
+      color: rgba(248, 250, 252, 0.48);
+      font-variant-numeric: tabular-nums;
+    }
+    .rf-dev-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 44vh;
+      overflow-y: auto;
+    }
+    .rf-dev-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 9px 12px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.035);
+      transition: background 0.2s ease;
+    }
+    .rf-dev-row.is-on {
+      background: rgba(251, 191, 36, 0.09);
+    }
+    .rf-dev-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .rf-dev-label {
+      font-size: 12.5px;
+      font-weight: 400;
+      color: rgba(248, 250, 252, 0.88);
+    }
+    .rf-dev-row.is-on .rf-dev-label {
+      color: #ffffff;
+      font-weight: 500;
+    }
+    .rf-dev-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rf-power-badge {
+      font-size: 10.5px;
+      color: rgba(248, 250, 252, 0.45);
+      font-variant-numeric: tabular-nums;
+    }
+    .rf-toggle-btn {
+      border: none;
+      border-radius: 99px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(248, 250, 252, 0.65);
+    }
+    .rf-toggle-btn.on {
+      background: #fbbf24;
+      color: #040711;
+      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+    }
+    .rf-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 2px;
+    }
+    .rf-slider {
+      flex: 1;
+      accent-color: #38bdf8;
+      height: 4px;
+      cursor: pointer;
+    }
+    .rf-effect-pills {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }
+    .rf-fx-pill {
+      border: none;
+      border-radius: 99px;
+      padding: 2px 8px;
+      font-size: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+    }
+    .rf-fx-pill.active {
+      background: #a855f7;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -1765,6 +1977,17 @@ function renderUnifiedDashboardHtml(ingressPath) {
     </div>
   </div>
 
+  <!-- 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR & UPWARD FLYOUT -->
+  <div id="room-flyout" onclick="event.stopPropagation()"></div>
+  <div id="room-dock-bar">
+    <div class="room-dock-group" id="room-pills-container"></div>
+    <button class="room-pill" onclick="openFullService('camera-vision', 'Camera Vision')" title="Kamera-Objekterkennung & Streams \xF6ffnen">
+      <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
+      <span>Vision AI</span>
+      <span class="room-meta" id="vision-dock-meta">Zyklisch</span>
+    </button>
+  </div>
+
   <!-- FULL SERVICE OVERLAY (WHEN LAUNCHING FULL VIEW) -->
   <div id="full-app-overlay">
     <div id="full-app-bar">
@@ -1782,6 +2005,9 @@ function renderUnifiedDashboardHtml(ingressPath) {
     const NOW_ANCHOR_RATIO = 0.22;
 
     let calendarEvents = [];
+    let roomsData = [];
+    let visionSummaryData = null;
+    let activeRoomFlyoutId = null;
     let visibleHoursSpan = 24;
     let panOffsetMs = 0;
     let timelineBaseEpochMs = Date.now();
@@ -2098,7 +2324,280 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (!e.target.closest('.ambient-widget')) {
         document.querySelectorAll('.ambient-widget').forEach((w) => w.classList.remove('expanded'));
       }
+      if (!e.target.closest('#room-flyout') && !e.target.closest('.room-pill')) {
+        closeRoomFlyout();
+      }
     });
+
+    function closeRoomFlyout() {
+      activeRoomFlyoutId = null;
+      const flyout = document.getElementById('room-flyout');
+      if (flyout) flyout.style.display = 'none';
+      document.querySelectorAll('.room-pill').forEach((p) => p.classList.remove('active-flyout'));
+    }
+
+    function openRoomFlyout(roomId, ev) {
+      if (ev) ev.stopPropagation();
+      if (activeRoomFlyoutId === roomId) {
+        closeRoomFlyout();
+        return;
+      }
+      activeRoomFlyoutId = roomId;
+      renderRoomDockBar();
+
+      const flyout = document.getElementById('room-flyout');
+      const pillEl = document.getElementById('room-pill-' + roomId);
+      if (pillEl && flyout) {
+        const rect = pillEl.getBoundingClientRect();
+        const maxLeft = Math.max(16, window.innerWidth - 360);
+        const targetLeft = Math.min(maxLeft, Math.max(16, rect.left));
+        flyout.style.left = targetLeft + 'px';
+      }
+      renderActiveRoomFlyout();
+    }
+
+    function renderRoomDockBar() {
+      const container = document.getElementById('room-pills-container');
+      if (!container) return;
+
+      container.innerHTML = roomsData
+        .map((r) => {
+          const hasOn = r.activeCount > 0;
+          const hasMotion = Boolean(r.motionActive);
+          const isActive = activeRoomFlyoutId === r.id;
+
+          const metaParts = [];
+          if (r.tempC != null) metaParts.push(r.tempC.toFixed(1) + '\xB0');
+          if (r.activeCount > 0) metaParts.push(r.activeCount + ' an');
+          if (r.totalPowerW > 0.5) metaParts.push(Math.round(r.totalPowerW) + 'W');
+          if (hasMotion) metaParts.push('Bewegung');
+          if (r.id === 'kameras_vision') {
+            metaParts.push(
+              visionSummaryData?.lastTotalObjects
+                ? visionSummaryData.lastTotalObjects + ' Obj'
+                : r.devices.length + ' Cams'
+            );
+          }
+
+          return \`
+            <button id="room-pill-\${r.id}"
+                    class="room-pill \${hasOn ? 'has-on' : ''} \${hasMotion ? 'has-motion' : ''} \${isActive ? 'active-flyout' : ''}"
+                    onclick="openRoomFlyout('\${r.id}', event)">
+              <span class="room-dot"></span>
+              <span>\${r.name}</span>
+              \${metaParts.length > 0 ? \`<span class="room-meta">\${metaParts.join(' \xB7 ')}</span>\` : ''}
+            </button>
+          \`;
+        })
+        .join('');
+
+      const vMeta = document.getElementById('vision-dock-meta');
+      if (vMeta && visionSummaryData) {
+        vMeta.textContent = visionSummaryData.lastSceneSummary
+          ? (visionSummaryData.lastTotalObjects || 0) + ' Objekte'
+          : 'Zyklisch';
+      }
+    }
+
+    function renderActiveRoomFlyout() {
+      const flyout = document.getElementById('room-flyout');
+      if (!flyout || !activeRoomFlyoutId) return;
+      const room = roomsData.find((r) => r.id === activeRoomFlyoutId);
+      if (!room) {
+        closeRoomFlyout();
+        return;
+      }
+
+      const subParts = [];
+      if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + ' \xB0C');
+      if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
+      if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
+
+      const rowsHtml = room.devices
+        .map((d) => {
+          const pwr = d.powerW != null && d.powerW > 0 ? \`<span class="rf-power-badge">\${d.powerW.toFixed(1)} W</span>\` : '';
+
+          if (d.kind === 'toggle' || d.kind === 'rgbw') {
+            const extraRgbw =
+              d.kind === 'rgbw' && d.isOn
+                ? \`
+                  <div class="rf-slider-row">
+                    <span style="font-size:10px; color:rgba(255,255,255,0.45);">Dim</span>
+                    <input type="range" min="5" max="100" value="\${d.brightness || 80}" class="rf-slider"
+                           onchange="triggerDeviceAction('\${d.entityId}', 'brightness', { brightnessPct: Number(this.value) })" />
+                  </div>
+                  \${
+                    Array.isArray(d.effectList) && d.effectList.length > 0
+                      ? \`<div class="rf-effect-pills">
+                          \${d.effectList
+                            .map(
+                              (fx) =>
+                                \`<button class="rf-fx-pill \${d.effect === fx ? 'active' : ''}" onclick="triggerDeviceAction('\${d.entityId}', 'effect', { effect: '\${fx}' })">\${fx}</button>\`
+                            )
+                            .join('')}
+                        </div>\`
+                      : ''
+                  }
+                \`
+                : '';
+
+            return \`
+              <div class="rf-dev-row \${d.isOn ? 'is-on' : ''}">
+                <div class="rf-dev-main">
+                  <span class="rf-dev-label">\${d.label}</span>
+                  <div class="rf-dev-right">
+                    \${pwr}
+                    <button class="rf-toggle-btn \${d.isOn ? 'on' : ''}"
+                            onclick="triggerDeviceAction('\${d.entityId}', 'toggle')">
+                      \${d.isOn ? 'AN' : 'AUS'}
+                    </button>
+                  </div>
+                </div>
+                \${extraRgbw}
+              </div>
+            \`;
+          }
+
+          if (d.kind === 'camera') {
+            const camLive = d.state === 'recording' || d.state === 'streaming';
+            return \`
+              <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
+                <div class="rf-dev-main">
+                  <span class="rf-dev-label">\${d.label}</span>
+                  <div class="rf-dev-right">
+                    <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
+                      \${camLive ? 'Aktiv' : 'Standby / Re-Auth'}
+                    </span>
+                    <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
+                      Abtasten
+                    </button>
+                  </div>
+                </div>
+              </div>
+            \`;
+          }
+
+          // Sensor row
+          const formattedState =
+            d.state === 'on'
+              ? 'Bewegung erkannt'
+              : d.state === 'off'
+                ? 'Ruhig'
+                : d.state === 'unavailable'
+                  ? 'Offline'
+                  : \`\${d.state}\${d.unit ? ' ' + d.unit : ''}\`;
+
+          return \`
+            <div class="rf-dev-row">
+              <div class="rf-dev-main">
+                <span class="rf-dev-label">\${d.label}</span>
+                <span class="rf-power-badge" style="color:rgba(248,250,252,0.75);">\${formattedState}</span>
+              </div>
+            </div>
+          \`;
+        })
+        .join('');
+
+      const footerHtml =
+        room.id === 'kameras_vision'
+          ? \`
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
+              <span style="font-size:11px; color:rgba(255,255,255,0.48);">
+                \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 36) : 'Zyklische Objekterkennung aktiv'}
+              </span>
+              <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('camera-vision', 'Camera Vision')">
+                Vision \xF6ffnen \u2192
+              </button>
+            </div>
+          \`
+          : room.activeCount > 0
+            ? \`
+              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
+                <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="turnOffAllInRoom('\${room.id}')">
+                  Alle im Raum ausschalten
+                </button>
+                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
+                  Canvas \u2192
+                </button>
+              </div>
+            \`
+            : \`
+              <div style="display:flex; justify-content:flex-end; padding-top:4px;">
+                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
+                  Smart Canvas \u2192
+                </button>
+              </div>
+            \`;
+
+      flyout.innerHTML = \`
+        <div class="rf-header">
+          <span class="rf-title">\${room.name}</span>
+          <span class="rf-subtitle">\${subParts.join(' \xB7 ') || (room.activeCount + ' aktiv')}</span>
+        </div>
+        <div class="rf-dev-list">\${rowsHtml}</div>
+        \${footerHtml}
+      \`;
+      flyout.style.display = 'flex';
+    }
+
+    async function triggerDeviceAction(entityId, action, extra) {
+      try {
+        await fetch(base + '/api/system/device-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entityId, action, ...(extra || {}) }),
+        });
+        await loadRoomsQuickAccess();
+      } catch (e) {
+        console.error('Device action failed:', e);
+      }
+    }
+
+    async function turnOffAllInRoom(roomId) {
+      const room = roomsData.find((r) => r.id === roomId);
+      if (!room) return;
+      const activeDevs = room.devices.filter((d) => (d.kind === 'toggle' || d.kind === 'rgbw') && d.isOn);
+      await Promise.all(
+        activeDevs.map((d) =>
+          fetch(base + '/api/system/device-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entityId: d.entityId, action: 'turn_off' }),
+          })
+        )
+      );
+      await loadRoomsQuickAccess();
+    }
+
+    async function triggerQuickVisionSample(cameraId, btnEl) {
+      if (btnEl) btnEl.textContent = 'Pr\xFCfe\u2026';
+      try {
+        await fetch(base + '/api/apps/camera-vision/sample-now', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ camera_id: cameraId }),
+        });
+        await loadRoomsQuickAccess();
+      } finally {
+        if (btnEl) btnEl.textContent = 'Abtasten';
+      }
+    }
+
+    async function loadRoomsQuickAccess() {
+      try {
+        const res = await fetch(base + '/api/system/rooms');
+        if (!res.ok) return;
+        const data = await res.json();
+        roomsData = data.rooms || [];
+        visionSummaryData = data.visionSummary || null;
+        renderRoomDockBar();
+        if (activeRoomFlyoutId) {
+          renderActiveRoomFlyout();
+        }
+      } catch (e) {
+        console.error('Failed loading rooms quick access:', e);
+      }
+    }
 
     function openFullService(appId, title) {
       document.getElementById('full-app-title').textContent = title;
@@ -2165,6 +2664,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
     async function loadAllLiveData() {
       try {
+        void loadRoomsQuickAccess();
         const [sysRes, calRes] = await Promise.all([
           fetch(base + '/api/system/status'),
           fetch(base + '/api/apps/google-calendar/dashboard').catch(() => null)
@@ -2263,6 +2763,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     setInterval(loadAllLiveData, 60000);
+    setInterval(loadRoomsQuickAccess, 12000);
   </script>
 </body>
 </html>`;
@@ -2577,7 +3078,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.0.7",
+          version: "1.0.8",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
@@ -2641,6 +3142,147 @@ async function startServer() {
         fs3.createReadStream(apkPath).pipe(res);
         return;
       }
+      if (pathname === "/api/system/rooms" && req.method === "GET") {
+        const allStates = await systemHaBridge.getStates();
+        const sm = new Map(allStates.map((s) => [s.entity_id, s]));
+        const getVal = (id) => sm.get(id)?.state ?? "unavailable";
+        const getNum = (id) => {
+          const v = Number(sm.get(id)?.state);
+          return Number.isFinite(v) ? v : null;
+        };
+        const buildDev = (entityId, label, kind, powerEntityId) => {
+          const st = sm.get(entityId);
+          const state = st?.state ?? "unavailable";
+          const powerW = powerEntityId ? getNum(powerEntityId) : null;
+          const attrs = st?.attributes || {};
+          return {
+            entityId,
+            label,
+            kind,
+            state,
+            isOn: state === "on" || state === "recording" || state === "streaming" || state === "playing",
+            powerW,
+            brightness: typeof attrs.brightness === "number" ? Math.round(attrs.brightness / 255 * 100) : null,
+            effect: attrs.effect || null,
+            effectList: attrs.effect_list || null,
+            unit: attrs.unit_of_measurement || ""
+          };
+        };
+        const rooms = [
+          {
+            id: "buro_og",
+            name: "B\xFCro OG",
+            tempC: getNum("sensor.shellyhtg3_e4b32331dde0_temperatur"),
+            humidityPct: getNum("sensor.shellyhtg3_e4b32331dde0_luftfeuchtigkeit"),
+            devices: [
+              buildDev("light.buro_og_grosses_licht", "Gro\xDFes Licht", "toggle", "sensor.links_power"),
+              buildDev("switch.buro_og_regal_lichter", "Regal Lichter", "toggle", "sensor.shellyplugsg3_e4b063e4bfd8_power"),
+              buildDev("switch.buro_og_plug_90", "Schreibtisch Plug .90", "toggle", "sensor.kleines_licht_pumpe_power"),
+              buildDev("switch.buro_og_bewasserung_pumpe", "Bew\xE4sserung Pumpe", "toggle", "sensor.schalter_neu_power"),
+              buildDev("light.thomasbuero_2pm_oben_output_1", "Schalter Oben Rechts", "toggle", "sensor.thomasbuero_2pm_oben_switch_1_power")
+            ]
+          },
+          {
+            id: "wohnkuche",
+            name: "Wohnk\xFCche",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("switch.wohnkueche_bodenbeleuchtung_boden", "Bodenbeleuchtung", "toggle", "sensor.shelly_plus_2pm_a_switch_0_power"),
+              buildDev("switch.wohnkueche_fensterbank_licht", "Fensterbank Licht", "toggle", "sensor.bodenbeleuchtung_power"),
+              buildDev("media_player.tv_samsung_6_series_49", 'Samsung TV (49")', "sensor")
+            ]
+          },
+          {
+            id: "vorzimmer_og",
+            name: "Vorzimmer OG",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("switch.vorzimmer_og_grosses_licht", "Gro\xDFes Licht", "toggle"),
+              buildDev("light.vorzimmer_og_bodenbeleuchtung_led", "Bodenbeleuchtung LED", "rgbw"),
+              buildDev("light.vorzimmer_og_alert_led", "Alert LED", "rgbw"),
+              buildDev("switch.shelly2pmg3_8cbfea9ac754_output_0", "Shelly 2PM Kanal 1", "toggle", "sensor.shelly2pmg3_8cbfea9ac754_output_0_leistung"),
+              buildDev("switch.shelly2pmg3_8cbfea9ac754_output_1", "Shelly 2PM Kanal 2", "toggle", "sensor.shelly2pmg3_8cbfea9ac754_output_1_leistung")
+            ]
+          },
+          {
+            id: "bad_gaeste",
+            name: "Bad & G\xE4ste",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("switch.shelly1pmminig4_7c2c676dc6fc", "Waschmaschine Bad OG", "toggle", "sensor.shelly1pmminig4_7c2c676dc6fc_leistung"),
+              buildDev("switch.gaestezimmer_schalter_rechts", "G\xE4stezimmer Schalter 1", "toggle", "sensor.shellyplus2pm_c049ef8a3a78_switch_0_power"),
+              buildDev("switch.shellyplus2pm_c049ef8a3a78_switch_1", "G\xE4stezimmer Schalter 2", "toggle", "sensor.shellyplus2pm_c049ef8a3a78_switch_1_power"),
+              buildDev("sensor.smart_series_8000_75b4_batterie", "Oral-B Smart Series Akku", "sensor")
+            ]
+          },
+          {
+            id: "stiegenhaus_keller",
+            name: "Stiegenhaus & Keller",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("binary_sensor.shelly_blu_motion_19ca_bewegung", "Bewegung Stiegenhaus", "sensor"),
+              buildDev("sensor.shelly_blu_motion_19ca_beleuchtungsstarke", "Helligkeit Stiegenhaus", "sensor"),
+              buildDev("sensor.epson_xp_7100_series", "Epson XP-7100 Drucker", "sensor"),
+              buildDev("sensor.epson_xp_7100_series_black_ink", "Drucker Tinte Schwarz", "sensor")
+            ]
+          },
+          {
+            id: "kameras_vision",
+            name: "Kameras & Vision",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("camera.garten_parkplatz_kamera", "Drau\xDFen Hinten Werkstatt (LAN .121)", "camera"),
+              buildDev("camera.cam_eg_vz_eingang", "EG Vorzimmer Kamera (LAN .140)", "camera"),
+              buildDev("camera.lsc_smart_ptz_camera_2", "LSC Smart PTZ Camera 2", "camera"),
+              buildDev("camera.lsc_smart_ptz_camera_3", "LSC Smart PTZ Camera 3", "camera"),
+              buildDev("camera.lsc_smart_outdoor_camera", "LSC Smart Outdoor Camera", "camera"),
+              buildDev("camera.lsc_smart_indoor_camera", "LSC Smart Indoor Camera", "camera")
+            ]
+          }
+        ].map((r) => {
+          const activeCount = r.devices.filter((d) => (d.kind === "toggle" || d.kind === "rgbw") && d.isOn).length;
+          const totalPowerW = r.devices.reduce((acc, d) => acc + (d.powerW || 0), 0);
+          return {
+            ...r,
+            activeCount,
+            totalPowerW: Math.round(totalPowerW * 10) / 10,
+            motionActive: r.id === "stiegenhaus_keller" ? getVal("binary_sensor.shelly_blu_motion_19ca_bewegung") === "on" : false
+          };
+        });
+        return sendJson(res, 200, {
+          rooms,
+          visionSummary: sharedDb.kvGet("camera_vision_today") || null
+        });
+      }
+      if (pathname === "/api/system/device-action" && req.method === "POST") {
+        const body = JSON.parse(await readRequestBody(req) || "{}");
+        if (!body.entityId) return sendJson(res, 400, { error: "entityId is required" });
+        const domain = body.entityId.split(".")[0];
+        if (!["light", "switch", "media_player", "siren", "camera"].includes(domain)) {
+          return sendJson(res, 400, { error: `Unsupported domain ${domain}` });
+        }
+        if (body.action === "brightness" && domain === "light") {
+          const pct = Math.max(1, Math.min(100, Number(body.brightnessPct) || 50));
+          await systemHaBridge.callService("light", "turn_on", {
+            entity_id: body.entityId,
+            brightness_pct: pct
+          });
+        } else if (body.action === "effect" && domain === "light") {
+          await systemHaBridge.callService("light", "turn_on", {
+            entity_id: body.entityId,
+            effect: body.effect || "Off"
+          });
+        } else {
+          const svc = body.action === "turn_on" ? "turn_on" : body.action === "turn_off" ? "turn_off" : "toggle";
+          await systemHaBridge.callService(domain, svc, { entity_id: body.entityId });
+        }
+        return sendJson(res, 200, { ok: true });
+      }
       if (pathname === "/api/system/status" && req.method === "GET") {
         const ha = await systemHaBridge.getStatus();
         const google = googleOAuth.getStatus();
@@ -2653,7 +3295,8 @@ async function startServer() {
           health: sharedDb.kvGet("google_health_today") || null,
           meals: sharedDb.kvGet("meal_planner_today") || null,
           calendar: sharedDb.kvGet("google_calendar_today") || null,
-          finance: sharedDb.kvGet("finance_summary") || null
+          finance: sharedDb.kvGet("finance_summary") || null,
+          vision: sharedDb.kvGet("camera_vision_today") || null
         };
         const notes = sharedDb.query("SELECT * FROM system_notes ORDER BY pinned DESC, id DESC LIMIT 50");
         return sendJson(res, 200, {

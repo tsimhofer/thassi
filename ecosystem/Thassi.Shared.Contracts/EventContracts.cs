@@ -69,6 +69,24 @@ public record ActiveTaskSummary(
     DateTimeOffset UpdatedAt
 );
 
+/// <summary>
+/// Detailed metadata for an individual project/module in the Thassi ecosystem.
+/// </summary>
+public record ProjectDetailDto(
+    string Id,
+    string Name,
+    string Category,
+    string Version,
+    string Status,
+    string Description,
+    string RelativePath,
+    string EndpointUrl,
+    string Architecture,
+    string LastCommit,
+    DateTimeOffset LastUpdated,
+    List<OrchestratorEventEnvelope> RecentEvents
+);
+
 public interface IOrchestratorClient
 {
     Task OnOrchestratorEvent(OrchestratorEventEnvelope evt);

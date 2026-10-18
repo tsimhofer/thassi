@@ -17,7 +17,8 @@ export function getHassSidebarStylerScript(): string {
       'Google Health & Readiness': 'Health',
       'Finance & Budget': 'Finances',
       'Meal Planner': 'Meals',
-      'Smart Control Canvas': 'Smart Home'
+      'Smart Control Canvas': 'Smart Home',
+      'Camera Vision & Object Detection': 'Vision'
     };
 
     const ROOT_THEME_CSS = \`

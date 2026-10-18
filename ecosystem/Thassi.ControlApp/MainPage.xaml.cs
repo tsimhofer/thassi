@@ -10,8 +10,13 @@ public partial class MainPage : ContentPage
     private HubConnection? _hubConnection;
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(8) };
     private readonly List<OrchestratorEventEnvelope> _events = new();
+    private List<ProjectDetailDto> _projects = new();
+    private ProjectDetailDto? _selectedProject;
     private string _activeApiBaseUrl = "http://192.168.188.46:5180";
     private bool _usingRelayFallback;
+    private string _lastProjectsSignature = string.Empty;
+    private bool _isPipelineActive;
+    private const double AutoSendSilenceSeconds = 6.5;
 
     private static readonly string[] CandidateHubBases =
     [
@@ -24,14 +29,149 @@ public partial class MainPage : ContentPage
     public MainPage()
     {
         InitializeComponent();
-        DeviceBadgeLabel.Text = $"{DeviceInfo.Current.Model} ({DeviceInfo.Current.Platform})";
-        HorizonWebView.Source = "http://homeassistant.tail5e1682.ts.net:8099";
+        SeedDefaultProjects();
+        HookAndroidSpeechCallbacks();
         _ = InitializeConnectionAsync();
+    }
+
+    private void HookAndroidSpeechCallbacks()
+    {
+#if ANDROID
+        Dispatcher.StartTimer(TimeSpan.FromMilliseconds(250), () =>
+        {
+            var activity = MainActivity.Instance;
+            if (activity != null)
+            {
+                activity.OnLiveTranscriptChanged -= HandleLiveTranscriptChanged;
+                activity.OnLiveTranscriptChanged += HandleLiveTranscriptChanged;
+
+                activity.OnListeningStateChanged -= HandleListeningStateChanged;
+                activity.OnListeningStateChanged += HandleListeningStateChanged;
+
+                activity.OnWidgetVoiceRequested -= HandleWidgetVoiceRequested;
+                activity.OnWidgetVoiceRequested += HandleWidgetVoiceRequested;
+
+                if (activity.IsContinuousListening)
+                {
+                    var silenceSec = activity.GetSecondsSinceLastSpeech();
+                    var currentText = RecognizedTextEditor.Text?.Trim() ?? string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(currentText))
+                    {
+                        var remaining = Math.Max(0, AutoSendSilenceSeconds - silenceSec);
+                        SilenceStatusLabel.Text = "Auto-Send nach Sprechpause...";
+                        SilenceTimerLabel.Text = $"{remaining:0.0}s";
+                        SilenceProgressBar.Progress = Math.Clamp(remaining / AutoSendSilenceSeconds, 0, 1);
+
+                        if (remaining <= 0.05)
+                        {
+                            var finalSpoken = activity.StopContinuousListening();
+                            var toSend = !string.IsNullOrWhiteSpace(finalSpoken) ? finalSpoken : currentText;
+                            _ = SubmitPromptToOrchestratorAsync(toSend, _selectedProject?.Id);
+                        }
+                    }
+                    else
+                    {
+                        SilenceStatusLabel.Text = "Hört kontinuierlich zu (sprich deinen Befehl)...";
+                        SilenceTimerLabel.Text = "aktiv";
+                        SilenceProgressBar.Progress = 1.0;
+                    }
+                }
+            }
+            return true;
+        });
+#endif
+    }
+
+    private void HandleLiveTranscriptChanged(string transcript, bool isListening)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            VoiceWidgetExpandedBody.IsVisible = true;
+            VoiceWidgetChevron.Text = "▾";
+            if (!string.IsNullOrWhiteSpace(transcript))
+            {
+                RecognizedTextEditor.Text = transcript;
+            }
+        });
+    }
+
+    private void HandleListeningStateChanged(bool isListening)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            SilenceCountdownSection.IsVisible = isListening;
+            if (isListening)
+            {
+                VoiceWidgetExpandedBody.IsVisible = true;
+                VoiceWidgetChevron.Text = "▾";
+                VoiceOrbBorder.Stroke = Color.FromArgb("#38BDF8");
+                VoiceOrbBorder.BackgroundColor = Color.FromArgb("#0F172A");
+                VoiceBtn.Text = "⏹";
+                VoiceHintLabel.Text = "Hört zu · Tippe ⏹ oder warte 6.5s zum Senden";
+                VoiceHintLabel.TextColor = Color.FromArgb("#38BDF8");
+                ListeningPulseDot.BackgroundColor = Color.FromArgb("#EF4444");
+                VoiceWidgetTitleLabel.Text = "🔴 LIVE SPRACHERKENNUNG AKTIV";
+                VoiceWidgetTitleLabel.TextColor = Color.FromArgb("#38BDF8");
+                ToggleContinuousMicBtn.Text = "⏹ Stopp";
+            }
+            else
+            {
+                VoiceOrbBorder.Stroke = Color.FromArgb("#1E293B");
+                VoiceOrbBorder.BackgroundColor = Color.FromArgb("#0B0F19");
+                VoiceBtn.Text = "🎤";
+                VoiceHintLabel.Text = "Tippen für Langzeit-Sprachsteuerung";
+                VoiceHintLabel.TextColor = Color.FromArgb("#64748B");
+                ListeningPulseDot.BackgroundColor = Color.FromArgb("#38BDF8");
+                VoiceWidgetTitleLabel.Text = "SPRACH-WIDGET · ERKANNTER TEXT";
+                VoiceWidgetTitleLabel.TextColor = Color.FromArgb("#94A3B8");
+                ToggleContinuousMicBtn.Text = "🎤 Weiter";
+            }
+        });
+    }
+
+    private void HandleWidgetVoiceRequested()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _selectedProject = null;
+            ProjectDetailView.IsVisible = false;
+            MinimalHomeView.IsVisible = true;
+            VoiceWidgetExpandedBody.IsVisible = true;
+            VoiceWidgetChevron.Text = "▾";
+#if ANDROID
+            MainActivity.Instance?.StartContinuousListening(RecognizedTextEditor.Text ?? string.Empty);
+#endif
+        });
+    }
+
+    private void SeedDefaultProjects()
+    {
+        _projects =
+        [
+            new ProjectDetailDto("thassi_host", "Thassi Main Dashboard", "HASS Add-on (Docker)", "1.0.6", "Online (Hass OS)",
+                "Fullscreen Calendar-Centric Main Dashboard & Unified Hub", "./thassi_host", "http://homeassistant.tail5e1682.ts.net:8099", "amd64 / aarch64", "469457e", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("thassi_fuege_neue", "Thassi Fuege Neue", "HASS Add-on (Docker)", "1.0.0", "Online (Hass OS)",
+                "Google Notizen Integration auf Home Assistant OS", "./thassi_fuege_neue", "/44ec3c40_thassi_fuege_neue", "amd64 / aarch64", "4150427", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("thassi_system_monitor", "Thassi System Monitor", "HASS Add-on (Docker)", "1.0.0", "Online (Hass OS)",
+                "Live CPU/RAM Telemetrie & Healthcheck Add-on auf Hass OS", "./thassi_system_monitor", "/44ec3c40_thassi_system_monitor", "amd64 / aarch64", "0c0a2b1", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("google-calendar", "Google Calendar & Timeline", "Thassi Micro-Service", "1.0.0", "Active (Ingress)",
+                "Bidirektionale Google Calendar Synchronisation & Zeitleiste", "./apps/google-calendar", "http://homeassistant.tail5e1682.ts.net:8099/apps/google-calendar/", "Node 24 + React 19", "469457e", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("google-health", "Google Health & Readiness", "Thassi Micro-Service", "1.0.0", "Active (Ingress)",
+                "Pixel 10 Schritte, Herzfrequenz, Schlaf & Readiness Score", "./apps/google-health", "http://homeassistant.tail5e1682.ts.net:8099/apps/google-health/", "Node 24 + React 19", "469457e", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("finance-analytics", "Finance & Budget", "Thassi Micro-Service", "1.0.0", "Active (Ingress)",
+                "Sparkasse George CSV-Analyse, Cashflow & Kategorien", "./apps/finance-analytics", "http://homeassistant.tail5e1682.ts.net:8099/apps/finance-analytics/", "Node 24 + React 19", "469457e", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("meal-planner", "Meal Planner", "Thassi Micro-Service", "1.0.0", "Active (Ingress)",
+                "Tages-Ernährungsplan & Kalorien-Tracking", "./apps/meal-planner", "http://homeassistant.tail5e1682.ts.net:8099/apps/meal-planner/", "Node 24 + React 19", "469457e", DateTimeOffset.UtcNow, []),
+            new ProjectDetailDto("smart-canvas", "Smart Control Canvas", "Thassi Micro-Service", "1.0.0", "Active (Ingress)",
+                "Direkte Licht- und Szenensteuerung für Home Assistant", "./apps/smart-canvas", "http://homeassistant.tail5e1682.ts.net:8099/apps/smart-canvas/", "Node 24 + React 19", "469457e", DateTimeOffset.UtcNow, [])
+        ];
+        RenderProjectsMenu(force: true);
     }
 
     private async Task InitializeConnectionAsync()
     {
-        UpdateConnectionBadge("Suche SignalR Hub (LAN / Tailscale)...", "#F59E0B");
+        UpdateConnectionBadge("verbinde...", "#F59E0B");
 
         foreach (var candidate in CandidateHubBases)
         {
@@ -51,7 +191,7 @@ public partial class MainPage : ContentPage
             }
             catch
             {
-                // Continue probing next endpoint
+                // Continue probing
             }
         }
 
@@ -61,11 +201,17 @@ public partial class MainPage : ContentPage
         }
         else
         {
-            UpdateConnectionBadge($"Verbunden via Tailscale/Hass-Relay ({_activeApiBaseUrl})", "#10B981");
+            UpdateConnectionBadge("tailscale", "#10B981");
         }
 
-        await FetchInitialStateAsync();
-        StartBackgroundSyncTimer();
+        await FetchStateAndProjectsAsync();
+
+        // Fast 2-second status sync loop so pipeline state is 100% reliable even across network hops
+        Dispatcher.StartTimer(TimeSpan.FromSeconds(2), () =>
+        {
+            _ = FetchStateAndProjectsAsync();
+            return true;
+        });
     }
 
     private async Task ConnectSignalRAsync(string baseUrl)
@@ -88,47 +234,24 @@ public partial class MainPage : ContentPage
                 {
                     foreach (var ev in Enumerable.Reverse(recentEvents))
                     {
-                        AddOrUpdateEvent(ev, renderImmediately: false);
+                        AddOrUpdateEvent(ev, refreshDetail: false);
                     }
-                    RenderEventsList();
+                    if (_selectedProject != null) RenderProjectDetail(_selectedProject);
                 });
             });
 
-            _hubConnection.Reconnecting += _ =>
-            {
-                MainThread.BeginInvokeOnMainThread(() =>
-                    UpdateConnectionBadge("SignalR verbindet neu...", "#F59E0B"));
-                return Task.CompletedTask;
-            };
-
-            _hubConnection.Reconnected += _ =>
-            {
-                MainThread.BeginInvokeOnMainThread(() =>
-                    UpdateConnectionBadge($"Live verbunden ({baseUrl})", "#10B981"));
-                return Task.CompletedTask;
-            };
-
             await _hubConnection.StartAsync();
-            UpdateConnectionBadge($"SignalR Live ({baseUrl})", "#10B981");
+            UpdateConnectionBadge("live", "#10B981");
         }
-        catch (Exception ex)
+        catch
         {
             _usingRelayFallback = true;
             _activeApiBaseUrl = "http://homeassistant.tail5e1682.ts.net:8099/api/orchestrator";
-            UpdateConnectionBadge($"Tailscale Relay aktiv ({ex.GetType().Name})", "#38BDF8");
+            UpdateConnectionBadge("relay", "#38BDF8");
         }
     }
 
-    private void StartBackgroundSyncTimer()
-    {
-        Dispatcher.StartTimer(TimeSpan.FromSeconds(3), () =>
-        {
-            _ = FetchInitialStateAsync();
-            return true;
-        });
-    }
-
-    private async Task FetchInitialStateAsync()
+    private async Task FetchStateAndProjectsAsync()
     {
         try
         {
@@ -141,10 +264,30 @@ public partial class MainPage : ContentPage
 
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            if (doc.RootElement.TryGetProperty("projects", out var projProp) &&
+                projProp.ValueKind == JsonValueKind.Array)
+            {
+                var discovered = JsonSerializer.Deserialize<List<ProjectDetailDto>>(projProp.GetRawText(), options);
+                if (discovered is { Count: > 0 })
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        _projects = discovered;
+                        RenderProjectsMenu(force: false);
+                        if (_selectedProject != null)
+                        {
+                            var updated = _projects.FirstOrDefault(p => p.Id == _selectedProject.Id);
+                            if (updated != null) RenderProjectDetail(updated);
+                        }
+                    });
+                }
+            }
+
             if (doc.RootElement.TryGetProperty("recentEvents", out var eventsProp) &&
                 eventsProp.ValueKind == JsonValueKind.Array)
             {
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 var list = JsonSerializer.Deserialize<List<OrchestratorEventEnvelope>>(eventsProp.GetRawText(), options);
                 if (list != null)
                 {
@@ -152,9 +295,9 @@ public partial class MainPage : ContentPage
                     {
                         foreach (var ev in Enumerable.Reverse(list))
                         {
-                            AddOrUpdateEvent(ev, renderImmediately: false);
+                            AddOrUpdateEvent(ev, refreshDetail: false);
                         }
-                        RenderEventsList();
+                        if (_selectedProject != null) RenderProjectDetail(_selectedProject);
                     });
                 }
             }
@@ -165,215 +308,416 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void AddOrUpdateEvent(OrchestratorEventEnvelope envelope, bool renderImmediately = true)
+    private void AddOrUpdateEvent(OrchestratorEventEnvelope ev, bool refreshDetail = true)
     {
-        if (_events.Any(e => e.EventId == envelope.EventId))
+        if (ev.EventType == OrchestratorEventTypes.SystemHeartbeat)
             return;
 
-        _events.Insert(0, envelope);
-        if (_events.Count > 50)
+        if (_events.Any(e => e.EventId == ev.EventId))
+            return;
+
+        _events.Insert(0, ev);
+        if (_events.Count > 60)
             _events.RemoveAt(_events.Count - 1);
 
-        UpdatePipelineStepper(envelope);
-        if (renderImmediately)
+        // If this event carries a raw voice transcript and the editor is empty, populate it!
+        if (ev.EventType == OrchestratorEventTypes.VoiceCommandReceived &&
+            string.IsNullOrWhiteSpace(RecognizedTextEditor.Text) &&
+            ev.Metadata != null &&
+            ev.Metadata.TryGetValue("rawTranscript", out var rawTranscript))
         {
-            RenderEventsList();
+            RecognizedTextEditor.Text = rawTranscript;
+        }
+
+        UpdateStatusPipelineUI(ev);
+
+        if (refreshDetail && _selectedProject != null)
+        {
+            RenderProjectDetail(_selectedProject);
         }
     }
 
-    private void UpdatePipelineStepper(OrchestratorEventEnvelope ev)
+    private void UpdateStatusPipelineUI(OrchestratorEventEnvelope ev)
     {
-        ActiveTaskTitleLabel.Text = string.IsNullOrWhiteSpace(ev.AddonSlug)
-            ? $"TASK {ev.TaskId.ToString()[..8]}"
-            : $"ADD-ON: {ev.AddonSlug.ToUpperInvariant()}";
+        var pct = Math.Clamp(ev.ProgressPercent ?? 100, 0, 100);
+        var isFailed = ev.EventType is OrchestratorEventTypes.TaskFailed or OrchestratorEventTypes.RollbackTriggered;
+        var isCompleted = ev.EventType == OrchestratorEventTypes.TestsPassed || pct >= 100;
+        _isPipelineActive = !isCompleted && !isFailed;
 
-        var pct = Math.Clamp(ev.ProgressPercent ?? 0, 0, 100);
-        TaskProgressBar.Progress = pct / 100.0;
-        ProgressPercentLabel.Text = $"{pct}% · {ev.EventType}";
-        CurrentStageDetailLabel.Text = $"{ev.Title}: {ev.Message}";
+        MinimalProgressBar.Progress = pct / 100.0;
+        MinimalProgressBar.ProgressColor = isFailed
+            ? Color.FromArgb("#EF4444")
+            : isCompleted
+                ? Color.FromArgb("#10B981")
+                : Color.FromArgb("#38BDF8");
 
-        SetStageColor(Stage1Box, pct >= 10, ev.Severity);
-        SetStageColor(Stage2Box, pct >= 25, ev.Severity);
-        SetStageColor(Stage3Box, pct >= 50, ev.Severity);
-        SetStageColor(Stage4Box, pct >= 70, ev.Severity);
-        SetStageColor(Stage5Box, pct >= 90, ev.Severity);
-    }
+        PipelinePercentBadge.Text = isFailed
+            ? "FEHLER"
+            : isCompleted
+                ? $"100% · LIVE ({ev.AddonSlug ?? "OK"})"
+                : $"{pct}% · AKTIV ({ev.AddonSlug ?? "Pipeline"})";
+        PipelinePercentBadge.TextColor = isFailed
+            ? Color.FromArgb("#EF4444")
+            : isCompleted
+                ? Color.FromArgb("#10B981")
+                : Color.FromArgb("#38BDF8");
 
-    private static void SetStageColor(Border box, bool active, string severity)
-    {
-        if (!active)
+        PrimaryStateLabel.Text = ev.Title;
+        SecondarySubLabel.Text = ev.Message;
+
+        var activeStage = ev.EventType switch
         {
-            box.BackgroundColor = Color.FromArgb("#1E293B");
-            return;
-        }
-
-        box.BackgroundColor = severity.ToLowerInvariant() switch
-        {
-            "critical" or "error" => Color.FromArgb("#991B1B"),
-            "warning" or "warn" => Color.FromArgb("#92400E"),
-            "success" => Color.FromArgb("#065F46"),
-            _ => Color.FromArgb("#0284C7")
+            OrchestratorEventTypes.VoiceCommandReceived or OrchestratorEventTypes.TaskStarted or OrchestratorEventTypes.PreflightChecked => 1,
+            OrchestratorEventTypes.RepoCreated => 2,
+            OrchestratorEventTypes.CodeGenProgress => 3,
+            OrchestratorEventTypes.CodePushed => 4,
+            OrchestratorEventTypes.DeployingToHass or OrchestratorEventTypes.DockerBuildProgress => 5,
+            OrchestratorEventTypes.SmokeTestRunning or OrchestratorEventTypes.TestsPassed => 6,
+            _ => isCompleted ? 6 : 1
         };
-    }
 
-    private void RenderEventsList()
-    {
-        EventsStackLayout.Children.Clear();
-        if (_events.Count == 0)
+        var bars = new[] { StageBar1, StageBar2, StageBar3, StageBar4, StageBar5, StageBar6 };
+        var lbls = new[] { StageLbl1, StageLbl2, StageLbl3, StageLbl4, StageLbl5, StageLbl6 };
+
+        for (int i = 0; i < 6; i++)
         {
-            EventsStackLayout.Children.Add(new Label
+            int stageNum = i + 1;
+            if (isFailed && stageNum == activeStage)
             {
-                Text = "Noch keine Pipeline-Events empfangen. Starte einen Befehl oben!",
-                FontSize = 12,
-                TextColor = Color.FromArgb("#64748B")
-            });
-            return;
+                bars[i].BackgroundColor = Color.FromArgb("#EF4444");
+                lbls[i].TextColor = Color.FromArgb("#EF4444");
+            }
+            else if (isCompleted || stageNum < activeStage)
+            {
+                bars[i].BackgroundColor = Color.FromArgb("#10B981");
+                lbls[i].TextColor = Color.FromArgb("#10B981");
+            }
+            else if (stageNum == activeStage)
+            {
+                bars[i].BackgroundColor = Color.FromArgb("#38BDF8");
+                lbls[i].TextColor = Color.FromArgb("#38BDF8");
+            }
+            else
+            {
+                bars[i].BackgroundColor = Color.FromArgb("#1E293B");
+                lbls[i].TextColor = Color.FromArgb("#475569");
+            }
         }
 
-        foreach (var ev in _events.Take(20))
+        // Render latest 3 pipeline steps with timestamps for crystal-clear feedback
+        LivePipelineFeedStack.Children.Clear();
+        foreach (var recent in _events.Take(3))
         {
-            var badgeColor = ev.Severity.ToLowerInvariant() switch
-            {
-                "success" => "#10B981",
-                "warning" or "warn" => "#F59E0B",
-                "critical" or "error" => "#EF4444",
-                _ => "#38BDF8"
-            };
+            var color = recent.EventType == OrchestratorEventTypes.TaskFailed
+                ? "#EF4444"
+                : recent.EventType == OrchestratorEventTypes.TestsPassed
+                    ? "#10B981"
+                    : "#94A3B8";
 
-            var card = new Border
+            LivePipelineFeedStack.Children.Add(new Label
             {
-                BackgroundColor = Color.FromArgb("#162032"),
-                Stroke = Color.FromArgb("#1E293B"),
-                StrokeThickness = 1,
+                Text = $"{recent.Timestamp.ToLocalTime():HH:mm:ss} · {recent.Title} ({recent.ProgressPercent ?? 100}%)",
+                FontSize = 10,
+                TextColor = Color.FromArgb(color),
+                LineBreakMode = LineBreakMode.TailTruncation
+            });
+        }
+
+#if ANDROID
+        if (MainActivity.Instance != null)
+        {
+            ThassiWidgetProvider.UpdateWidgetState(
+                MainActivity.Instance,
+                recognizedText: RecognizedTextEditor.Text,
+                stageTitle: isFailed ? $"⚠️ {ev.Title}" : isCompleted ? $"● {ev.Title}" : $"⚡ {ev.Title} ({pct}%)",
+                pipelineDetail: ev.Message,
+                progressPercent: pct);
+        }
+#endif
+    }
+
+    private void RenderProjectsMenu(bool force)
+    {
+        var sig = string.Join("|", _projects.Select(p => $"{p.Id}:{p.Version}:{p.Status}"));
+        if (!force && sig == _lastProjectsSignature)
+            return;
+        _lastProjectsSignature = sig;
+
+        ProjectsMenuStack.Children.Clear();
+        string? lastCategory = null;
+
+        foreach (var proj in _projects)
+        {
+            if (proj.Category != lastCategory)
+            {
+                lastCategory = proj.Category;
+                ProjectsMenuStack.Children.Add(new Label
+                {
+                    Text = proj.Category.ToUpperInvariant(),
+                    FontSize = 9,
+                    CharacterSpacing = 1.2,
+                    TextColor = Color.FromArgb("#475569"),
+                    Margin = new Thickness(0, 12, 0, 4)
+                });
+            }
+
+            var itemContainer = new Border
+            {
+                BackgroundColor = Color.FromArgb("#080C17"),
+                StrokeThickness = 0,
                 Padding = new Thickness(10, 8),
                 StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 }
             };
 
-            var stack = new VerticalStackLayout { Spacing = 3 };
-            var headerGrid = new Grid
+            var row = new Grid
             {
                 ColumnDefinitions =
                 {
-                    new ColumnDefinition { Width = GridLength.Auto },
                     new ColumnDefinition { Width = GridLength.Star },
                     new ColumnDefinition { Width = GridLength.Auto }
-                },
-                ColumnSpacing = 6
+                }
             };
 
-            var typeLabel = new Label
+            var titleStack = new VerticalStackLayout { Spacing = 2, InputTransparent = true };
+            titleStack.Children.Add(new Label
             {
-                Text = ev.EventType,
-                FontSize = 11,
-                FontAttributes = FontAttributes.Bold,
-                TextColor = Color.FromArgb(badgeColor)
-            };
-            var slugLabel = new Label
+                Text = proj.Name,
+                FontSize = 13,
+                TextColor = Color.FromArgb("#F1F5F9"),
+                InputTransparent = true
+            });
+            titleStack.Children.Add(new Label
             {
-                Text = string.IsNullOrEmpty(ev.AddonSlug) ? ev.Title : $"[{ev.AddonSlug}] {ev.Title}",
-                FontSize = 11,
-                TextColor = Color.FromArgb("#94A3B8")
-            };
-            var timeLabel = new Label
-            {
-                Text = ev.Timestamp.ToLocalTime().ToString("HH:mm:ss"),
+                Text = $"{proj.Id} · v{proj.Version}",
                 FontSize = 10,
-                TextColor = Color.FromArgb("#64748B")
+                TextColor = Color.FromArgb("#64748B"),
+                InputTransparent = true
+            });
+
+            var dot = new Border
+            {
+                WidthRequest = 7,
+                HeightRequest = 7,
+                StrokeThickness = 0,
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 3.5f },
+                VerticalOptions = LayoutOptions.Center,
+                InputTransparent = true,
+                BackgroundColor = proj.Status.Contains("Fail", StringComparison.OrdinalIgnoreCase)
+                    ? Color.FromArgb("#EF4444")
+                    : proj.Status.Contains("Build", StringComparison.OrdinalIgnoreCase)
+                        ? Color.FromArgb("#38BDF8")
+                        : Color.FromArgb("#10B981")
             };
 
-            headerGrid.Add(typeLabel, 0, 0);
-            headerGrid.Add(slugLabel, 1, 0);
-            headerGrid.Add(timeLabel, 2, 0);
+            var hitButton = new Button
+            {
+                BackgroundColor = Colors.Transparent,
+                BorderWidth = 0,
+                Padding = Thickness.Zero,
+                Margin = Thickness.Zero,
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill
+            };
+            var captured = proj;
+            hitButton.Clicked += (_, _) =>
+            {
+                ProjectsMenuOverlay.IsVisible = false;
+                RenderProjectDetail(captured);
+            };
 
-            var msgLabel = new Label
+            row.Add(titleStack, 0, 0);
+            row.Add(dot, 1, 0);
+            row.Add(hitButton, 0, 0);
+            Grid.SetColumnSpan(hitButton, 2);
+            itemContainer.Content = row;
+
+            ProjectsMenuStack.Children.Add(itemContainer);
+        }
+    }
+
+    private void RenderProjectDetail(ProjectDetailDto proj)
+    {
+        _selectedProject = proj;
+        MinimalHomeView.IsVisible = false;
+        ProjectDetailView.IsVisible = true;
+
+        DetailNameLabel.Text = proj.Name;
+        DetailVersionBadge.Text = $"v{proj.Version}";
+        DetailDescriptionLabel.Text = proj.Description;
+        DetailStatusLabel.Text = proj.Status;
+        DetailCategoryLabel.Text = proj.Category;
+        DetailArchLabel.Text = proj.Architecture;
+        DetailPathCommitLabel.Text = $"{proj.RelativePath}  ·  commit {proj.LastCommit}";
+        DetailEndpointLabel.Text = proj.EndpointUrl;
+
+        DetailEventsStack.Children.Clear();
+        var matchingEvents = _events
+            .Where(e => string.Equals(e.AddonSlug, proj.Id, StringComparison.OrdinalIgnoreCase))
+            .Concat(proj.RecentEvents)
+            .DistinctBy(e => e.EventId)
+            .OrderByDescending(e => e.Timestamp)
+            .Take(10)
+            .ToList();
+
+        if (matchingEvents.Count == 0)
+        {
+            DetailEventsStack.Children.Add(new Label
+            {
+                Text = "Keine aktuellen Pipeline-Events für dieses Projekt.",
+                FontSize = 12,
+                TextColor = Color.FromArgb("#475569")
+            });
+            return;
+        }
+
+        foreach (var ev in matchingEvents)
+        {
+            var row = new VerticalStackLayout { Spacing = 2 };
+            row.Children.Add(new Label
+            {
+                Text = $"{ev.Timestamp.ToLocalTime():HH:mm:ss}  ·  {ev.EventType} ({ev.ProgressPercent ?? 100}%)",
+                FontSize = 10,
+                TextColor = Color.FromArgb("#38BDF8")
+            });
+            row.Children.Add(new Label
             {
                 Text = ev.Message,
                 FontSize = 12,
-                TextColor = Color.FromArgb("#F1F5F9")
-            };
-
-            stack.Children.Add(headerGrid);
-            stack.Children.Add(msgLabel);
-
-            if (!string.IsNullOrWhiteSpace(ev.CommitSha))
-            {
-                stack.Children.Add(new Label
-                {
-                    Text = $"Git Commit: {ev.CommitSha}",
-                    FontSize = 10,
-                    TextColor = Color.FromArgb("#94A3B8")
-                });
-            }
-
-            card.Content = stack;
-            EventsStackLayout.Children.Add(card);
+                TextColor = Color.FromArgb("#CBD5E1")
+            });
+            DetailEventsStack.Children.Add(row);
         }
+    }
+
+    private void OnToggleVoiceWidgetExpand(object? sender, TappedEventArgs e)
+    {
+        VoiceWidgetExpandedBody.IsVisible = !VoiceWidgetExpandedBody.IsVisible;
+        VoiceWidgetChevron.Text = VoiceWidgetExpandedBody.IsVisible ? "▾" : "▸";
+    }
+
+    private void OnToggleMenuClicked(object? sender, EventArgs e)
+    {
+        ProjectsMenuOverlay.IsVisible = !ProjectsMenuOverlay.IsVisible;
+    }
+
+    private void OnCloseProjectDetailClicked(object? sender, EventArgs e)
+    {
+        _selectedProject = null;
+        ProjectDetailView.IsVisible = false;
+        MinimalHomeView.IsVisible = true;
+    }
+
+    private async void OnDetailRedeployClicked(object? sender, EventArgs e)
+    {
+        if (_selectedProject == null) return;
+        await SubmitPromptToOrchestratorAsync(
+            $"Aktualisiere, baue und teste das Projekt {_selectedProject.Id} auf Hass OS",
+            _selectedProject.Id);
+    }
+
+    private async void OnDetailOpenEndpointClicked(object? sender, EventArgs e)
+    {
+        if (_selectedProject == null) return;
+        var url = _selectedProject.EndpointUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? _selectedProject.EndpointUrl
+            : "http://homeassistant.tail5e1682.ts.net:8099";
+        try
+        {
+            await Launcher.Default.OpenAsync(url);
+        }
+        catch { }
     }
 
     private void UpdateConnectionBadge(string text, string hexColor)
     {
         ConnectionStatusLabel.Text = text;
-        ConnectionDot.Color = Color.FromArgb(hexColor);
+        ConnectionDot.BackgroundColor = Color.FromArgb(hexColor);
     }
 
-    private async void OnVoiceButtonClicked(object? sender, EventArgs e)
+    private void OnVoiceButtonClicked(object? sender, EventArgs e)
     {
+        VoiceWidgetExpandedBody.IsVisible = true;
+        VoiceWidgetChevron.Text = "▾";
+
 #if ANDROID
-        var spoken = await (MainActivity.Instance?.RecognizeSpeechAsync() ?? Task.FromResult<string?>(null));
-        if (!string.IsNullOrWhiteSpace(spoken))
+        var activity = MainActivity.Instance;
+        if (activity != null)
         {
-            PromptEntry.Text = spoken;
-            await SubmitPromptToOrchestratorAsync(spoken);
+            if (activity.IsContinuousListening)
+            {
+                activity.StopContinuousListening();
+            }
+            else
+            {
+                activity.StartContinuousListening(RecognizedTextEditor.Text ?? string.Empty);
+            }
             return;
         }
 #endif
-        PromptEntry.Focus();
+        RecognizedTextEditor.Focus();
+    }
+
+    private async void OnSendRecognizedClicked(object? sender, EventArgs e)
+    {
+#if ANDROID
+        MainActivity.Instance?.StopContinuousListening();
+#endif
+        var spoken = RecognizedTextEditor.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(spoken))
+        {
+            RecognizedTextEditor.Focus();
+            return;
+        }
+        await SubmitPromptToOrchestratorAsync(spoken, _selectedProject?.Id);
+    }
+
+    private void OnClearRecognizedClicked(object? sender, EventArgs e)
+    {
+#if ANDROID
+        MainActivity.Instance?.StopContinuousListening();
+#endif
+        RecognizedTextEditor.Text = string.Empty;
+    }
+
+    private void OnPinWidgetClicked(object? sender, EventArgs e)
+    {
+        ProjectsMenuOverlay.IsVisible = false;
+#if ANDROID
+        var pinned = MainActivity.Instance?.RequestPinHomeWidget() ?? false;
+        if (!pinned)
+        {
+            PrimaryStateLabel.Text = "Home-Screen Widget bereit";
+            SecondarySubLabel.Text = "Halte auf dem Pixel 10 Startbildschirm gedrückt → Widgets → Thassi wählen.";
+        }
+#endif
     }
 
     private async void OnDeployClicked(object? sender, EventArgs e)
     {
         var prompt = PromptEntry.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(prompt))
-        {
-            prompt = "Erstelle und deploye ein neues HASS Add-on thassi_system_monitor mit Live Healthcheck";
-            PromptEntry.Text = prompt;
-        }
-
-        await SubmitPromptToOrchestratorAsync(prompt);
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+        PromptEntry.Text = string.Empty;
+        RecognizedTextEditor.Text = prompt;
+        await SubmitPromptToOrchestratorAsync(prompt, _selectedProject?.Id);
     }
 
-    private async void OnPresetSystemMonitorClicked(object? sender, EventArgs e)
-    {
-        const string prompt = "Erstelle und deploye das HASS Add-on thassi_system_monitor mit CPU/RAM Telemetrie auf Hass OS";
-        PromptEntry.Text = prompt;
-        await SubmitPromptToOrchestratorAsync(prompt);
-    }
-
-    private async void OnPresetEnergyPulseClicked(object? sender, EventArgs e)
-    {
-        const string prompt = "Erstelle und deploye das HASS Add-on thassi_energy_pulse für Echtzeit-Stromverbrauch auf Hass OS";
-        PromptEntry.Text = prompt;
-        await SubmitPromptToOrchestratorAsync(prompt);
-    }
-
-    private async void OnPresetSmokeTestClicked(object? sender, EventArgs e)
-    {
-        const string prompt = "Synchronisiere GitHub Repository, aktualisiere thassi_system_monitor und führe Smoke-Tests auf 192.168.188.92 aus";
-        PromptEntry.Text = prompt;
-        await SubmitPromptToOrchestratorAsync(prompt);
-    }
-
-    private async Task SubmitPromptToOrchestratorAsync(string prompt)
+    private async Task SubmitPromptToOrchestratorAsync(string prompt, string? suggestedSlug = null)
     {
         try
         {
             DeployBtn.IsEnabled = false;
-            DeployBtn.Text = "⏳ Läuft...";
-            CurrentStageDetailLabel.Text = $"Sende Auftrag: \"{prompt}\"...";
+            SendRecognizedBtn.IsEnabled = false;
+            PrimaryStateLabel.Text = "0/6 · Starte Antigravity Pipeline...";
+            SecondarySubLabel.Text = $"\"{prompt}\"";
+            PipelinePercentBadge.Text = "5% · START";
+            PipelinePercentBadge.TextColor = Color.FromArgb("#38BDF8");
+            MinimalProgressBar.Progress = 0.05;
+            MinimalProgressBar.ProgressColor = Color.FromArgb("#38BDF8");
 
             var req = new SubmitPromptRequest(
                 Prompt: prompt,
-                DeviceName: $"{DeviceInfo.Current.Model} ({DeviceInfo.Current.Platform})");
+                DeviceName: DeviceInfo.Current.Model,
+                SuggestedAddonSlug: suggestedSlug);
 
             if (_hubConnection is { State: HubConnectionState.Connected })
             {
@@ -387,41 +731,23 @@ public partial class MainPage : ContentPage
                 await _httpClient.PostAsJsonAsync(submitUrl, req);
             }
 
-            await FetchInitialStateAsync();
+            await FetchStateAndProjectsAsync();
         }
         catch (Exception ex)
         {
-            CurrentStageDetailLabel.Text = $"Fehler beim Senden: {ex.Message}";
+            PrimaryStateLabel.Text = "Verbindungsfehler";
+            SecondarySubLabel.Text = ex.Message;
         }
         finally
         {
             DeployBtn.IsEnabled = true;
-            DeployBtn.Text = "🚀 Start";
+            SendRecognizedBtn.IsEnabled = true;
         }
     }
 
     private async void OnRefreshClicked(object? sender, EventArgs e)
     {
-        await FetchInitialStateAsync();
-    }
-
-    private void OnShowPipelineClicked(object? sender, EventArgs e)
-    {
-        PipelineScrollView.IsVisible = true;
-        HorizonContainer.IsVisible = false;
-        TabPipelineBtn.BackgroundColor = Color.FromArgb("#0284C7");
-        TabPipelineBtn.TextColor = Colors.White;
-        TabHorizonBtn.BackgroundColor = Color.FromArgb("#1E293B");
-        TabHorizonBtn.TextColor = Color.FromArgb("#94A3B8");
-    }
-
-    private void OnShowHorizonClicked(object? sender, EventArgs e)
-    {
-        PipelineScrollView.IsVisible = false;
-        HorizonContainer.IsVisible = true;
-        TabHorizonBtn.BackgroundColor = Color.FromArgb("#0284C7");
-        TabHorizonBtn.TextColor = Colors.White;
-        TabPipelineBtn.BackgroundColor = Color.FromArgb("#1E293B");
-        TabPipelineBtn.TextColor = Color.FromArgb("#94A3B8");
+        await FetchStateAndProjectsAsync();
+        RenderProjectsMenu(force: true);
     }
 }

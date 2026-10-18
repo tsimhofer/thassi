@@ -1,0 +1,181 @@
+{
+  "Tasks": [
+    {
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "Prompt": "F\u00FCge eine neue App zu meiner Home Assistant Installation hinzu die \u00FCber Google meine Notizen synchronisiert",
+      "RequestedBy": "Pixel 10",
+      "CurrentStage": "TestsPassed",
+      "ProgressPercent": 100,
+      "Status": "Completed",
+      "AddonSlug": "thassi_fuege_neue",
+      "IngressUrl": "/44ec3c40_thassi_fuege_neue",
+      "StartedAt": "2026-10-18T22:49:43.6975956+00:00",
+      "UpdatedAt": "2026-10-18T22:50:01.61+00:00"
+    }
+  ],
+  "Events": [
+    {
+      "EventId": "2726a702-d97f-4bbc-af90-b75d3d7dd08c",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "TestsPassed",
+      "Severity": "Success",
+      "Title": "6/6 \u00B7 \u0022Fuege Neue\u0022 ist LIVE!",
+      "Message": "Container 44ec3c40_thassi_fuege_neue (v1.0.1) l\u00E4uft fehlerfrei auf Hass OS. Smoke-Tests bestanden!",
+      "ProgressPercent": 100,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": "f0c309a",
+      "Timestamp": "2026-10-18T22:50:01.61+00:00",
+      "Metadata": {
+        "stageIndex": "6",
+        "ingressUrl": "/44ec3c40_thassi_fuege_neue",
+        "state": "started",
+        "version": "1.0.1"
+      }
+    },
+    {
+      "EventId": "c7334a68-6843-45d5-9fa5-1cc436e333e4",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "SmokeTestRunning",
+      "Severity": "Progress",
+      "Title": "6/6 \u00B7 Smoke- \u0026 Integrationstests",
+      "Message": "Pr\u00FCfe Container-State und Watchdog-Healthcheck f\u00FCr 44ec3c40_thassi_fuege_neue...",
+      "ProgressPercent": 94,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": "f0c309a",
+      "Timestamp": "2026-10-18T22:50:00.088+00:00",
+      "Metadata": {
+        "stageIndex": "6"
+      }
+    },
+    {
+      "EventId": "c6ba1554-8f87-4a02-8fe4-83c74541c0db",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "DockerBuildProgress",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Docker Build auf Hass-PC",
+      "Message": "Hass OS Supervisor baut Container 44ec3c40_thassi_fuege_neue (v1.0.1, amd64)...",
+      "ProgressPercent": 80,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": "f0c309a",
+      "Timestamp": "2026-10-18T22:49:54.875+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "c8b060aa-7c3a-421b-8459-58fa94a0d156",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "DeployingToHass",
+      "Severity": "Progress",
+      "Title": "5/6 \u00B7 Store Sync \u0026 Docker Build",
+      "Message": "Synchronisiere Add-on Store auf Hass-PC (192.168.188.92)...",
+      "ProgressPercent": 74,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": "f0c309a",
+      "Timestamp": "2026-10-18T22:49:51.787+00:00",
+      "Metadata": {
+        "stageIndex": "5"
+      }
+    },
+    {
+      "EventId": "20f8696b-fe5f-4a84-8433-6d30438fee15",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "CodePushed",
+      "Severity": "Progress",
+      "Title": "4/6 \u00B7 Zu GitHub Cloud gepusht",
+      "Message": "Commit f0c309a erfolgreich nach github.com/tsimhofer/thassi (main) \u00FCbertragen.",
+      "ProgressPercent": 64,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": "f0c309a",
+      "Timestamp": "2026-10-18T22:49:51.776+00:00",
+      "Metadata": {
+        "stageIndex": "4"
+      }
+    },
+    {
+      "EventId": "84e87289-a755-4f68-925c-dbe325e3d8ed",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "CodeGenProgress",
+      "Severity": "Progress",
+      "Title": "3/6 \u00B7 Code \u0026 Dockerfile generiert",
+      "Message": "config.yaml, build.yaml, Dockerfile und /healthz Endpoint f\u00FCr Fuege Neue erstellt.",
+      "ProgressPercent": 48,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T22:49:47.502+00:00",
+      "Metadata": {
+        "stageIndex": "3",
+        "files": "config.yaml, build.yaml, Dockerfile, run.sh, server.mjs"
+      }
+    },
+    {
+      "EventId": "66624926-07d5-4dd6-be84-4fea9c2fd6a3",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "RepoCreated",
+      "Severity": "Progress",
+      "Title": "2/6 \u00B7 Add-on Modul initialisiert",
+      "Message": "Verzeichnis ./thassi_fuege_neue (v1.0.1) im Repository tsimhofer/thassi angelegt.",
+      "ProgressPercent": 32,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T22:49:47.493+00:00",
+      "Metadata": {
+        "stageIndex": "2",
+        "repoUrl": "https://github.com/tsimhofer/thassi",
+        "addonSlug": "44ec3c40_thassi_fuege_neue",
+        "version": "1.0.1"
+      }
+    },
+    {
+      "EventId": "418d0fbf-36e4-498d-bd58-71ce57f48420",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "PreflightChecked",
+      "Severity": "Info",
+      "Title": "1/6 \u00B7 Pre-Flight Checks OK",
+      "Message": "GitHub Auth OK \u00B7 Hass-PC (amd64, Supervisor 2026.10.2) bereit.",
+      "ProgressPercent": 18,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T22:49:47.467+00:00",
+      "Metadata": {
+        "stageIndex": "1",
+        "arch": "amd64",
+        "hassHost": "192.168.188.92"
+      }
+    },
+    {
+      "EventId": "a5379d84-6a53-48f5-a005-f9b62a977c6b",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "TaskStarted",
+      "Severity": "Progress",
+      "Title": "0/6 \u00B7 Antigravity Pipeline gestartet",
+      "Message": "Starte Add-on-Erstellung \u0026 Hass-PC Deployment f\u00FCr \u0027thassi_fuege_neue\u0027...",
+      "ProgressPercent": 10,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T22:49:43.7228456+00:00",
+      "Metadata": {
+        "stageIndex": "1",
+        "prompt": "F\u00FCge eine neue App zu meiner Home Assistant Installation hinzu die \u00FCber Google meine Notizen synchronisiert",
+        "addonSlug": "thassi_fuege_neue"
+      }
+    },
+    {
+      "EventId": "03ed5357-cc02-44a3-89df-63dec3eae5f7",
+      "TaskId": "7c6fd7cf-7d21-4ba7-9d54-98964b38845b",
+      "EventType": "VoiceCommandReceived",
+      "Severity": "Info",
+      "Title": "Sprachbefehl (Pixel 10)",
+      "Message": "\u0022F\u00FCge eine neue App zu meiner Home Assistant Installation hinzu die \u00FCber Google meine Notizen synchronisiert\u0022",
+      "ProgressPercent": 5,
+      "AddonSlug": "thassi_fuege_neue",
+      "CommitSha": null,
+      "Timestamp": "2026-10-18T22:49:43.6975956+00:00",
+      "Metadata": {
+        "stageIndex": "0",
+        "deviceName": "Pixel 10",
+        "rawTranscript": "F\u00FCge eine neue App zu meiner Home Assistant Installation hinzu die \u00FCber Google meine Notizen synchronisiert"
+      }
+    }
+  ]
+}

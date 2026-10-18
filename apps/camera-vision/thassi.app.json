@@ -1,0 +1,8 @@
+{
+  "id": "camera-vision",
+  "name": "Camera Vision & Object Detection",
+  "version": "1.0.0",
+  "description": "Zyklische Kamera-Abtastung (Home Assistant, Tuya, go2rtc & RTSP/ONVIF) mit KI-gestützter Objekterkennung und Ereignisprotokoll.",
+  "icon": "mdi:cctv",
+  "category": "automation"
+}

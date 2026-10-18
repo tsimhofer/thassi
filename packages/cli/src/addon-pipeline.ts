@@ -39,18 +39,26 @@ async function emitEvent(evt: EventPayload): Promise<void> {
 
   console.log(`[${evt.eventType}] (${evt.progressPercent}%) ${evt.title}: ${evt.message}`);
 
-  await Promise.allSettled([
-    fetch(`${HUB_URL}/api/events/publish`, {
+  try {
+    const res = await fetch(`${HUB_URL}/api/events/publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-    }),
-    fetch(`${HASS_HOST_URL}/api/orchestrator/events/publish`, {
+    });
+    if (res.ok) return;
+  } catch {
+    // Fallback to Hass Host relay if local hub is unreachable
+  }
+
+  try {
+    await fetch(`${HASS_HOST_URL}/api/orchestrator/events/publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-    }),
-  ]);
+    });
+  } catch {
+    // Ignore fallback failure
+  }
 }
 
 function getHaToken(): string {
@@ -69,37 +77,53 @@ async function callHassSupervisor<T = unknown>(
   data?: Record<string, unknown>
 ): Promise<{ success: boolean; result?: T; error?: { message?: string } }> {
   const token = getHaToken();
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val: { success: boolean; result?: T; error?: { message?: string } }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try {
+        ws.close();
+      } catch {
+        // Ignore close error
+      }
+      resolve(val);
+    };
+
     const ws = new WebSocket('ws://192.168.188.92:8123/api/websocket');
     const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error(`Timeout calling Supervisor ${endpoint}`));
+      finish({ success: false, error: { message: `Timeout calling Supervisor ${endpoint}` } });
     }, 180000);
 
     ws.onmessage = (ev) => {
-      const msg = JSON.parse(String(ev.data));
-      if (msg.type === 'auth_required') {
-        ws.send(JSON.stringify({ type: 'auth', access_token: token }));
-      } else if (msg.type === 'auth_ok') {
-        ws.send(
-          JSON.stringify({
-            id: 1,
-            type: 'supervisor/api',
-            endpoint,
-            method,
-            data,
-            timeout: 180,
-          })
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve(msg);
+      try {
+        const msg = JSON.parse(String(ev.data));
+        if (msg.type === 'auth_required') {
+          ws.send(JSON.stringify({ type: 'auth', access_token: token }));
+        } else if (msg.type === 'auth_ok') {
+          ws.send(
+            JSON.stringify({
+              id: 1,
+              type: 'supervisor/api',
+              endpoint,
+              method,
+              data,
+              timeout: 180,
+            })
+          );
+        } else if (msg.id === 1) {
+          finish(msg);
+        }
+      } catch (err) {
+        finish({ success: false, error: { message: String(err) } });
       }
     };
-    ws.onerror = (err) => {
-      clearTimeout(timeout);
-      reject(err);
+    ws.onerror = () => {
+      finish({ success: false, error: { message: `WebSocket error on ${endpoint}` } });
+    };
+    ws.onclose = () => {
+      finish({ success: false, error: { message: `WebSocket closed before response on ${endpoint}` } });
     };
   });
 }
@@ -134,11 +158,12 @@ async function runPipeline() {
       taskId,
       eventType: 'PreflightChecked',
       severity: 'Info',
-      title: 'Pre-Flight Checks bestanden',
+      title: '1/6 · Pre-Flight Checks OK',
       message: `GitHub Auth OK · Hass-PC (${supInfo.result?.arch || 'amd64'}, Supervisor ${supInfo.result?.supervisor}) bereit.`,
       progressPercent: 18,
       addonSlug: slug,
       metadata: {
+        stageIndex: '1',
         arch: supInfo.result?.arch || 'amd64',
         hassHost: '192.168.188.92',
       },
@@ -167,11 +192,12 @@ async function runPipeline() {
       taskId,
       eventType: 'RepoCreated',
       severity: 'Progress',
-      title: 'HASS Add-on Modul initialisiert',
+      title: '2/6 · Add-on Modul initialisiert',
       message: `Verzeichnis ./${slug} (v${nextVersion}) im Repository tsimhofer/thassi angelegt.`,
-      progressPercent: 30,
+      progressPercent: 32,
       addonSlug: slug,
       metadata: {
+        stageIndex: '2',
         repoUrl: 'https://github.com/tsimhofer/thassi',
         addonSlug: fullSupervisorSlug,
         version: nextVersion,
@@ -264,33 +290,23 @@ const server = http.createServer((req, res) => {
   <title>\${ADDON_NAME}</title>
   <style>
     body {
-      margin: 0; padding: 40px; min-height: 100vh;
-      background: radial-gradient(circle at top right, #0f172a, #020617);
-      color: #f8fafc; font-family: system-ui, sans-serif;
-    }
-    .glass {
-      max-width: 720px; margin: 0 auto; padding: 32px;
-      background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(20px);
-      border-radius: 24px; border: 1px solid rgba(56, 189, 248, 0.25);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      margin: 0; padding: 48px 5vw; min-height: 100vh;
+      background: #040711;
+      color: #f8fafc; font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
     .pill {
-      display: inline-block; padding: 4px 12px; border-radius: 99px;
-      background: rgba(74, 222, 128, 0.15); color: #4ade80;
-      font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+      display: inline-block; padding: 3px 10px; border-radius: 99px;
+      background: rgba(56, 189, 248, 0.12); color: #38bdf8;
+      font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
     }
-    h1 { font-weight: 300; font-size: 36px; margin: 14px 0 8px 0; }
-    p { color: #94a3b8; line-height: 1.6; }
+    h1 { font-weight: 200; font-size: 42px; letter-spacing: -0.02em; margin: 16px 0 8px 0; }
+    p { color: rgba(248, 250, 252, 0.62); line-height: 1.6; max-width: 640px; font-weight: 300; }
   </style>
 </head>
 <body>
-  <div class="glass">
-    <span class="pill">● RUNNING ON HASS OS (v\${ADDON_VERSION})</span>
-    <h1>\${ADDON_NAME}</h1>
-    <p>Automatisch generiert und deployed via <strong>.NET MAUI &amp; SignalR Antigravity Pipeline</strong>.</p>
-    <p><strong>Auftrag:</strong> \${USER_PROMPT}</p>
-    <p style="font-size:12px; color:#38bdf8;">Healthcheck Endpoint: <code>GET /healthz -> 200 OK</code></p>
-  </div>
+  <span class="pill">● LIVE ON HASS OS · v\${ADDON_VERSION}</span>
+  <h1>\${ADDON_NAME}</h1>
+  <p>\${USER_PROMPT}</p>
 </body>
 </html>\`);
 });
@@ -310,11 +326,12 @@ server.listen(PORT, '0.0.0.0', () => {
       taskId,
       eventType: 'CodeGenProgress',
       severity: 'Progress',
-      title: 'Add-on Code & Dockerfile generiert',
-      message: `config.yaml, build.yaml, Dockerfile und /healthz Endpoint für ${displayName} validiert.`,
-      progressPercent: 45,
+      title: '3/6 · Code & Dockerfile generiert',
+      message: `config.yaml, build.yaml, Dockerfile und /healthz Endpoint für ${displayName} erstellt.`,
+      progressPercent: 48,
       addonSlug: slug,
       metadata: {
+        stageIndex: '3',
         files: 'config.yaml, build.yaml, Dockerfile, run.sh, server.mjs',
       },
     });
@@ -339,11 +356,14 @@ server.listen(PORT, '0.0.0.0', () => {
       taskId,
       eventType: 'CodePushed',
       severity: 'Progress',
-      title: 'Zu GitHub Cloud gepusht',
+      title: '4/6 · Zu GitHub Cloud gepusht',
       message: `Commit ${commitSha} erfolgreich nach github.com/tsimhofer/thassi (main) übertragen.`,
-      progressPercent: 60,
+      progressPercent: 64,
       addonSlug: slug,
       commitSha,
+      metadata: {
+        stageIndex: '4',
+      },
     });
 
     // 4. Deploy & Build on Hass-PC (Docker 29.1.3 on 192.168.188.92)
@@ -351,11 +371,14 @@ server.listen(PORT, '0.0.0.0', () => {
       taskId,
       eventType: 'DeployingToHass',
       severity: 'Progress',
-      title: 'Supervisor Store Reload auf Hass-PC',
-      message: `Synchronisiere Add-on Store auf 192.168.188.92 und starte Container-Build (${fullSupervisorSlug})...`,
-      progressPercent: 72,
+      title: '5/6 · Store Sync & Docker Build',
+      message: `Synchronisiere Add-on Store auf Hass-PC (192.168.188.92)...`,
+      progressPercent: 74,
       addonSlug: slug,
       commitSha,
+      metadata: {
+        stageIndex: '5',
+      },
     });
 
     await callHassSupervisor('/store/reload', 'post');
@@ -364,11 +387,14 @@ server.listen(PORT, '0.0.0.0', () => {
       taskId,
       eventType: 'DockerBuildProgress',
       severity: 'Progress',
-      title: 'Docker Build auf Hass-PC läuft',
+      title: '5/6 · Docker Build auf Hass-PC',
       message: `Hass OS Supervisor baut Container ${fullSupervisorSlug} (v${nextVersion}, amd64)...`,
-      progressPercent: 82,
+      progressPercent: 80,
       addonSlug: slug,
       commitSha,
+      metadata: {
+        stageIndex: '5',
+      },
     });
 
     const infoBefore = await callHassSupervisor<{ version?: string | null }>(
@@ -377,18 +403,60 @@ server.listen(PORT, '0.0.0.0', () => {
     );
     const isAlreadyInstalled = Boolean(infoBefore.result?.version);
 
+    // Emit live progress heartbeats while Docker builds on Hass-PC
+    let buildFinished = false;
+    const buildStartMs = Date.now();
+    const buildTicker = (async () => {
+      let stepPct = 82;
+      while (!buildFinished) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (buildFinished) break;
+        const elapsedSec = Math.round((Date.now() - buildStartMs) / 1000);
+        stepPct = Math.min(89, stepPct + 2);
+        await emitEvent({
+          taskId,
+          eventType: 'DockerBuildProgress',
+          severity: 'Progress',
+          title: `5/6 · Docker Build läuft (${elapsedSec}s)`,
+          message: `Baue Image für ${displayName} v${nextVersion} auf Hass-PC...`,
+          progressPercent: stepPct,
+          addonSlug: slug,
+          commitSha,
+          metadata: { stageIndex: '5' },
+        });
+      }
+    })();
+
     const buildRes = isAlreadyInstalled
       ? await callHassSupervisor(`/addons/${fullSupervisorSlug}/rebuild`, 'post')
       : await callHassSupervisor(`/addons/${fullSupervisorSlug}/install`, 'post');
 
+    buildFinished = true;
+    await buildTicker;
+
+    // Even if the WebSocket closed during a multi-second Docker build, verify via /info polling
     if (!buildRes.success) {
-      throw new Error(
-        `Docker Build fehlgeschlagen auf Hass-PC: ${buildRes.error?.message || 'Supervisor Error'}`
-      );
+      let installedOk = false;
+      for (let retry = 0; retry < 12; retry++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        const checkInfo = await callHassSupervisor<{ version?: string | null; state?: string }>(
+          `/addons/${fullSupervisorSlug}/info`,
+          'get'
+        );
+        if (checkInfo.result?.version) {
+          installedOk = true;
+          break;
+        }
+      }
+      if (!installedOk) {
+        throw new Error(
+          `Docker Build fehlgeschlagen auf Hass-PC: ${buildRes.error?.message || 'Supervisor Error'}`
+        );
+      }
     }
 
     await callHassSupervisor(`/addons/${fullSupervisorSlug}/options`, 'post', {
-      ingress_panel: true,
+      ingress_panel: false,
     });
     await callHassSupervisor(`/addons/${fullSupervisorSlug}/start`, 'post');
 
@@ -397,37 +465,45 @@ server.listen(PORT, '0.0.0.0', () => {
       taskId,
       eventType: 'SmokeTestRunning',
       severity: 'Progress',
-      title: 'Smoke- & Integrationstests auf Hass-PC',
+      title: '6/6 · Smoke- & Integrationstests',
       message: `Prüfe Container-State und Watchdog-Healthcheck für ${fullSupervisorSlug}...`,
-      progressPercent: 92,
+      progressPercent: 94,
       addonSlug: slug,
       commitSha,
+      metadata: {
+        stageIndex: '6',
+      },
     });
 
-    await new Promise((r) => setTimeout(r, 2500));
-    const afterInfo = await callHassSupervisor<{ state: string; version: string; ingress_url: string }>(
-      `/addons/${fullSupervisorSlug}/info`,
-      'get'
-    );
-
-    if (afterInfo.result?.state !== 'started') {
-      throw new Error(
-        `Container-Start fehlgeschlagen: Status ist "${afterInfo.result?.state || 'unknown'}"`
+    let startedState = 'unknown';
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const afterInfo = await callHassSupervisor<{ state: string; version: string; ingress_url: string }>(
+        `/addons/${fullSupervisorSlug}/info`,
+        'get'
       );
+      startedState = afterInfo.result?.state || 'unknown';
+      if (startedState === 'started') break;
+      await callHassSupervisor(`/addons/${fullSupervisorSlug}/start`, 'post');
+    }
+
+    if (startedState !== 'started') {
+      throw new Error(`Container-Start fehlgeschlagen: Status ist "${startedState}"`);
     }
 
     await emitEvent({
       taskId,
       eventType: 'TestsPassed',
       severity: 'Success',
-      title: `Add-on "${displayName}" ist LIVE!`,
+      title: `6/6 · "${displayName}" ist LIVE!`,
       message: `Container ${fullSupervisorSlug} (v${nextVersion}) läuft fehlerfrei auf Hass OS. Smoke-Tests bestanden!`,
       progressPercent: 100,
       addonSlug: slug,
       commitSha,
       metadata: {
+        stageIndex: '6',
         ingressUrl: `/${fullSupervisorSlug}`,
-        state: afterInfo.result.state,
+        state: startedState,
         version: nextVersion,
       },
     });

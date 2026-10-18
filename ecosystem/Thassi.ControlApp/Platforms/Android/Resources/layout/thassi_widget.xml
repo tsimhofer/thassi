@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="14dp">
+
+    <!-- Compact Top Row: Status + Expand Toggle + Direct Voice Trigger -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:id="@+id/widget_header_area"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_stage_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="● THASSI BEREIT"
+                android:textColor="#38BDF8"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/widget_recognized_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Tippe rechts auf 🎤 zum Sprechen..."
+                android:textColor="#F1F5F9"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_mic_button"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/widget_mic_bg"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="🎤 Sprechen"
+            android:textColor="#F8FAFC"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Expandable Section: Full Recognized Transcript + Antigravity Pipeline Progress -->
+    <LinearLayout
+        android:id="@+id/widget_expanded_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical"
+        android:visibility="visible">
+
+        <ProgressBar
+            android:id="@+id/widget_progress_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="100"
+            android:progress="100"
+            android:progressTint="#38BDF8"
+            android:progressBackgroundTint="#1E293B" />
+
+        <TextView
+            android:id="@+id/widget_recognized_full"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Erkannter Text wird hier live angezeigt."
+            android:textColor="#E2E8F0"
+            android:textSize="12sp"
+            android:maxLines="4" />
+
+        <TextView
+            android:id="@+id/widget_pipeline_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Pipeline: 1.Check · 2.Repo · 3.Code · 4.Git · 5.Docker · 6.Live"
+            android:textColor="#64748B"
+            android:textSize="10sp"
+            android:maxLines="2" />
+    </LinearLayout>
+
+</LinearLayout>

@@ -360,14 +360,14 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 0;
-      height: 34vh;
-      min-height: 245px;
+      bottom: 46px;
+      height: 31vh;
+      min-height: 220px;
       z-index: 20;
       background: linear-gradient(
         to top,
-        rgba(3, 6, 15, 0.90) 0%,
-        rgba(5, 10, 24, 0.62) 55%,
+        rgba(3, 6, 15, 0.88) 0%,
+        rgba(5, 10, 24, 0.58) 55%,
         rgba(5, 10, 24, 0.0) 100%
       );
       display: flex;
@@ -418,8 +418,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     #timeline-viewport {
       position: relative;
       width: 100vw;
-      height: calc(34vh - 28px);
-      min-height: 215px;
+      height: calc(31vh - 28px);
+      min-height: 192px;
       overflow: hidden;
       cursor: grab;
     }
@@ -617,6 +617,217 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       width: 100%;
       border: none;
     }
+
+    /* 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR BELOW TIMELINE */
+    #room-dock-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 46px;
+      z-index: 28;
+      background: rgba(3, 6, 15, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4.2vw;
+      gap: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #room-dock-bar::-webkit-scrollbar { display: none; }
+
+    .room-dock-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .room-pill {
+      background: transparent;
+      border: none;
+      border-radius: 99px;
+      padding: 6px 13px;
+      color: rgba(248, 250, 252, 0.56);
+      font-family: var(--font-sans);
+      font-size: 11.5px;
+      font-weight: 400;
+      letter-spacing: 0.03em;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.22s ease, background 0.22s ease, transform 0.2s ease;
+    }
+    .room-pill:hover {
+      color: rgba(248, 250, 252, 0.92);
+      background: rgba(255, 255, 255, 0.045);
+    }
+    .room-pill.active-flyout {
+      color: #ffffff;
+      background: rgba(56, 189, 248, 0.13);
+    }
+    .room-pill.has-on {
+      color: rgba(248, 250, 252, 0.88);
+    }
+    .room-dot {
+      width: 5.5px;
+      height: 5.5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      transition: background 0.25s ease, box-shadow 0.25s ease;
+    }
+    .room-pill.has-on .room-dot {
+      background: #fbbf24;
+      box-shadow: 0 0 9px rgba(251, 191, 36, 0.85);
+    }
+    .room-pill.has-motion .room-dot {
+      background: #4ade80;
+      box-shadow: 0 0 9px rgba(74, 222, 128, 0.85);
+    }
+    .room-meta {
+      font-size: 10px;
+      color: rgba(248, 250, 252, 0.36);
+      font-variant-numeric: tabular-nums;
+    }
+    .room-pill.has-on .room-meta {
+      color: rgba(251, 191, 36, 0.78);
+    }
+
+    /* Upward Glassmorphic Room Flyout */
+    #room-flyout {
+      position: fixed;
+      bottom: 54px;
+      left: 4.2vw;
+      z-index: 45;
+      width: 340px;
+      max-width: 92vw;
+      background: rgba(6, 10, 22, 0.78);
+      backdrop-filter: blur(32px) saturate(150%);
+      -webkit-backdrop-filter: blur(32px) saturate(150%);
+      border-radius: 22px;
+      padding: 18px 20px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      animation: flyoutRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes flyoutRise {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .rf-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 4px;
+    }
+    .rf-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+    .rf-subtitle {
+      font-size: 11px;
+      color: rgba(248, 250, 252, 0.48);
+      font-variant-numeric: tabular-nums;
+    }
+    .rf-dev-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 44vh;
+      overflow-y: auto;
+    }
+    .rf-dev-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 9px 12px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.035);
+      transition: background 0.2s ease;
+    }
+    .rf-dev-row.is-on {
+      background: rgba(251, 191, 36, 0.09);
+    }
+    .rf-dev-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .rf-dev-label {
+      font-size: 12.5px;
+      font-weight: 400;
+      color: rgba(248, 250, 252, 0.88);
+    }
+    .rf-dev-row.is-on .rf-dev-label {
+      color: #ffffff;
+      font-weight: 500;
+    }
+    .rf-dev-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rf-power-badge {
+      font-size: 10.5px;
+      color: rgba(248, 250, 252, 0.45);
+      font-variant-numeric: tabular-nums;
+    }
+    .rf-toggle-btn {
+      border: none;
+      border-radius: 99px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(248, 250, 252, 0.65);
+    }
+    .rf-toggle-btn.on {
+      background: #fbbf24;
+      color: #040711;
+      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+    }
+    .rf-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 2px;
+    }
+    .rf-slider {
+      flex: 1;
+      accent-color: #38bdf8;
+      height: 4px;
+      cursor: pointer;
+    }
+    .rf-effect-pills {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }
+    .rf-fx-pill {
+      border: none;
+      border-radius: 99px;
+      padding: 2px 8px;
+      font-size: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+    }
+    .rf-fx-pill.active {
+      background: #a855f7;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -777,6 +988,17 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     </div>
   </div>
 
+  <!-- 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR & UPWARD FLYOUT -->
+  <div id="room-flyout" onclick="event.stopPropagation()"></div>
+  <div id="room-dock-bar">
+    <div class="room-dock-group" id="room-pills-container"></div>
+    <button class="room-pill" onclick="openFullService('camera-vision', 'Camera Vision')" title="Kamera-Objekterkennung & Streams öffnen">
+      <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
+      <span>Vision AI</span>
+      <span class="room-meta" id="vision-dock-meta">Zyklisch</span>
+    </button>
+  </div>
+
   <!-- FULL SERVICE OVERLAY (WHEN LAUNCHING FULL VIEW) -->
   <div id="full-app-overlay">
     <div id="full-app-bar">
@@ -794,6 +1016,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     const NOW_ANCHOR_RATIO = 0.22;
 
     let calendarEvents = [];
+    let roomsData = [];
+    let visionSummaryData = null;
+    let activeRoomFlyoutId = null;
     let visibleHoursSpan = 24;
     let panOffsetMs = 0;
     let timelineBaseEpochMs = Date.now();
@@ -1110,7 +1335,280 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (!e.target.closest('.ambient-widget')) {
         document.querySelectorAll('.ambient-widget').forEach((w) => w.classList.remove('expanded'));
       }
+      if (!e.target.closest('#room-flyout') && !e.target.closest('.room-pill')) {
+        closeRoomFlyout();
+      }
     });
+
+    function closeRoomFlyout() {
+      activeRoomFlyoutId = null;
+      const flyout = document.getElementById('room-flyout');
+      if (flyout) flyout.style.display = 'none';
+      document.querySelectorAll('.room-pill').forEach((p) => p.classList.remove('active-flyout'));
+    }
+
+    function openRoomFlyout(roomId, ev) {
+      if (ev) ev.stopPropagation();
+      if (activeRoomFlyoutId === roomId) {
+        closeRoomFlyout();
+        return;
+      }
+      activeRoomFlyoutId = roomId;
+      renderRoomDockBar();
+
+      const flyout = document.getElementById('room-flyout');
+      const pillEl = document.getElementById('room-pill-' + roomId);
+      if (pillEl && flyout) {
+        const rect = pillEl.getBoundingClientRect();
+        const maxLeft = Math.max(16, window.innerWidth - 360);
+        const targetLeft = Math.min(maxLeft, Math.max(16, rect.left));
+        flyout.style.left = targetLeft + 'px';
+      }
+      renderActiveRoomFlyout();
+    }
+
+    function renderRoomDockBar() {
+      const container = document.getElementById('room-pills-container');
+      if (!container) return;
+
+      container.innerHTML = roomsData
+        .map((r) => {
+          const hasOn = r.activeCount > 0;
+          const hasMotion = Boolean(r.motionActive);
+          const isActive = activeRoomFlyoutId === r.id;
+
+          const metaParts = [];
+          if (r.tempC != null) metaParts.push(r.tempC.toFixed(1) + '°');
+          if (r.activeCount > 0) metaParts.push(r.activeCount + ' an');
+          if (r.totalPowerW > 0.5) metaParts.push(Math.round(r.totalPowerW) + 'W');
+          if (hasMotion) metaParts.push('Bewegung');
+          if (r.id === 'kameras_vision') {
+            metaParts.push(
+              visionSummaryData?.lastTotalObjects
+                ? visionSummaryData.lastTotalObjects + ' Obj'
+                : r.devices.length + ' Cams'
+            );
+          }
+
+          return \`
+            <button id="room-pill-\${r.id}"
+                    class="room-pill \${hasOn ? 'has-on' : ''} \${hasMotion ? 'has-motion' : ''} \${isActive ? 'active-flyout' : ''}"
+                    onclick="openRoomFlyout('\${r.id}', event)">
+              <span class="room-dot"></span>
+              <span>\${r.name}</span>
+              \${metaParts.length > 0 ? \`<span class="room-meta">\${metaParts.join(' · ')}</span>\` : ''}
+            </button>
+          \`;
+        })
+        .join('');
+
+      const vMeta = document.getElementById('vision-dock-meta');
+      if (vMeta && visionSummaryData) {
+        vMeta.textContent = visionSummaryData.lastSceneSummary
+          ? (visionSummaryData.lastTotalObjects || 0) + ' Objekte'
+          : 'Zyklisch';
+      }
+    }
+
+    function renderActiveRoomFlyout() {
+      const flyout = document.getElementById('room-flyout');
+      if (!flyout || !activeRoomFlyoutId) return;
+      const room = roomsData.find((r) => r.id === activeRoomFlyoutId);
+      if (!room) {
+        closeRoomFlyout();
+        return;
+      }
+
+      const subParts = [];
+      if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + ' °C');
+      if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
+      if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
+
+      const rowsHtml = room.devices
+        .map((d) => {
+          const pwr = d.powerW != null && d.powerW > 0 ? \`<span class="rf-power-badge">\${d.powerW.toFixed(1)} W</span>\` : '';
+
+          if (d.kind === 'toggle' || d.kind === 'rgbw') {
+            const extraRgbw =
+              d.kind === 'rgbw' && d.isOn
+                ? \`
+                  <div class="rf-slider-row">
+                    <span style="font-size:10px; color:rgba(255,255,255,0.45);">Dim</span>
+                    <input type="range" min="5" max="100" value="\${d.brightness || 80}" class="rf-slider"
+                           onchange="triggerDeviceAction('\${d.entityId}', 'brightness', { brightnessPct: Number(this.value) })" />
+                  </div>
+                  \${
+                    Array.isArray(d.effectList) && d.effectList.length > 0
+                      ? \`<div class="rf-effect-pills">
+                          \${d.effectList
+                            .map(
+                              (fx) =>
+                                \`<button class="rf-fx-pill \${d.effect === fx ? 'active' : ''}" onclick="triggerDeviceAction('\${d.entityId}', 'effect', { effect: '\${fx}' })">\${fx}</button>\`
+                            )
+                            .join('')}
+                        </div>\`
+                      : ''
+                  }
+                \`
+                : '';
+
+            return \`
+              <div class="rf-dev-row \${d.isOn ? 'is-on' : ''}">
+                <div class="rf-dev-main">
+                  <span class="rf-dev-label">\${d.label}</span>
+                  <div class="rf-dev-right">
+                    \${pwr}
+                    <button class="rf-toggle-btn \${d.isOn ? 'on' : ''}"
+                            onclick="triggerDeviceAction('\${d.entityId}', 'toggle')">
+                      \${d.isOn ? 'AN' : 'AUS'}
+                    </button>
+                  </div>
+                </div>
+                \${extraRgbw}
+              </div>
+            \`;
+          }
+
+          if (d.kind === 'camera') {
+            const camLive = d.state === 'recording' || d.state === 'streaming';
+            return \`
+              <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
+                <div class="rf-dev-main">
+                  <span class="rf-dev-label">\${d.label}</span>
+                  <div class="rf-dev-right">
+                    <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
+                      \${camLive ? 'Aktiv' : 'Standby / Re-Auth'}
+                    </span>
+                    <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
+                      Abtasten
+                    </button>
+                  </div>
+                </div>
+              </div>
+            \`;
+          }
+
+          // Sensor row
+          const formattedState =
+            d.state === 'on'
+              ? 'Bewegung erkannt'
+              : d.state === 'off'
+                ? 'Ruhig'
+                : d.state === 'unavailable'
+                  ? 'Offline'
+                  : \`\${d.state}\${d.unit ? ' ' + d.unit : ''}\`;
+
+          return \`
+            <div class="rf-dev-row">
+              <div class="rf-dev-main">
+                <span class="rf-dev-label">\${d.label}</span>
+                <span class="rf-power-badge" style="color:rgba(248,250,252,0.75);">\${formattedState}</span>
+              </div>
+            </div>
+          \`;
+        })
+        .join('');
+
+      const footerHtml =
+        room.id === 'kameras_vision'
+          ? \`
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
+              <span style="font-size:11px; color:rgba(255,255,255,0.48);">
+                \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 36) : 'Zyklische Objekterkennung aktiv'}
+              </span>
+              <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('camera-vision', 'Camera Vision')">
+                Vision öffnen →
+              </button>
+            </div>
+          \`
+          : room.activeCount > 0
+            ? \`
+              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
+                <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="turnOffAllInRoom('\${room.id}')">
+                  Alle im Raum ausschalten
+                </button>
+                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
+                  Canvas →
+                </button>
+              </div>
+            \`
+            : \`
+              <div style="display:flex; justify-content:flex-end; padding-top:4px;">
+                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
+                  Smart Canvas →
+                </button>
+              </div>
+            \`;
+
+      flyout.innerHTML = \`
+        <div class="rf-header">
+          <span class="rf-title">\${room.name}</span>
+          <span class="rf-subtitle">\${subParts.join(' · ') || (room.activeCount + ' aktiv')}</span>
+        </div>
+        <div class="rf-dev-list">\${rowsHtml}</div>
+        \${footerHtml}
+      \`;
+      flyout.style.display = 'flex';
+    }
+
+    async function triggerDeviceAction(entityId, action, extra) {
+      try {
+        await fetch(base + '/api/system/device-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entityId, action, ...(extra || {}) }),
+        });
+        await loadRoomsQuickAccess();
+      } catch (e) {
+        console.error('Device action failed:', e);
+      }
+    }
+
+    async function turnOffAllInRoom(roomId) {
+      const room = roomsData.find((r) => r.id === roomId);
+      if (!room) return;
+      const activeDevs = room.devices.filter((d) => (d.kind === 'toggle' || d.kind === 'rgbw') && d.isOn);
+      await Promise.all(
+        activeDevs.map((d) =>
+          fetch(base + '/api/system/device-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entityId: d.entityId, action: 'turn_off' }),
+          })
+        )
+      );
+      await loadRoomsQuickAccess();
+    }
+
+    async function triggerQuickVisionSample(cameraId, btnEl) {
+      if (btnEl) btnEl.textContent = 'Prüfe…';
+      try {
+        await fetch(base + '/api/apps/camera-vision/sample-now', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ camera_id: cameraId }),
+        });
+        await loadRoomsQuickAccess();
+      } finally {
+        if (btnEl) btnEl.textContent = 'Abtasten';
+      }
+    }
+
+    async function loadRoomsQuickAccess() {
+      try {
+        const res = await fetch(base + '/api/system/rooms');
+        if (!res.ok) return;
+        const data = await res.json();
+        roomsData = data.rooms || [];
+        visionSummaryData = data.visionSummary || null;
+        renderRoomDockBar();
+        if (activeRoomFlyoutId) {
+          renderActiveRoomFlyout();
+        }
+      } catch (e) {
+        console.error('Failed loading rooms quick access:', e);
+      }
+    }
 
     function openFullService(appId, title) {
       document.getElementById('full-app-title').textContent = title;
@@ -1177,6 +1675,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
     async function loadAllLiveData() {
       try {
+        void loadRoomsQuickAccess();
         const [sysRes, calRes] = await Promise.all([
           fetch(base + '/api/system/status'),
           fetch(base + '/api/apps/google-calendar/dashboard').catch(() => null)
@@ -1275,6 +1774,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     setInterval(loadAllLiveData, 60000);
+    setInterval(loadRoomsQuickAccess, 12000);
   </script>
 </body>
 </html>`;

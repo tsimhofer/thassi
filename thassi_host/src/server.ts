@@ -415,7 +415,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.0.7',
+          version: '1.0.8',
           timestamp: new Date().toISOString(),
         });
       }
@@ -486,6 +486,164 @@ async function startServer() {
         return;
       }
 
+      if (pathname === '/api/system/rooms' && req.method === 'GET') {
+        const allStates = await systemHaBridge.getStates();
+        const sm = new Map(allStates.map((s) => [s.entity_id, s]));
+        const getVal = (id: string) => sm.get(id)?.state ?? 'unavailable';
+        const getNum = (id: string) => {
+          const v = Number(sm.get(id)?.state);
+          return Number.isFinite(v) ? v : null;
+        };
+
+        const buildDev = (
+          entityId: string,
+          label: string,
+          kind: 'toggle' | 'rgbw' | 'sensor' | 'camera',
+          powerEntityId?: string
+        ) => {
+          const st = sm.get(entityId);
+          const state = st?.state ?? 'unavailable';
+          const powerW = powerEntityId ? getNum(powerEntityId) : null;
+          const attrs = (st?.attributes || {}) as Record<string, unknown>;
+          return {
+            entityId,
+            label,
+            kind,
+            state,
+            isOn: state === 'on' || state === 'recording' || state === 'streaming' || state === 'playing',
+            powerW,
+            brightness: typeof attrs.brightness === 'number' ? Math.round((attrs.brightness / 255) * 100) : null,
+            effect: (attrs.effect as string) || null,
+            effectList: (attrs.effect_list as string[]) || null,
+            unit: (attrs.unit_of_measurement as string) || '',
+          };
+        };
+
+        const rooms = [
+          {
+            id: 'buro_og',
+            name: 'Büro OG',
+            tempC: getNum('sensor.shellyhtg3_e4b32331dde0_temperatur'),
+            humidityPct: getNum('sensor.shellyhtg3_e4b32331dde0_luftfeuchtigkeit'),
+            devices: [
+              buildDev('light.buro_og_grosses_licht', 'Großes Licht', 'toggle', 'sensor.links_power'),
+              buildDev('switch.buro_og_regal_lichter', 'Regal Lichter', 'toggle', 'sensor.shellyplugsg3_e4b063e4bfd8_power'),
+              buildDev('switch.buro_og_plug_90', 'Schreibtisch Plug .90', 'toggle', 'sensor.kleines_licht_pumpe_power'),
+              buildDev('switch.buro_og_bewasserung_pumpe', 'Bewässerung Pumpe', 'toggle', 'sensor.schalter_neu_power'),
+              buildDev('light.thomasbuero_2pm_oben_output_1', 'Schalter Oben Rechts', 'toggle', 'sensor.thomasbuero_2pm_oben_switch_1_power'),
+            ],
+          },
+          {
+            id: 'wohnkuche',
+            name: 'Wohnküche',
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev('switch.wohnkueche_bodenbeleuchtung_boden', 'Bodenbeleuchtung', 'toggle', 'sensor.shelly_plus_2pm_a_switch_0_power'),
+              buildDev('switch.wohnkueche_fensterbank_licht', 'Fensterbank Licht', 'toggle', 'sensor.bodenbeleuchtung_power'),
+              buildDev('media_player.tv_samsung_6_series_49', 'Samsung TV (49")', 'sensor'),
+            ],
+          },
+          {
+            id: 'vorzimmer_og',
+            name: 'Vorzimmer OG',
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev('switch.vorzimmer_og_grosses_licht', 'Großes Licht', 'toggle'),
+              buildDev('light.vorzimmer_og_bodenbeleuchtung_led', 'Bodenbeleuchtung LED', 'rgbw'),
+              buildDev('light.vorzimmer_og_alert_led', 'Alert LED', 'rgbw'),
+              buildDev('switch.shelly2pmg3_8cbfea9ac754_output_0', 'Shelly 2PM Kanal 1', 'toggle', 'sensor.shelly2pmg3_8cbfea9ac754_output_0_leistung'),
+              buildDev('switch.shelly2pmg3_8cbfea9ac754_output_1', 'Shelly 2PM Kanal 2', 'toggle', 'sensor.shelly2pmg3_8cbfea9ac754_output_1_leistung'),
+            ],
+          },
+          {
+            id: 'bad_gaeste',
+            name: 'Bad & Gäste',
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev('switch.shelly1pmminig4_7c2c676dc6fc', 'Waschmaschine Bad OG', 'toggle', 'sensor.shelly1pmminig4_7c2c676dc6fc_leistung'),
+              buildDev('switch.gaestezimmer_schalter_rechts', 'Gästezimmer Schalter 1', 'toggle', 'sensor.shellyplus2pm_c049ef8a3a78_switch_0_power'),
+              buildDev('switch.shellyplus2pm_c049ef8a3a78_switch_1', 'Gästezimmer Schalter 2', 'toggle', 'sensor.shellyplus2pm_c049ef8a3a78_switch_1_power'),
+              buildDev('sensor.smart_series_8000_75b4_batterie', 'Oral-B Smart Series Akku', 'sensor'),
+            ],
+          },
+          {
+            id: 'stiegenhaus_keller',
+            name: 'Stiegenhaus & Keller',
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev('binary_sensor.shelly_blu_motion_19ca_bewegung', 'Bewegung Stiegenhaus', 'sensor'),
+              buildDev('sensor.shelly_blu_motion_19ca_beleuchtungsstarke', 'Helligkeit Stiegenhaus', 'sensor'),
+              buildDev('sensor.epson_xp_7100_series', 'Epson XP-7100 Drucker', 'sensor'),
+              buildDev('sensor.epson_xp_7100_series_black_ink', 'Drucker Tinte Schwarz', 'sensor'),
+            ],
+          },
+          {
+            id: 'kameras_vision',
+            name: 'Kameras & Vision',
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev('camera.garten_parkplatz_kamera', 'Draußen Hinten Werkstatt (LAN .121)', 'camera'),
+              buildDev('camera.cam_eg_vz_eingang', 'EG Vorzimmer Kamera (LAN .140)', 'camera'),
+              buildDev('camera.lsc_smart_ptz_camera_2', 'LSC Smart PTZ Camera 2', 'camera'),
+              buildDev('camera.lsc_smart_ptz_camera_3', 'LSC Smart PTZ Camera 3', 'camera'),
+              buildDev('camera.lsc_smart_outdoor_camera', 'LSC Smart Outdoor Camera', 'camera'),
+              buildDev('camera.lsc_smart_indoor_camera', 'LSC Smart Indoor Camera', 'camera'),
+            ],
+          },
+        ].map((r) => {
+          const activeCount = r.devices.filter((d) => (d.kind === 'toggle' || d.kind === 'rgbw') && d.isOn).length;
+          const totalPowerW = r.devices.reduce((acc, d) => acc + (d.powerW || 0), 0);
+          return {
+            ...r,
+            activeCount,
+            totalPowerW: Math.round(totalPowerW * 10) / 10,
+            motionActive:
+              r.id === 'stiegenhaus_keller' ? getVal('binary_sensor.shelly_blu_motion_19ca_bewegung') === 'on' : false,
+          };
+        });
+
+        return sendJson(res, 200, {
+          rooms,
+          visionSummary: sharedDb.kvGet('camera_vision_today') || null,
+        });
+      }
+
+      if (pathname === '/api/system/device-action' && req.method === 'POST') {
+        const body = JSON.parse((await readRequestBody(req)) || '{}') as {
+          entityId?: string;
+          action?: 'toggle' | 'turn_on' | 'turn_off' | 'brightness' | 'effect';
+          brightnessPct?: number;
+          effect?: string;
+        };
+        if (!body.entityId) return sendJson(res, 400, { error: 'entityId is required' });
+        const domain = body.entityId.split('.')[0];
+        if (!['light', 'switch', 'media_player', 'siren', 'camera'].includes(domain)) {
+          return sendJson(res, 400, { error: `Unsupported domain ${domain}` });
+        }
+
+        if (body.action === 'brightness' && domain === 'light') {
+          const pct = Math.max(1, Math.min(100, Number(body.brightnessPct) || 50));
+          await systemHaBridge.callService('light', 'turn_on', {
+            entity_id: body.entityId,
+            brightness_pct: pct,
+          });
+        } else if (body.action === 'effect' && domain === 'light') {
+          await systemHaBridge.callService('light', 'turn_on', {
+            entity_id: body.entityId,
+            effect: body.effect || 'Off',
+          });
+        } else {
+          const svc = body.action === 'turn_on' ? 'turn_on' : body.action === 'turn_off' ? 'turn_off' : 'toggle';
+          await systemHaBridge.callService(domain, svc, { entity_id: body.entityId });
+        }
+        return sendJson(res, 200, { ok: true });
+      }
+
       if (pathname === '/api/system/status' && req.method === 'GET') {
         const ha = await systemHaBridge.getStatus();
         const google = googleOAuth.getStatus();
@@ -499,6 +657,7 @@ async function startServer() {
           meals: sharedDb.kvGet('meal_planner_today') || null,
           calendar: sharedDb.kvGet('google_calendar_today') || null,
           finance: sharedDb.kvGet('finance_summary') || null,
+          vision: sharedDb.kvGet('camera_vision_today') || null,
         };
         const notes = sharedDb.query<{
           id: number;
