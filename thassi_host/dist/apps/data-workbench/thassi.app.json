@@ -1,0 +1,8 @@
+{
+  "id": "data-workbench",
+  "name": "Personal Data Workbench",
+  "version": "1.0.0",
+  "description": "Reference full-stack app: SQLite Notes & Meal Log, CSV Financial/Health Analyzer, Cron Sync, and Home Assistant Sensor Publisher.",
+  "icon": "mdi:database-search",
+  "category": "general"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "meal-planner",
+  "name": "Meal Planner",
+  "version": "1.0.0",
+  "description": "Weekly meal calendar, recipe & nutrition database, automated grocery list generator, and Home Assistant dinner/nutrition sensor bridge.",
+  "icon": "mdi:food-apple",
+  "category": "meals"
+}

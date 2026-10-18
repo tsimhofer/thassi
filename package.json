@@ -1,0 +1,31 @@
+{
+  "name": "thassi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack TypeScript workflow & Micro-PaaS for installing custom webapps and personal data tools as Home Assistant Add-ons",
+  "type": "module",
+  "scripts": {
+    "thassi": "tsx packages/cli/src/index.ts",
+    "dev": "tsx packages/cli/src/index.ts dev",
+    "build": "tsx packages/cli/src/index.ts build",
+    "create": "tsx packages/cli/src/index.ts create",
+    "deploy": "tsx packages/cli/src/index.ts deploy",
+    "export": "tsx packages/cli/src/index.ts export",
+    "list": "tsx packages/cli/src/index.ts list",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}
