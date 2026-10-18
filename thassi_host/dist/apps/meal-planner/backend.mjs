@@ -9,68 +9,6 @@ function defineThassiApp(setup) {
 }
 
 // apps/meal-planner/backend/index.ts
-var STARTER_RECIPES = [
-  {
-    name: "High-Protein Overnight Oats & Berries",
-    meal_type: "breakfast",
-    calories: 460,
-    protein_g: 32,
-    prep_minutes: 5,
-    ingredients: ["80g Rolled Oats", "200g Skyr / Greek Yogurt", "1 scoop Whey or Plant Protein", "80g Mixed Berries", "10g Chia Seeds"],
-    instructions: "Mix oats, yogurt, protein powder, and chia seeds with a splash of milk. Refrigerate overnight and top with berries.",
-    tags: "quick,high-protein,vegetarian"
-  },
-  {
-    name: "Shakshuka with Feta & Sourdough",
-    meal_type: "breakfast",
-    calories: 520,
-    protein_g: 26,
-    prep_minutes: 20,
-    ingredients: ["3 Eggs", "1 can Crushed Tomatoes", "1 Red Bell Pepper", "50g Feta Cheese", "2 slices Sourdough Bread"],
-    instructions: "Simmer diced pepper and spiced tomatoes for 10 mins, poach eggs in the sauce, crumble feta on top.",
-    tags: "vegetarian,weekend"
-  },
-  {
-    name: "Mediterranean Chicken Quinoa Bowl",
-    meal_type: "lunch",
-    calories: 640,
-    protein_g: 48,
-    prep_minutes: 25,
-    ingredients: ["180g Chicken Breast", "85g Dry Quinoa", "1 Cucumber", "100g Cherry Tomatoes", "40g Hummus", "Olives & Lemon Olive Oil"],
-    instructions: "Cook quinoa, grill seasoned chicken breast, and assemble bowl with chopped vegetables and hummus.",
-    tags: "meal-prep,high-protein"
-  },
-  {
-    name: "Red Lentil & Coconut Curry",
-    meal_type: "lunch",
-    calories: 580,
-    protein_g: 24,
-    prep_minutes: 30,
-    ingredients: ["120g Red Lentils", "200ml Coconut Milk", "100g Baby Spinach", "1 Onion & Garlic", "Curry Paste & Basmati Rice"],
-    instructions: "Saut\xE9 aromatics and curry paste, simmer red lentils with coconut milk and broth for 20 mins, stir in spinach.",
-    tags: "vegan,meal-prep,budget"
-  },
-  {
-    name: "Teriyaki Glazed Salmon with Broccoli & Rice",
-    meal_type: "dinner",
-    calories: 690,
-    protein_g: 46,
-    prep_minutes: 20,
-    ingredients: ["200g Salmon Fillet", "200g Broccoli Florets", "90g Jasmine Rice", "2 tbsp Teriyaki Sauce", "Sesame Seeds & Spring Onion"],
-    instructions: "Roast salmon and broccoli at 200\xB0C for 14 minutes with teriyaki glaze; serve over steamed jasmine rice.",
-    tags: "omega-3,quick,high-protein"
-  },
-  {
-    name: "Crispy Tofu & Peanut Udon Stir-Fry",
-    meal_type: "dinner",
-    calories: 610,
-    protein_g: 28,
-    prep_minutes: 20,
-    ingredients: ["200g Firm Tofu", "200g Udon Noodles", "150g Edamame & Snap Peas", "2 tbsp Peanut Butter", "Soy Sauce, Lime & Chili Crisp"],
-    instructions: "Pan-sear cubed tofu until golden, toss with udon noodles, veggies, and warm peanut-soy-lime sauce.",
-    tags: "vegan,quick"
-  }
-];
 function formatDateYMD(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -119,52 +57,17 @@ var index_default = defineThassiApp((ctx) => {
       source_recipe TEXT NOT NULL DEFAULT ''
     );
   `);
-  const recipeCount = ctx.db.queryOne("SELECT COUNT(*) as cnt FROM recipes")?.cnt ?? 0;
-  if (recipeCount === 0) {
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    for (const r of STARTER_RECIPES) {
-      ctx.db.execute(
-        `INSERT INTO recipes (name, meal_type, calories, protein_g, prep_minutes, ingredients, instructions, tags, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          r.name,
-          r.meal_type,
-          r.calories,
-          r.protein_g,
-          r.prep_minutes,
-          JSON.stringify(r.ingredients),
-          r.instructions,
-          r.tags,
-          now
-        ]
-      );
-    }
-    const today = formatDateYMD(/* @__PURE__ */ new Date());
-    const seededRecipes = ctx.db.query("SELECT * FROM recipes ORDER BY id ASC");
-    const breakfast = seededRecipes.find((r) => r.meal_type === "breakfast");
-    const lunch = seededRecipes.find((r) => r.meal_type === "lunch");
-    const dinner = seededRecipes.find((r) => r.meal_type === "dinner");
-    if (breakfast) {
-      ctx.db.execute(
-        `INSERT OR REPLACE INTO meal_plan (plan_date, slot, recipe_id, custom_title, calories, protein_g, completed)
-         VALUES (?, 'breakfast', ?, ?, ?, ?, 0)`,
-        [today, breakfast.id, breakfast.name, breakfast.calories, breakfast.protein_g]
-      );
-    }
-    if (lunch) {
-      ctx.db.execute(
-        `INSERT OR REPLACE INTO meal_plan (plan_date, slot, recipe_id, custom_title, calories, protein_g, completed)
-         VALUES (?, 'lunch', ?, ?, ?, ?, 0)`,
-        [today, lunch.id, lunch.name, lunch.calories, lunch.protein_g]
-      );
-    }
-    if (dinner) {
-      ctx.db.execute(
-        `INSERT OR REPLACE INTO meal_plan (plan_date, slot, recipe_id, custom_title, calories, protein_g, completed)
-         VALUES (?, 'dinner', ?, ?, ?, ?, 0)`,
-        [today, dinner.id, dinner.name, dinner.calories, dinner.protein_g]
-      );
-    }
+  const legacyDummyNames = [
+    "High-Protein Overnight Oats & Berries",
+    "Shakshuka with Feta & Sourdough",
+    "Mediterranean Chicken Quinoa Bowl",
+    "Red Lentil & Coconut Curry",
+    "Teriyaki Glazed Salmon with Broccoli & Rice",
+    "Crispy Tofu & Peanut Udon Stir-Fry"
+  ];
+  for (const name of legacyDummyNames) {
+    ctx.db.execute("DELETE FROM meal_plan WHERE custom_title = ?", [name]);
+    ctx.db.execute("DELETE FROM recipes WHERE name = ?", [name]);
   }
   function parseRecipeRow(row) {
     let ingredients = [];

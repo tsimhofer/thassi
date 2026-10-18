@@ -54,7 +54,12 @@ export default function App() {
     zone: 'Zone 1',
     color: '#38bdf8',
   });
-  const [baselineRhr, setBaselineRhr] = useState<number>(57);
+  const [baselineRhr, setBaselineRhr] = useState<number>(0);
+  const [hrvMs, setHrvMs] = useState<number | null>(null);
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
+  const [floors, setFloors] = useState<number | null>(null);
+  const [respiratoryRate, setRespiratoryRate] = useState<number | null>(null);
+  const [haConnected, setHaConnected] = useState<boolean>(false);
   const [pixelWatchBattery, setPixelWatchBattery] = useState<number | null>(null);
   const [history, setHistory] = useState<BiometricDayRow[]>([]);
   const [workoutOptions, setWorkoutOptions] = useState<WorkoutOption[]>([]);
@@ -85,6 +90,11 @@ export default function App() {
       readiness: { score: number; status: string; recommendation: string };
       hrZone: { zone: string; color: string };
       baselineRhr: number;
+      hrvMs?: number | null;
+      distanceKm?: number | null;
+      floors?: number | null;
+      respiratoryRate?: number | null;
+      haConnected?: boolean;
       pixelWatchBattery: number | null;
       history: BiometricDayRow[];
       workoutOptions: WorkoutOption[];
@@ -97,6 +107,11 @@ export default function App() {
     setReadiness(data.readiness);
     setHrZone(data.hrZone);
     setBaselineRhr(data.baselineRhr);
+    setHrvMs(data.hrvMs ?? null);
+    setDistanceKm(data.distanceKm ?? null);
+    setFloors(data.floors ?? null);
+    setRespiratoryRate(data.respiratoryRate ?? null);
+    setHaConnected(Boolean(data.haConnected));
     setPixelWatchBattery(data.pixelWatchBattery);
     setHistory(data.history);
     setWorkoutOptions(data.workoutOptions);
@@ -140,10 +155,10 @@ export default function App() {
     await loadDashboard();
   };
 
-  const score = readiness?.score ?? 82;
+  const score = readiness?.score ?? 0;
   const readinessColor =
     score >= 80 ? '#4ade80' : score >= 65 ? '#38bdf8' : score >= 50 ? '#facc15' : '#f43f5e';
-  const stepPct = today ? Math.min(100, Math.round((today.steps / today.step_goal) * 100)) : 0;
+  const stepPct = today && today.step_goal > 0 ? Math.min(100, Math.round((today.steps / today.step_goal) * 100)) : 0;
 
   const filteredWorkouts = workoutOptions.filter((w) => {
     if (categoryFilter === 'all') return true;
@@ -171,19 +186,22 @@ export default function App() {
             ❤️ Google Health, Biometrics & Readiness
           </h1>
           <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>
-            Synced Sources: <strong>{today?.source || 'Pixel 10 + Pixel Watch'}</strong>
+            HA Connection:{' '}
+            <strong style={{ color: haConnected ? '#4ade80' : '#f43f5e' }}>
+              {haConnected ? 'Connected' : 'Disconnected'}
+            </strong>{' '}
+            • Source: <strong>{today?.source || 'No Data'}</strong>
             {pixelWatchBattery !== null && (
               <span>
                 {' '}
-                • ⌚ Thomas&apos; Pixel Watch: <strong>{pixelWatchBattery}%</strong>
+                • ⌚ Pixel Watch: <strong>{pixelWatchBattery}%</strong>
               </span>
             )}
-            {today?.weight_kg && (
-              <span>
-                {' '}
-                • ⚖️ Weight: <strong>{today.weight_kg} kg</strong>
-              </span>
-            )}
+            <span>
+              {' '}
+              • ⚖️ Weight:{' '}
+              <strong>{today?.weight_kg && today.weight_kg > 0 ? `${today.weight_kg} kg` : 'No data in Health Connect'}</strong>
+            </span>
           </p>
         </div>
 
@@ -204,7 +222,7 @@ export default function App() {
             onClick={() => setActiveTab('history')}
             style={activeTab === 'history' ? btnPrimary : btnTab}
           >
-            📈 7-Day Biometrics & Logs ({workoutLogs.length})
+            📈 Biometrics & Logs ({workoutLogs.length})
           </button>
         </div>
       </header>
@@ -247,15 +265,16 @@ export default function App() {
                 fontWeight: 700,
               }}
             >
-              {readiness?.status || 'Ready'}
+              {readiness?.status || 'No Data'}
             </span>
           </div>
           <div style={{ fontSize: 34, fontWeight: 800, color: readinessColor, margin: '8px 0 4px' }}>
-            {score}
+            {score > 0 ? score : '—'}
             <span style={{ fontSize: 16, color: '#64748b', fontWeight: 500 }}>/100</span>
           </div>
           <div style={{ fontSize: 12, color: '#94a3b8' }}>
-            Sleep: <strong>{today?.sleep_hours ?? 7.8}h</strong> • RHR vs 7d avg
+            Sleep: <strong>{today?.sleep_hours ? `${today.sleep_hours}h` : 'No data'}</strong> • Resp:{' '}
+            <strong>{respiratoryRate ? `${respiratoryRate} bpm` : '—'}</strong>
           </div>
         </div>
 
@@ -265,23 +284,16 @@ export default function App() {
             <span style={heroLabel}>👟 Daily Steps</span>
             <span style={{ fontSize: 12, color: '#38bdf8', fontWeight: 700 }}>{stepPct}%</span>
           </div>
-          <div style={{ fontSize: 34, fontWeight: 800, color: '#f8fafc', margin: '8px 0 8px' }}>
-            {today?.steps.toLocaleString() ?? '0'}
+          <div style={{ fontSize: 34, fontWeight: 800, color: '#f8fafc', margin: '8px 0 6px' }}>
+            {today && today.steps > 0 ? today.steps.toLocaleString() : 'No data'}
             <span style={{ fontSize: 14, color: '#64748b', fontWeight: 500 }}>
               {' '}
               / {(today?.step_goal ?? 10000).toLocaleString()}
             </span>
           </div>
-          <div
-            style={{
-              width: '100%',
-              height: 8,
-              background: '#0f172a',
-              borderRadius: 99,
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ width: `${stepPct}%`, height: '100%', background: '#38bdf8' }} />
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>
+            Distance: <strong>{distanceKm ? `${distanceKm} km` : '—'}</strong> • Floors:{' '}
+            <strong>{floors ?? '—'}</strong> • Burn: <strong>{today?.active_calories || '—'} kcal</strong>
           </div>
         </div>
 
@@ -289,31 +301,31 @@ export default function App() {
         <div style={heroCard(hrZone.color)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={heroLabel}>❤️ Current Heart Rate</span>
-            <span style={{ fontSize: 11, color: hrZone.color, fontWeight: 600 }}>Live BPM</span>
+            <span style={{ fontSize: 11, color: hrZone.color, fontWeight: 600 }}>Health Connect</span>
           </div>
           <div style={{ fontSize: 34, fontWeight: 800, color: '#f8fafc', margin: '8px 0 4px' }}>
-            {today?.current_hr ?? 68}{' '}
+            {today && today.current_hr > 0 ? today.current_hr : 'No data'}{' '}
             <span style={{ fontSize: 15, color: '#94a3b8', fontWeight: 500 }}>bpm</span>
           </div>
           <div style={{ fontSize: 12, color: hrZone.color, fontWeight: 600 }}>{hrZone.zone}</div>
         </div>
 
-        {/* 4. Resting Heart Rate (RHR) */}
+        {/* 4. Resting Heart Rate (RHR) & HRV */}
         <div style={heroCard('#a855f7')}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={heroLabel}>🌙 Resting Heart Rate</span>
+            <span style={heroLabel}>🌙 Resting HR & HRV</span>
             <span style={{ fontSize: 11, color: '#a855f7', fontWeight: 600 }}>
-              7d avg: {baselineRhr} bpm
+              HRV: {hrvMs ? `${hrvMs} ms` : 'No data'}
             </span>
           </div>
           <div style={{ fontSize: 34, fontWeight: 800, color: '#f8fafc', margin: '8px 0 4px' }}>
-            {today?.resting_hr ?? 56}{' '}
+            {today && today.resting_hr > 0 ? today.resting_hr : 'No data'}{' '}
             <span style={{ fontSize: 15, color: '#94a3b8', fontWeight: 500 }}>bpm</span>
           </div>
           <div style={{ fontSize: 12, color: '#4ade80' }}>
-            {(today?.resting_hr ?? 56) <= baselineRhr
-              ? `✓ ${(baselineRhr - (today?.resting_hr ?? 56)).toFixed(1)} bpm below baseline (optimal)`
-              : `+${((today?.resting_hr ?? 56) - baselineRhr).toFixed(1)} bpm above baseline`}
+            {today && today.resting_hr > 0
+              ? `7d baseline: ${baselineRhr} bpm`
+              : 'Waiting for Health Connect RHR'}
           </div>
         </div>
       </div>

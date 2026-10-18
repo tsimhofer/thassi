@@ -879,296 +879,426 @@ function renderUnifiedDashboardHtml(ingressPath) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thassi Unified Dashboard</title>
+  <title>Thassi Main Dashboard</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
-      --bg: #0b1120;
+      --bg: #090d16;
+      --panel: #111827;
       --card: #1e293b;
-      --border: #334155;
+      --border: #2dd4bf22;
+      --border-solid: #334155;
       --accent: #38bdf8;
       --accent-dark: #0284c7;
       --text: #f8fafc;
       --muted: #94a3b8;
     }
     * { box-sizing: border-box; }
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
       background: var(--bg);
       color: var(--text);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
     }
     .topbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-      padding: 12px 20px;
+      padding: 8px 16px;
+      height: 50px;
       background: #0f172a;
-      border-bottom: 1px solid var(--border);
-      position: sticky;
-      top: 0;
-      z-index: 50;
+      border-bottom: 1px solid var(--border-solid);
+      flex-shrink: 0;
     }
     .brand {
       display: flex;
       align-items: center;
       gap: 10px;
       font-weight: 800;
-      font-size: 17px;
+      font-size: 15px;
       color: var(--accent);
       cursor: pointer;
     }
     .nav-tabs {
       display: flex;
       gap: 6px;
-      flex-wrap: wrap;
+      align-items: center;
     }
     .btn {
-      padding: 7px 13px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
+      padding: 5px 11px;
+      border-radius: 7px;
+      border: 1px solid var(--border-solid);
       background: var(--card);
       color: var(--text);
       font-weight: 600;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       transition: all 0.15s ease;
     }
-    .btn:hover {
-      border-color: var(--accent);
-    }
+    .btn:hover { border-color: var(--accent); }
     .btn.active, .btn.primary {
       background: var(--accent-dark);
       border-color: var(--accent);
       color: #fff;
     }
-    .container {
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .hero-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-      gap: 18px;
-      margin-bottom: 24px;
-    }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
     .badge {
       display: inline-block;
-      padding: 3px 9px;
+      padding: 2px 8px;
       border-radius: 99px;
       font-size: 11px;
       font-weight: 700;
       background: #0f172a;
       color: var(--accent);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-solid);
     }
-    .metric-row {
+    /* Fullscreen 2-Column Split: 68% Calendar Left / 32% Compact Data Right */
+    .fullscreen-grid {
+      display: grid;
+      grid-template-columns: 1fr 390px;
+      gap: 14px;
+      padding: 14px;
+      height: calc(100vh - 50px);
+      overflow: hidden;
+    }
+    @media (max-width: 1024px) {
+      html, body { overflow: auto; height: auto; }
+      .app-shell { height: auto; }
+      .fullscreen-grid { grid-template-columns: 1fr; height: auto; overflow: visible; }
+    }
+    .calendar-pane {
+      background: var(--panel);
+      border: 1px solid var(--border-solid);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+    .cal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-solid);
       display: flex;
       justify-content: space-between;
-      padding: 8px 0;
-      border-bottom: 1px solid #0f172a;
-      font-size: 13px;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: #131c2e;
     }
-    .switch-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
-      gap: 12px;
-      margin-top: 14px;
-    }
-    .switch-pill {
-      padding: 12px 14px;
-      border-radius: 12px;
+    .quick-add-bar {
+      padding: 10px 18px;
       background: #0f172a;
-      border: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-solid);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .quick-add-bar input {
+      margin: 0;
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-solid);
+      background: #1e293b;
+      color: #fff;
+    }
+    .cal-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px;
+    }
+    .day-group {
+      margin-bottom: 18px;
+    }
+    .day-header {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+    }
+    .event-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      margin-bottom: 7px;
+      background: #1e293b;
+      border-radius: 10px;
+      border-left: 4px solid var(--accent);
+    }
+    .event-time {
+      font-size: 12px;
+      font-weight: 700;
+      color: #e2e8f0;
+      min-width: 110px;
+    }
+    .event-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .event-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    /* Right Column Compact Sidebar */
+    .compact-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+      height: 100%;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .compact-card {
+      background: var(--panel);
+      border: 1px solid var(--border-solid);
+      border-radius: 12px;
+      padding: 12px 14px;
+      flex-shrink: 0;
+    }
+    .compact-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .mini-stat {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 6px 9px;
+      border: 1px solid #283548;
+    }
+    .mini-stat-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .mini-stat-val {
+      font-size: 14px;
+      font-weight: 800;
+      color: #f8fafc;
+      margin-top: 1px;
+    }
+    .switch-mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .switch-mini {
+      padding: 7px 9px;
+      border-radius: 8px;
+      background: #1e293b;
+      border: 1px solid var(--border-solid);
       cursor: pointer;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      transition: all 0.15s;
+      font-size: 11px;
     }
-    .switch-pill.on {
+    .switch-mini.on {
       border-color: #facc15;
-      background: linear-gradient(135deg, rgba(250,204,21,0.16) 0%, #0f172a 100%);
-    }
-    input {
-      width: 100%;
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: #0f172a;
-      color: var(--text);
-      margin-bottom: 12px;
-    }
-    label {
-      display: block;
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 4px;
+      background: rgba(250, 204, 21, 0.14);
     }
     #app-iframe-container {
       display: none;
-      height: calc(100vh - 57px);
+      height: calc(100vh - 50px);
       width: 100%;
     }
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-    }
+    iframe { width: 100%; height: 100%; border: none; }
   </style>
 </head>
 <body>
-  <div class="topbar">
-    <div class="brand" onclick="switchView('overview')">
-      <span>\u26A1 Thassi Command Center</span>
-      <span id="ha-pill" class="badge">Connecting...</span>
-    </div>
-    <div class="nav-tabs">
-      <button class="btn active" id="nav-overview" onclick="switchView('overview')">\u{1F3E0} Unified Overview</button>
-      <button class="btn" id="nav-smart-canvas" onclick="openApp('smart-canvas')">\u{1F39B}\uFE0F Smart Canvas</button>
-      <button class="btn" id="nav-google-health" onclick="openApp('google-health')">\u2764\uFE0F Health &amp; Readiness</button>
-      <button class="btn" id="nav-meal-planner" onclick="openApp('meal-planner')">\u{1F372} Meal Planner</button>
-      <button class="btn" id="nav-google-calendar" onclick="openApp('google-calendar')">\u{1F4C5} Google Calendar</button>
-      <button class="btn" id="nav-finance-analytics" onclick="openApp('finance-analytics')">\u{1F4B6} Finance &amp; Budget</button>
-      <button class="btn" id="nav-settings" onclick="switchView('settings')">\u{1F510} OAuth &amp; Settings</button>
-    </div>
-  </div>
-
-  <div id="app-iframe-container">
-    <iframe id="app-frame" src="about:blank"></iframe>
-  </div>
-
-  <div class="container" id="main-container">
-    <div id="view-overview">
-      <!-- Section 1: Smart Home Quick Switches & Room Climate -->
-      <div class="card" style="margin-bottom: 22px; border-top: 3px solid #facc15;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-          <div>
-            <h3 style="margin:0; font-size:18px; color:#facc15;">\u{1F39B}\uFE0F Smart Home Quick Controls &amp; Room Climate</h3>
-            <p style="margin:4px 0 0; font-size:13px; color:var(--muted);">
-              Click any light or Shelly switch below to toggle immediately, or open the full drag-and-drop canvas.
-            </p>
-          </div>
-          <button class="btn primary" onclick="openApp('smart-canvas')">Open Full Smart Canvas \u2192</button>
-        </div>
-        <div class="switch-grid" id="quick-switches"></div>
+  <div class="app-shell">
+    <div class="topbar">
+      <div class="brand" onclick="switchView('overview')">
+        <span>\u26A1 Thassi Main Dashboard</span>
+        <span id="ha-pill" class="badge">Checking HA...</span>
+        <span id="clock-pill" style="font-size:12px; color:var(--muted); font-weight:600;"></span>
       </div>
-
-      <!-- Section 2: 4 Personal Life & Data Pillars -->
-      <div class="hero-grid">
-        <!-- Pillar 1: Google Health & Readiness -->
-        <div class="card" style="border-top: 3px solid #4ade80;">
-          <div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <span style="font-size:12px; text-transform:uppercase; color:#4ade80; font-weight:700;">\u2764\uFE0F Google Health &amp; Readiness</span>
-              <span class="badge" id="health-status-badge">Peak Recovery</span>
-            </div>
-            <div style="font-size:32px; font-weight:800; color:#4ade80; margin-bottom:12px;" id="health-score-val">--/100</div>
-            <div class="metric-row"><span>\u{1F45F} Daily Steps</span><strong id="health-steps-val">--</strong></div>
-            <div class="metric-row"><span>\u2764\uFE0F Current Heart Rate</span><strong id="health-hr-val">-- bpm</strong></div>
-            <div class="metric-row"><span>\u{1F319} Resting Heart Rate</span><strong id="health-rhr-val">-- bpm</strong></div>
-            <div class="metric-row"><span>\u231A Pixel Watch / Weight</span><strong id="health-watch-val">--</strong></div>
-          </div>
-          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('google-health')">
-            Open Health &amp; Workouts \u2192
-          </button>
-        </div>
-
-        <!-- Pillar 2: Meal Planner & Nutrition -->
-        <div class="card" style="border-top: 3px solid #fb923c;">
-          <div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <span style="font-size:12px; text-transform:uppercase; color:#fb923c; font-weight:700;">\u{1F372} Meal Planner &amp; Macros</span>
-              <span class="badge" id="meal-kcal-badge">-- kcal</span>
-            </div>
-            <div style="font-size:18px; font-weight:700; color:#f8fafc; margin-bottom:12px;" id="meal-dinner-val">Loading...</div>
-            <div class="metric-row"><span>\u{1F305} Breakfast</span><strong id="meal-breakfast-val">--</strong></div>
-            <div class="metric-row"><span>\u2600\uFE0F Lunch</span><strong id="meal-lunch-val">--</strong></div>
-            <div class="metric-row"><span>\u{1F4AA} Daily Protein</span><strong id="meal-protein-val">-- g</strong></div>
-            <div class="metric-row"><span>\u{1F6D2} Open Groceries</span><strong id="meal-groceries-val">0 items</strong></div>
-          </div>
-          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('meal-planner')">
-            Open Weekly Meal Planner \u2192
-          </button>
-        </div>
-
-        <!-- Pillar 3: Google Calendar & Schedule -->
-        <div class="card" style="border-top: 3px solid #38bdf8;">
-          <div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <span style="font-size:12px; text-transform:uppercase; color:#38bdf8; font-weight:700;">\u{1F4C5} Google Calendar &amp; Time</span>
-              <span class="badge" id="cal-count-badge">-- events today</span>
-            </div>
-            <div style="font-size:18px; font-weight:700; color:#f8fafc; margin-bottom:12px;" id="cal-next-val">Loading...</div>
-            <div class="metric-row"><span>\u23F1\uFE0F Busy Hours Today</span><strong id="cal-hours-val">-- h</strong></div>
-            <div class="metric-row"><span>\u{1F5D3}\uFE0F Next Event Start</span><strong id="cal-start-val">--</strong></div>
-            <div class="metric-row"><span>\u{1F517} Sync Status</span><strong style="color:#4ade80;">Active (15m Cron)</strong></div>
-          </div>
-          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('google-calendar')">
-            Open Calendar &amp; Analytics \u2192
-          </button>
-        </div>
-
-        <!-- Pillar 4: Finance & Budget -->
-        <div class="card" style="border-top: 3px solid #a855f7;">
-          <div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <span style="font-size:12px; text-transform:uppercase; color:#a855f7; font-weight:700;">\u{1F4B6} Finance &amp; Cashflow</span>
-              <span class="badge" id="fin-rate-badge">--% Savings Rate</span>
-            </div>
-            <div style="font-size:28px; font-weight:800; color:#4ade80; margin-bottom:12px;" id="fin-net-val">+\u20AC--</div>
-            <div class="metric-row"><span>\u{1F4E5} Monthly Income</span><strong id="fin-inc-val" style="color:#4ade80;">+\u20AC--</strong></div>
-            <div class="metric-row"><span>\u{1F4E4} Living Expenses</span><strong id="fin-exp-val" style="color:#f43f5e;">-\u20AC--</strong></div>
-            <div class="metric-row"><span>\u{1F4C8} ETF Investments</span><strong id="fin-inv-val" style="color:#a855f7;">\u20AC--</strong></div>
-            <div class="metric-row"><span>\u{1F6D2} Grocery Spend</span><strong id="fin-groc-val">\u20AC--</strong></div>
-          </div>
-          <button class="btn primary" style="width:100%; margin-top:16px;" onclick="openApp('finance-analytics')">
-            Open Finance &amp; CSV Analyzer \u2192
-          </button>
-        </div>
+      <div class="nav-tabs">
+        <button class="btn active" id="nav-overview" onclick="switchView('overview')">\u{1F4C5} Main Overview</button>
+        <button class="btn" id="nav-google-calendar" onclick="openApp('google-calendar')">\u{1F4C5} Calendar</button>
+        <button class="btn" id="nav-google-health" onclick="openApp('google-health')">\u2764\uFE0F Health</button>
+        <button class="btn" id="nav-finance-analytics" onclick="openApp('finance-analytics')">\u{1F4B6} Finances</button>
+        <button class="btn" id="nav-meal-planner" onclick="openApp('meal-planner')">\u{1F37D}\uFE0F Meals</button>
+        <button class="btn" id="nav-smart-canvas" onclick="openApp('smart-canvas')">\u{1F39B}\uFE0F Controls</button>
+        <button class="btn" id="nav-settings" onclick="switchView('settings')">\u2699\uFE0F</button>
       </div>
     </div>
 
-    <div id="view-settings" style="display:none;">
-      <div class="hero-grid" style="grid-template-columns: 1fr 1fr;">
-        <div class="card">
-          <div>
+    <div id="app-iframe-container">
+      <iframe id="app-frame" src="about:blank"></iframe>
+    </div>
+
+    <div id="main-container" style="flex:1; overflow:hidden;">
+      <div id="view-overview" class="fullscreen-grid">
+        <!-- LEFT FULLSCREEN FOCUS: GOOGLE CALENDAR EVENTS -->
+        <div class="calendar-pane">
+          <div class="cal-header">
+            <div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <h2 style="margin:0; font-size:18px; color:#38bdf8;">\u{1F4C5} Upcoming Calendar Schedule</h2>
+                <span class="badge" id="cal-conn-badge">Checking...</span>
+              </div>
+              <div style="font-size:12px; color:var(--muted); margin-top:3px;" id="cal-subtitle">
+                Synced with Home Assistant Google Calendar entities
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn" onclick="syncCalendarsNow()">\u{1F504} Sync Now</button>
+              <button class="btn primary" onclick="openApp('google-calendar')">Full Calendar Analytics \u2192</button>
+            </div>
+          </div>
+
+          <!-- Inline Quick Add Event to Google Calendar -->
+          <form class="quick-add-bar" onsubmit="quickAddEvent(event)">
+            <input id="qa-title" placeholder="Add event to Google Calendar (e.g. Zahnarzt, Meeting...)" style="flex:1; min-width:180px;" required />
+            <input id="qa-start" type="datetime-local" required />
+            <input id="qa-dur" type="number" value="60" min="15" step="15" style="width:70px;" title="Duration (min)" />
+            <button type="submit" class="btn primary">+ Add Event</button>
+          </form>
+
+          <!-- Fullscreen Scrollable Day-by-Day Event List -->
+          <div class="cal-scroll" id="cal-events-list">
+            <div style="color:var(--muted); font-size:13px;">Loading calendar events...</div>
+          </div>
+        </div>
+
+        <!-- RIGHT COMPACT COLUMN: HEALTH, SMART CONTROLS, FINANCE, MEALS -->
+        <div class="compact-sidebar">
+          <!-- 1. Compact Google Health & Pixel 10 -->
+          <div class="compact-card" style="border-top: 3px solid #4ade80;">
+            <div class="compact-title" style="color:#4ade80;" onclick="openApp('google-health')">
+              <span>\u2764\uFE0F Health &amp; Pixel 10</span>
+              <span class="badge" id="h-badge">--</span>
+            </div>
+            <div class="mini-grid">
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F45F} Steps Today</div>
+                <div class="mini-stat-val" id="h-steps">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u26A1 Readiness</div>
+                <div class="mini-stat-val" id="h-score" style="color:#4ade80;">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u2764\uFE0F Heart Rate</div>
+                <div class="mini-stat-val" id="h-hr">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F319} RHR / HRV</div>
+                <div class="mini-stat-val" id="h-rhr">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F6CC} Sleep / Resp</div>
+                <div class="mini-stat-val" id="h-sleep">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F525} Burn / Dist</div>
+                <div class="mini-stat-val" id="h-burn">--</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Compact Smart Home Controls -->
+          <div class="compact-card" style="border-top: 3px solid #facc15;">
+            <div class="compact-title" style="color:#facc15;" onclick="openApp('smart-canvas')">
+              <span>\u{1F39B}\uFE0F Smart Controls</span>
+              <span class="badge" id="sw-climate-badge">--</span>
+            </div>
+            <div class="switch-mini-grid" id="quick-switches"></div>
+          </div>
+
+          <!-- 3. Compact Finance & Budget (George CSV) -->
+          <div class="compact-card" style="border-top: 3px solid #a855f7;">
+            <div class="compact-title" style="color:#a855f7;" onclick="openApp('finance-analytics')">
+              <span>\u{1F4B6} Finance (George)</span>
+              <span class="badge" id="f-month-badge">--</span>
+            </div>
+            <div class="mini-grid">
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F4E5} Income</div>
+                <div class="mini-stat-val" id="f-inc" style="color:#4ade80;">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F4E4} Expenses</div>
+                <div class="mini-stat-val" id="f-exp" style="color:#f43f5e;">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F437} Notgroschen</div>
+                <div class="mini-stat-val" id="f-inv" style="color:#a855f7;">--</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">\u{1F6D2} Groceries</div>
+                <div class="mini-stat-val" id="f-groc">--</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Compact Meal Planner -->
+          <div class="compact-card" style="border-top: 3px solid #fb923c;">
+            <div class="compact-title" style="color:#fb923c;" onclick="openApp('meal-planner')">
+              <span>\u{1F37D}\uFE0F Meals Today</span>
+              <span class="badge" id="m-kcal-badge">0 kcal</span>
+            </div>
+            <div id="m-content" style="font-size:12px; color:var(--muted);"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SETTINGS VIEW -->
+      <div id="view-settings" style="display:none; padding:24px; max-width:960px; margin:0 auto;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
+          <div class="compact-card">
             <h3 style="margin-top:0;">\u{1F3E0} Home Assistant Connection</h3>
             <p id="ha-status-text" style="color:var(--muted); font-size:13px;"></p>
-            <label>Home Assistant URL</label>
-            <input id="ha-url-input" placeholder="http://192.168.188.92:8123" />
-            <label>Long-Lived Access Token (Optional override)</label>
-            <input id="ha-token-input" type="password" placeholder="Uses SUPERVISOR_TOKEN automatically in HA OS" />
+            <label style="font-size:12px; color:var(--muted);">Home Assistant URL</label>
+            <input id="ha-url-input" style="width:100%; padding:8px; margin:4px 0 12px; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px;" />
+            <label style="font-size:12px; color:var(--muted);">Long-Lived Access Token</label>
+            <input id="ha-token-input" type="password" style="width:100%; padding:8px; margin:4px 0 12px; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px;" />
+            <button class="btn primary" onclick="saveHaConfig()">Save &amp; Test HA Connection</button>
           </div>
-          <button class="btn primary" onclick="saveHaConfig()">Save &amp; Test HA Connection</button>
-        </div>
-
-        <div class="card">
-          <div>
-            <h3 style="margin-top:0;">\u{1F4C5} Shared Google OAuth2 Vault (Calendar &amp; Health)</h3>
+          <div class="compact-card">
+            <h3 style="margin-top:0;">\u{1F4C5} Google OAuth2 Vault</h3>
             <p id="google-status-text" style="color:var(--muted); font-size:13px;"></p>
-            <label>Google OAuth Client ID</label>
-            <input id="google-client-id" placeholder="xxx.apps.googleusercontent.com" />
-            <label>Google OAuth Client Secret</label>
-            <input id="google-client-secret" type="password" placeholder="GOCSPX-..." />
-            <label>Redirect URI</label>
-            <input id="google-redirect-uri" placeholder="http://192.168.188.92:8099/api/system/google/callback" />
-          </div>
-          <div style="display:flex; gap:8px;">
-            <button class="btn primary" onclick="saveGoogleConfig()">Save Credentials</button>
-            <button class="btn" onclick="startGoogleOAuth()">Authorize with Google \u2197</button>
+            <label style="font-size:12px; color:var(--muted);">Client ID</label>
+            <input id="google-client-id" style="width:100%; padding:8px; margin:4px 0 12px; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px;" />
+            <label style="font-size:12px; color:var(--muted);">Client Secret</label>
+            <input id="google-client-secret" type="password" style="width:100%; padding:8px; margin:4px 0 12px; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px;" />
+            <label style="font-size:12px; color:var(--muted);">Redirect URI</label>
+            <input id="google-redirect-uri" style="width:100%; padding:8px; margin:4px 0 12px; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px;" />
+            <div style="display:flex; gap:8px;">
+              <button class="btn primary" onclick="saveGoogleConfig()">Save</button>
+              <button class="btn" onclick="startGoogleOAuth()">Authorize with Google \u2197</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1177,7 +1307,30 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
   <script>
     const base = window.__THASSI_INGRESS_PATH__ ? window.__THASSI_INGRESS_PATH__.replace(/\\/+$/, '') : '';
-    const NAV_IDS = ['overview', 'smart-canvas', 'google-health', 'meal-planner', 'google-calendar', 'finance-analytics', 'settings'];
+    const NAV_IDS = ['overview', 'google-calendar', 'google-health', 'finance-analytics', 'meal-planner', 'smart-canvas', 'settings'];
+    const CAT_COLORS = {
+      work: '#38bdf8',
+      focus: '#a855f7',
+      health: '#4ade80',
+      social: '#f43f5e',
+      meals: '#fb923c',
+      personal: '#eab308'
+    };
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock-pill').textContent = now.toLocaleString('de-AT', {
+        weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+      });
+    }
+    setInterval(updateClock, 10000);
+    updateClock();
+
+    // Default quick-add datetime to next hour
+    const nextHour = new Date(Date.now() + 3600000);
+    nextHour.setMinutes(0, 0, 0);
+    const tzOffset = nextHour.getTimezoneOffset() * 60000;
+    document.getElementById('qa-start').value = new Date(nextHour - tzOffset).toISOString().slice(0, 16);
 
     function setActiveNav(id) {
       NAV_IDS.forEach(k => {
@@ -1189,7 +1342,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     function switchView(view) {
       document.getElementById('app-iframe-container').style.display = 'none';
       document.getElementById('main-container').style.display = 'block';
-      document.getElementById('view-overview').style.display = (view === 'overview') ? 'block' : 'none';
+      document.getElementById('view-overview').style.display = (view === 'overview') ? 'grid' : 'none';
       document.getElementById('view-settings').style.display = (view === 'settings') ? 'block' : 'none';
       setActiveNav(view);
       if (view === 'overview') loadCommandCenter();
@@ -1213,90 +1366,191 @@ function renderUnifiedDashboardHtml(ingressPath) {
       await loadCommandCenter();
     }
 
+    async function syncCalendarsNow() {
+      document.getElementById('cal-conn-badge').textContent = 'Syncing...';
+      await fetch(base + '/api/apps/google-calendar/sync', { method: 'POST' });
+      await loadCommandCenter();
+    }
+
+    async function quickAddEvent(e) {
+      e.preventDefault();
+      const title = document.getElementById('qa-title').value;
+      const start_time = document.getElementById('qa-start').value;
+      const duration_minutes = Number(document.getElementById('qa-dur').value || 60);
+      if (!title || !start_time) return;
+      await fetch(base + '/api/apps/google-calendar/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, start_time: new Date(start_time).toISOString(), duration_minutes })
+      });
+      document.getElementById('qa-title').value = '';
+      await loadCommandCenter();
+    }
+
     async function loadCommandCenter() {
-      const [sysRes, boardRes] = await Promise.all([
+      const [sysRes, calRes, healthRes, boardRes] = await Promise.all([
         fetch(base + '/api/system/status'),
+        fetch(base + '/api/apps/google-calendar/dashboard').catch(() => null),
+        fetch(base + '/api/apps/google-health/dashboard').catch(() => null),
         fetch(base + '/api/apps/smart-canvas/board').catch(() => null)
       ]);
       const data = await sysRes.json();
 
       const pill = document.getElementById('ha-pill');
-      pill.textContent = data.ha.connected ? 'HA Connected' : 'HA Token Needed';
-      pill.style.color = data.ha.connected ? '#4ade80' : '#facc15';
+      pill.textContent = data.ha.connected ? '\u25CF HA Connected' : '\u25B2 HA Disconnected';
+      pill.style.color = data.ha.connected ? '#4ade80' : '#f43f5e';
 
       document.getElementById('ha-status-text').textContent = data.ha.message || '';
       document.getElementById('ha-url-input').value = data.ha.haUrl || 'http://192.168.188.92:8123';
       document.getElementById('google-status-text').textContent = data.google.authorized
         ? '\u2705 Authorized with Google OAuth2'
-        : (data.google.configured ? 'Credentials saved \u2014 click Authorize with Google' : 'Not configured yet');
+        : (data.google.configured ? 'Client ID configured \u2014 using HA Calendar & Health Connect bridge' : 'Not configured');
 
-      // Populate Health
-      const h = data.summaries?.health;
-      if (h) {
-        document.getElementById('health-score-val').textContent = h.readinessScore + '/100';
-        document.getElementById('health-status-badge').textContent = h.readinessStatus || 'Ready';
-        document.getElementById('health-steps-val').textContent = (h.steps || 0).toLocaleString() + ' / ' + (h.stepGoal || 10000).toLocaleString();
-        document.getElementById('health-hr-val').textContent = (h.currentHr || 68) + ' bpm';
-        document.getElementById('health-rhr-val').textContent = (h.restingHr || 56) + ' bpm';
-        document.getElementById('health-watch-val').textContent = (h.pixelWatchBattery !== null ? h.pixelWatchBattery + '% \u2022 ' : '') + (h.weightKg || 85.5) + ' kg';
+      // 1. Render Fullscreen Calendar Events
+      const calListEl = document.getElementById('cal-events-list');
+      const calBadge = document.getElementById('cal-conn-badge');
+      if (!data.ha.connected) {
+        calBadge.textContent = 'HA Disconnected';
+        calBadge.style.color = '#f43f5e';
+        calListEl.innerHTML = '<div style="color:#f43f5e; padding:20px;">\u274C No connection to Home Assistant Calendar API.</div>';
+      } else if (calRes && calRes.ok) {
+        const calData = await calRes.json();
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const upcoming = (calData.events || []).filter(ev => new Date(ev.end_time) >= startOfToday);
+        calBadge.textContent = upcoming.length + ' upcoming events';
+        calBadge.style.color = '#4ade80';
+
+        if (upcoming.length === 0) {
+          calListEl.innerHTML = '<div style="color:var(--muted); padding:20px;">No upcoming events found in connected Google Calendars.</div>';
+        } else {
+          const groups = new Map();
+          upcoming.forEach(ev => {
+            const dKey = ev.start_time.slice(0, 10);
+            if (!groups.has(dKey)) groups.set(dKey, []);
+            groups.get(dKey).push(ev);
+          });
+
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const tomorrowStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+          let html = '';
+          for (const [dKey, evs] of groups.entries()) {
+            const dateObj = new Date(dKey + 'T12:00:00');
+            let dayLabel = dateObj.toLocaleDateString('de-AT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+            if (dKey === todayStr) dayLabel = '\u{1F525} TODAY \u2014 ' + dayLabel;
+            else if (dKey === tomorrowStr) dayLabel = '\u23ED\uFE0F TOMORROW \u2014 ' + dayLabel;
+
+            html += '<div class="day-group">';
+            html += '<div class="day-header"><span>' + dayLabel + '</span><span>' + evs.length + ' event(s)</span></div>';
+            evs.forEach(ev => {
+              const s = new Date(ev.start_time);
+              const e = new Date(ev.end_time);
+              const sTime = s.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
+              const eTime = e.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
+              const color = CAT_COLORS[ev.category] || '#38bdf8';
+              html += \`
+                <div class="event-row" style="border-left-color:\${color};">
+                  <div style="display:flex; align-items:center; gap:14px;">
+                    <div class="event-time">\${sTime} \u2013 \${eTime}</div>
+                    <div>
+                      <div class="event-title">\${ev.title}</div>
+                      <div class="event-meta">
+                        \u{1F4C5} \${ev.calendar_name}
+                        \${ev.location ? ' \u2022 \u{1F4CD} ' + ev.location : ''}
+                        \${ev.description ? ' \u2022 ' + ev.description.slice(0, 60) : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <span class="badge" style="color:\${color}; border-color:\${color}44;">\${ev.category}</span>
+                </div>
+              \`;
+            });
+            html += '</div>';
+          }
+          calListEl.innerHTML = html;
+        }
       }
 
-      // Populate Meals
-      const m = data.summaries?.meals;
-      if (m) {
-        document.getElementById('meal-kcal-badge').textContent = (m.totalCalories || 0) + ' kcal';
-        document.getElementById('meal-dinner-val').textContent = '\u{1F319} ' + (m.dinner || 'Unplanned');
-        document.getElementById('meal-breakfast-val').textContent = (m.breakfast || '\u2014').slice(0, 26);
-        document.getElementById('meal-lunch-val').textContent = (m.lunch || '\u2014').slice(0, 26);
-        document.getElementById('meal-protein-val').textContent = (m.totalProtein || 0) + 'g';
-        document.getElementById('meal-groceries-val').textContent = (m.openGroceries || 0) + ' items';
+      // 2. Render Compact Health Card (Never show dummy numbers!)
+      if (healthRes && healthRes.ok) {
+        const hd = await healthRes.json();
+        const t = hd.today;
+        document.getElementById('h-badge').textContent = t?.source && t.source !== 'no_connection' ? 'Pixel 10 Live' : 'No Data';
+        document.getElementById('h-steps').textContent = t?.steps > 0 ? t.steps.toLocaleString() : 'No data';
+        document.getElementById('h-score').textContent = hd.readiness?.score > 0 ? (hd.readiness.score + '/100') : 'No data';
+        document.getElementById('h-hr').textContent = t?.current_hr > 0 ? (t.current_hr + ' bpm') : 'No data';
+        document.getElementById('h-rhr').textContent =
+          (t?.resting_hr > 0 ? (t.resting_hr + ' bpm') : 'No data') +
+          (hd.hrvMs ? (' / ' + hd.hrvMs + 'ms') : '');
+        document.getElementById('h-sleep').textContent =
+          (t?.sleep_hours > 0 ? (t.sleep_hours + 'h') : 'No data') +
+          (hd.respiratoryRate ? (' / ' + hd.respiratoryRate) : '');
+        document.getElementById('h-burn').textContent =
+          (t?.active_calories > 0 ? (t.active_calories + ' kcal') : 'No data') +
+          (hd.distanceKm ? (' / ' + hd.distanceKm + 'km') : '');
       }
 
-      // Populate Calendar
-      const c = data.summaries?.calendar;
-      if (c) {
-        document.getElementById('cal-count-badge').textContent = (c.todayEventCount || 0) + ' events today';
-        document.getElementById('cal-next-val').textContent = c.nextEventTitle || 'None Scheduled';
-        document.getElementById('cal-hours-val').textContent = (c.busyHoursToday || 0) + ' h';
-        document.getElementById('cal-start-val').textContent = c.nextEventStart ? new Date(c.nextEventStart).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '\u2014';
-      }
-
-      // Populate Finance
-      const f = data.summaries?.finance;
-      if (f) {
-        document.getElementById('fin-rate-badge').textContent = (f.savingsRatePct || 0) + '% Savings Rate';
-        document.getElementById('fin-net-val').textContent = '+\u20AC' + Number(f.netCashflow || 0).toFixed(2);
-        document.getElementById('fin-inc-val').textContent = '+\u20AC' + Number(f.income || 0).toFixed(2);
-        document.getElementById('fin-exp-val').textContent = '-\u20AC' + Number(f.expenses || 0).toFixed(2);
-        document.getElementById('fin-inv-val').textContent = '\u20AC' + Number(f.investments || 0).toFixed(2);
-        document.getElementById('fin-groc-val').textContent = '\u20AC' + Number(f.grocerySpend || 0).toFixed(2);
-      }
-
-      // Populate Smart Home Quick Switches
+      // 3. Render Compact Smart Controls
       if (boardRes && boardRes.ok) {
         const board = await boardRes.json();
+        const tempSt = board.stateMap?.['sensor.temperatur_und_feuchtigkeitssensor_temperature'];
+        const humSt = board.stateMap?.['sensor.temperatur_und_feuchtigkeitssensor_humidity'];
+        document.getElementById('sw-climate-badge').textContent =
+          tempSt ? (tempSt.state + '\xB0C' + (humSt ? ' \u2022 ' + humSt.state + '%' : '')) : (data.ha.connected ? 'Live' : 'Offline');
+
         const swGrid = document.getElementById('quick-switches');
         swGrid.innerHTML = '';
-        (board.tiles || []).slice(0, 10).forEach(t => {
-          const st = board.stateMap?.[t.entity_id];
-          const subSt = t.sub_entity_id ? board.stateMap?.[t.sub_entity_id] : null;
-          const isOn = st?.state === 'on';
-          const isToggle = ['light', 'switch'].includes(t.entity_id.split('.')[0]);
-          const div = document.createElement('div');
-          div.className = 'switch-pill' + (isOn ? ' on' : '');
-          div.onclick = () => isToggle ? toggleSwitch(t.entity_id) : openApp('smart-canvas');
-          div.innerHTML = \`
-            <div style="overflow:hidden; padding-right:6px;">
-              <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">\${t.icon} \${t.custom_label}</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">
-                \${st ? st.state : 'offline'} \${st?.attributes?.unit_of_measurement || ''}
-                \${subSt ? (' \u2022 ' + subSt.state + ' ' + (subSt.attributes?.unit_of_measurement || '')) : ''}
+        (board.tiles || [])
+          .filter(t => ['light', 'switch'].includes(t.entity_id.split('.')[0]))
+          .slice(0, 6)
+          .forEach(t => {
+            const st = board.stateMap?.[t.entity_id];
+            const subSt = t.sub_entity_id ? board.stateMap?.[t.sub_entity_id] : null;
+            const isOn = st?.state === 'on';
+            const div = document.createElement('div');
+            div.className = 'switch-mini' + (isOn ? ' on' : '');
+            div.onclick = () => toggleSwitch(t.entity_id);
+            div.innerHTML = \`
+              <div style="overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding-right:4px;">
+                <strong>\${t.icon} \${t.custom_label}</strong>
+                \${subSt && Number(subSt.state) > 0 ? '<span style="color:#facc15; margin-left:4px;">' + subSt.state + 'W</span>' : ''}
               </div>
-            </div>
-            <span class="badge" style="color:\${isOn ? '#facc15' : '#94a3b8'};">\${isToggle ? (isOn ? 'ON' : 'OFF') : 'VIEW'}</span>
-          \`;
-          swGrid.appendChild(div);
-        });
+              <span style="font-weight:700; color:\${isOn ? '#facc15' : '#64748b'};">\${st ? (isOn ? 'ON' : 'OFF') : 'N/A'}</span>
+            \`;
+            swGrid.appendChild(div);
+          });
+      }
+
+      // 4. Render Compact Finance Card
+      const f = data.summaries?.finance;
+      if (f && (f.income > 0 || f.expenses > 0)) {
+        document.getElementById('f-month-badge').textContent = f.activeMonth || 'Loaded';
+        document.getElementById('f-inc').textContent = '+\u20AC' + Number(f.income).toFixed(0);
+        document.getElementById('f-exp').textContent = '-\u20AC' + Number(f.expenses).toFixed(0);
+        document.getElementById('f-inv').textContent = '\u20AC' + Number(f.investments || 0).toFixed(0);
+        document.getElementById('f-groc').textContent = '\u20AC' + Number(f.grocerySpend || 0).toFixed(0);
+      } else {
+        document.getElementById('f-month-badge').textContent = 'No CSV Data';
+        document.getElementById('f-inc').textContent = 'No data';
+        document.getElementById('f-exp').textContent = 'No data';
+        document.getElementById('f-inv').textContent = 'No data';
+        document.getElementById('f-groc').textContent = 'No data';
+      }
+
+      // 5. Render Compact Meal Planner Card
+      const m = data.summaries?.meals;
+      const mContent = document.getElementById('m-content');
+      if (m && (m.breakfast || m.lunch || m.dinner)) {
+        document.getElementById('m-kcal-badge').textContent = (m.totalCalories || 0) + ' kcal';
+        mContent.innerHTML = \`
+          <div style="padding:3px 0;">\u{1F305} <strong>Breakfast:</strong> \${m.breakfast || 'Not planned'}</div>
+          <div style="padding:3px 0;">\u2600\uFE0F <strong>Lunch:</strong> \${m.lunch || 'Not planned'}</div>
+          <div style="padding:3px 0;">\u{1F319} <strong>Dinner:</strong> \${m.dinner || 'Not planned'}</div>
+        \`;
+      } else {
+        document.getElementById('m-kcal-badge').textContent = 'Unplanned';
+        mContent.innerHTML = 'No meals planned for today. <a href="javascript:void(0)" onclick="openApp(\\'meal-planner\\')" style="color:#38bdf8;">Plan meals \u2192</a>';
       }
     }
 
@@ -1330,7 +1584,12 @@ function renderUnifiedDashboardHtml(ingressPath) {
       else alert(data.error || 'Configure Client ID & Secret first');
     }
 
-    loadCommandCenter();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('app')) {
+      openApp(urlParams.get('app'));
+    } else {
+      loadCommandCenter();
+    }
   </script>
 </body>
 </html>`;
@@ -1480,7 +1739,7 @@ async function startServer() {
           apps,
           summaries,
           jobs: scheduler.listJobs(),
-          standaloneAppId: STANDALONE_APP_ID || null
+          standaloneAppId: (req.headers["x-thassi-standalone-app"] || "").trim() || STANDALONE_APP_ID || null
         });
       }
       if (pathname === "/api/system/ha-config" && req.method === "POST") {
@@ -1567,8 +1826,9 @@ async function startServer() {
         serveAppStaticFile(req, res, app, subPath, `/apps/${encodeURIComponent(appId)}`);
         return;
       }
-      if (STANDALONE_APP_ID && loadedApps.has(STANDALONE_APP_ID)) {
-        const standaloneApp = loadedApps.get(STANDALONE_APP_ID);
+      const effectiveStandaloneAppId = (req.headers["x-thassi-standalone-app"] || "").trim() || STANDALONE_APP_ID;
+      if (effectiveStandaloneAppId && loadedApps.has(effectiveStandaloneAppId)) {
+        const standaloneApp = loadedApps.get(effectiveStandaloneAppId);
         serveAppStaticFile(req, res, standaloneApp, pathname, "");
         return;
       }

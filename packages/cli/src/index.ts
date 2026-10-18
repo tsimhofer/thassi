@@ -469,26 +469,18 @@ async function commandExportStandaloneAddon(appId?: string): Promise<void> {
     process.exit(1);
   }
 
-  await buildHostServer();
-  const outAppDir = await buildSingleApp(appId);
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(outAppDir, 'thassi.app.json'), 'utf-8')
-  ) as ThassiAppManifest;
+  const appSrcDir = path.join(APPS_DIR, appId);
+  const manifestPath = path.join(appSrcDir, 'thassi.app.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`App "${appId}" not found at ${appSrcDir}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as ThassiAppManifest;
 
   const slug = `thassi_${appId.replace(/[^a-z0-9_]/gi, '_').toLowerCase()}`;
   const addonDir = path.join(REPO_ROOT, slug);
-  const addonDistDir = path.join(addonDir, 'dist');
 
   fs.rmSync(addonDir, { recursive: true, force: true });
-  fs.mkdirSync(path.join(addonDistDir, 'apps', appId), { recursive: true });
-
-  // Copy server.mjs and built app bundle into the standalone add-on directory
-  // (HA Supervisor requires all Docker build files inside the add-on's own directory!)
-  fs.copyFileSync(
-    path.join(HOST_DIST_DIR, 'server.mjs'),
-    path.join(addonDistDir, 'server.mjs')
-  );
-  fs.cpSync(outAppDir, path.join(addonDistDir, 'apps', appId), { recursive: true });
+  fs.mkdirSync(addonDir, { recursive: true });
 
   const configYaml = `name: "${manifest.name}"
 version: "${manifest.version}"
@@ -510,38 +502,81 @@ homeassistant_api: true
 hassio_api: true
 `;
 
+  const proxyMjs = `import http from 'node:http';
+
+const PORT = Number(process.env.PORT || 8099);
+const APP_ID = ${JSON.stringify(appId)};
+const TARGET_HOST = process.env.THASSI_HOST_IP || '192.168.188.92';
+const TARGET_PORT = Number(process.env.THASSI_HOST_PORT || 8099);
+
+const server = http.createServer((req, res) => {
+  const headers = {
+    ...req.headers,
+    host: \`\${TARGET_HOST}:\${TARGET_PORT}\`,
+    'x-thassi-standalone-app': APP_ID,
+  };
+
+  const proxyReq = http.request(
+    {
+      hostname: TARGET_HOST,
+      port: TARGET_PORT,
+      path: req.url || '/',
+      method: req.method || 'GET',
+      headers,
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    }
+  );
+
+  proxyReq.on('error', (err) => {
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        error: 'Thassi Main Host (thassi_host:8099) is unreachable',
+        details: err.message,
+      })
+    );
+  });
+
+  req.pipe(proxyReq, { end: true });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(\`[Thassi Sidebar Proxy] \${APP_ID} listening on :\${PORT} -> http://\${TARGET_HOST}:\${TARGET_PORT}\`);
+});
+`;
+
   const dockerfile = `FROM node:24-alpine
 
 WORKDIR /app
 
-COPY dist/ /app/dist/
+COPY proxy.mjs /app/proxy.mjs
 COPY run.sh /app/run.sh
 
 RUN sed -i 's/\\r$//' /app/run.sh && chmod a+x /app/run.sh
 
 ENV NODE_ENV=production
 ENV PORT=8099
-ENV THASSI_DATA_DIR=/data
-ENV THASSI_STANDALONE_APP=${appId}
 
 EXPOSE 8099
 
-CMD ["node", "--no-warnings", "/app/dist/server.mjs"]
+CMD ["node", "--no-warnings", "/app/proxy.mjs"]
 `;
 
   const runSh = `#!/bin/sh
 set -e
-echo "[Thassi Standalone] Starting ${manifest.name} (${appId})..."
-exec node --no-warnings /app/dist/server.mjs
+echo "[Thassi Sidebar Proxy] Starting ${manifest.name} (${appId})..."
+exec node --no-warnings /app/proxy.mjs
 `;
 
   fs.writeFileSync(path.join(addonDir, 'config.yaml'), configYaml);
+  fs.writeFileSync(path.join(addonDir, 'proxy.mjs'), proxyMjs);
   fs.writeFileSync(path.join(addonDir, 'Dockerfile'), dockerfile);
   fs.writeFileSync(path.join(addonDir, 'run.sh'), runSh);
 
-  console.log(`\n🎉 Exported standalone Home Assistant Add-on to ./${slug}/`);
-  console.log(`   Next steps: git add ${slug} && git commit -m "Add ${manifest.name} add-on" && git push`);
-  console.log(`   Then click "Check for updates" in the Home Assistant Add-on Store!`);
+  console.log(`\n🎉 Exported Home Assistant Sidebar Add-on to ./${slug}/`);
 }
 
 function commandList(): void {

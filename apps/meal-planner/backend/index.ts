@@ -152,56 +152,18 @@ export default defineThassiApp((ctx) => {
     );
   `);
 
-  // Seed starter recipes & sample meal plan for today if empty
-  const recipeCount = ctx.db.queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM recipes')?.cnt ?? 0;
-  if (recipeCount === 0) {
-    const now = new Date().toISOString();
-    for (const r of STARTER_RECIPES) {
-      ctx.db.execute(
-        `INSERT INTO recipes (name, meal_type, calories, protein_g, prep_minutes, ingredients, instructions, tags, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          r.name,
-          r.meal_type,
-          r.calories,
-          r.protein_g,
-          r.prep_minutes,
-          JSON.stringify(r.ingredients),
-          r.instructions,
-          r.tags,
-          now,
-        ]
-      );
-    }
-
-    // Seed today's Breakfast, Lunch, and Dinner so the weekly view & HA sensor work out-of-the-box
-    const today = formatDateYMD(new Date());
-    const seededRecipes = ctx.db.query<RawRecipeRow>('SELECT * FROM recipes ORDER BY id ASC');
-    const breakfast = seededRecipes.find((r) => r.meal_type === 'breakfast');
-    const lunch = seededRecipes.find((r) => r.meal_type === 'lunch');
-    const dinner = seededRecipes.find((r) => r.meal_type === 'dinner');
-
-    if (breakfast) {
-      ctx.db.execute(
-        `INSERT OR REPLACE INTO meal_plan (plan_date, slot, recipe_id, custom_title, calories, protein_g, completed)
-         VALUES (?, 'breakfast', ?, ?, ?, ?, 0)`,
-        [today, breakfast.id, breakfast.name, breakfast.calories, breakfast.protein_g]
-      );
-    }
-    if (lunch) {
-      ctx.db.execute(
-        `INSERT OR REPLACE INTO meal_plan (plan_date, slot, recipe_id, custom_title, calories, protein_g, completed)
-         VALUES (?, 'lunch', ?, ?, ?, ?, 0)`,
-        [today, lunch.id, lunch.name, lunch.calories, lunch.protein_g]
-      );
-    }
-    if (dinner) {
-      ctx.db.execute(
-        `INSERT OR REPLACE INTO meal_plan (plan_date, slot, recipe_id, custom_title, calories, protein_g, completed)
-         VALUES (?, 'dinner', ?, ?, ?, ?, 0)`,
-        [today, dinner.id, dinner.name, dinner.calories, dinner.protein_g]
-      );
-    }
+  // Purge legacy dummy starter meal plans and recipes so only real user-added meals remain
+  const legacyDummyNames = [
+    'High-Protein Overnight Oats & Berries',
+    'Shakshuka with Feta & Sourdough',
+    'Mediterranean Chicken Quinoa Bowl',
+    'Red Lentil & Coconut Curry',
+    'Teriyaki Glazed Salmon with Broccoli & Rice',
+    'Crispy Tofu & Peanut Udon Stir-Fry',
+  ];
+  for (const name of legacyDummyNames) {
+    ctx.db.execute('DELETE FROM meal_plan WHERE custom_title = ?', [name]);
+    ctx.db.execute('DELETE FROM recipes WHERE name = ?', [name]);
   }
 
   function parseRecipeRow(row: RawRecipeRow): Recipe {

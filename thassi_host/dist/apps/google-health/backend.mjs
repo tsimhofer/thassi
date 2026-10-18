@@ -212,76 +212,95 @@ var index_default = defineThassiApp((ctx) => {
       [today]
     );
     if (!todayRow) {
-      const prev = ctx.db.queryOne(
-        "SELECT * FROM daily_biometrics ORDER BY log_date DESC LIMIT 1"
-      );
       ctx.db.execute(
         `INSERT INTO daily_biometrics
          (log_date, steps, step_goal, current_hr, resting_hr, sleep_hours, active_calories, weight_kg, readiness_score, source, updated_at)
-         VALUES (?, ?, 10000, ?, ?, ?, ?, ?, 82, 'auto', ?)`,
-        [
-          today,
-          0,
-          prev?.current_hr ?? 68,
-          prev?.resting_hr ?? 56,
-          prev?.sleep_hours ?? 7.5,
-          0,
-          prev?.weight_kg ?? 85.5,
-          (/* @__PURE__ */ new Date()).toISOString()
-        ]
+         VALUES (?, 0, 10000, 0, 0, 0, 0, 0, 0, 'ha_sensors', ?)`,
+        [today, (/* @__PURE__ */ new Date()).toISOString()]
       );
       todayRow = ctx.db.queryOne(
         "SELECT * FROM daily_biometrics WHERE log_date = ?",
         [today]
       );
     }
-    let steps = todayRow.steps;
-    let currentHr = todayRow.current_hr;
-    let restingHr = todayRow.resting_hr;
-    let sleepHours = todayRow.sleep_hours;
-    let weightKg = todayRow.weight_kg;
+    let steps = todayRow.source === "manual" ? todayRow.steps : 0;
+    let currentHr = todayRow.source === "manual" ? todayRow.current_hr : 0;
+    let restingHr = todayRow.source === "manual" ? todayRow.resting_hr : 0;
+    let sleepHours = todayRow.source === "manual" ? todayRow.sleep_hours : 0;
+    let activeCalories = todayRow.source === "manual" ? todayRow.active_calories : 0;
+    let weightKg = todayRow.source === "manual" ? todayRow.weight_kg : 0;
+    let hrvMs = null;
+    let distanceKm = null;
+    let floors = null;
+    let respiratoryRate = null;
     let pixelWatchBattery = null;
     let pixelPhoneSteps = null;
     const activeSources = [];
     try {
       const states = await ctx.ha.getStates("sensor");
       const byId = new Map(states.map((s) => [s.entity_id, s]));
-      const candidateSteps = [
-        Number(byId.get("sensor.pixel_10_daily_steps")?.state),
-        Number(byId.get("sensor.thomas_pixel_watch_daily_steps")?.state),
-        Number(byId.get("sensor.thomas_pixel_watch_steps_sensor")?.state),
-        Number(byId.get("sensor.pixel_10_steps_sensor")?.state)
-      ].filter((v) => Number.isFinite(v) && v > 0);
-      if (candidateSteps.length > 0) {
-        const bestSteps = Math.max(...candidateSteps);
-        pixelPhoneSteps = bestSteps;
-        if (todayRow.source !== "manual" || bestSteps > steps) {
-          steps = Math.round(bestSteps);
-        }
-        activeSources.push("Pixel 10");
+      const p10DailySteps = Number(byId.get("sensor.pixel_10_daily_steps")?.state);
+      const watchDailySteps = Number(byId.get("sensor.thomas_pixel_watch_daily_steps")?.state);
+      const p10BootSteps = Number(byId.get("sensor.pixel_10_steps_sensor")?.state);
+      if (Number.isFinite(p10DailySteps) && p10DailySteps > 0) {
+        steps = Math.round(p10DailySteps);
+        pixelPhoneSteps = steps;
+        activeSources.push("Pixel 10 Health Connect");
+      } else if (Number.isFinite(watchDailySteps) && watchDailySteps > 0) {
+        steps = Math.round(watchDailySteps);
+        pixelPhoneSteps = steps;
+        activeSources.push("Pixel Watch");
+      } else if (Number.isFinite(p10BootSteps) && p10BootSteps > 0) {
+        steps = Math.round(p10BootSteps);
+        pixelPhoneSteps = steps;
+        activeSources.push("Pixel 10 Pedometer");
       }
-      const p10WeightRaw = Number(byId.get("sensor.pixel_10_weight")?.state);
-      if (Number.isFinite(p10WeightRaw) && p10WeightRaw > 0) {
-        weightKg = p10WeightRaw > 500 ? Number((p10WeightRaw / 1e3).toFixed(1)) : p10WeightRaw;
+      const watchHr = Number(byId.get("sensor.thomas_pixel_watch_heart_rate")?.state);
+      const p10Hr = Number(byId.get("sensor.pixel_10_heart_rate")?.state);
+      if (Number.isFinite(watchHr) && watchHr > 0) {
+        currentHr = Math.round(watchHr);
+      } else if (Number.isFinite(p10Hr) && p10Hr > 0) {
+        currentHr = Math.round(p10Hr);
+      }
+      const p10Rhr = Number(byId.get("sensor.pixel_10_resting_heart_rate")?.state);
+      if (Number.isFinite(p10Rhr) && p10Rhr > 0) {
+        restingHr = Math.round(p10Rhr);
+      }
+      const p10Hrv = Number(byId.get("sensor.pixel_10_heart_rate_variability")?.state);
+      if (Number.isFinite(p10Hrv) && p10Hrv > 0) {
+        hrvMs = Math.round(p10Hrv);
       }
       const p10SleepRaw = Number(byId.get("sensor.pixel_10_sleep_duration")?.state);
       if (Number.isFinite(p10SleepRaw) && p10SleepRaw > 0) {
         sleepHours = p10SleepRaw > 1e3 ? Number((p10SleepRaw / 3600).toFixed(1)) : p10SleepRaw > 24 ? Number((p10SleepRaw / 60).toFixed(1)) : Number(p10SleepRaw.toFixed(1));
       }
+      const p10TotalCal = Number(byId.get("sensor.pixel_10_total_calories_burned")?.state);
+      const p10ActiveCal = Number(byId.get("sensor.pixel_10_active_calories_burned")?.state);
+      if (Number.isFinite(p10TotalCal) && p10TotalCal > 0) {
+        activeCalories = Math.round(p10TotalCal);
+      } else if (Number.isFinite(p10ActiveCal) && p10ActiveCal > 0) {
+        activeCalories = Math.round(p10ActiveCal);
+      }
+      const p10DistM = Number(byId.get("sensor.pixel_10_daily_distance")?.state);
+      if (Number.isFinite(p10DistM) && p10DistM > 0) {
+        distanceKm = Number((p10DistM / 1e3).toFixed(2));
+      }
+      const p10Floors = Number(byId.get("sensor.pixel_10_daily_floors")?.state);
+      if (Number.isFinite(p10Floors) && p10Floors > 0) {
+        floors = Math.round(p10Floors);
+      }
+      const p10Resp = Number(byId.get("sensor.pixel_10_respiratory_rate")?.state);
+      if (Number.isFinite(p10Resp) && p10Resp > 0) {
+        respiratoryRate = Number(p10Resp.toFixed(1));
+      }
+      const p10WeightRaw = Number(byId.get("sensor.pixel_10_weight")?.state);
+      if (Number.isFinite(p10WeightRaw) && p10WeightRaw > 0) {
+        weightKg = p10WeightRaw > 500 ? Number((p10WeightRaw / 1e3).toFixed(1)) : p10WeightRaw;
+      }
       const watchBat = Number(byId.get("sensor.thomas_pixel_watch_battery_level")?.state);
       if (Number.isFinite(watchBat)) {
         pixelWatchBattery = watchBat;
         activeSources.push(`Pixel Watch (${watchBat}%)`);
-      }
-      for (const st of states) {
-        if (st.entity_id.startsWith("sensor.thassi_")) continue;
-        const val = Number(st.state);
-        if (!Number.isFinite(val) || val <= 0) continue;
-        if (/resting_heart_rate/i.test(st.entity_id)) {
-          restingHr = Math.round(val);
-        } else if (/heart_rate|heartrate/i.test(st.entity_id) && !/variability/i.test(st.entity_id)) {
-          currentHr = Math.round(val);
-        }
       }
     } catch {
     }
@@ -320,30 +339,36 @@ var index_default = defineThassiApp((ctx) => {
       }
     }
     const recentRows = ctx.db.query(
-      "SELECT * FROM daily_biometrics ORDER BY log_date DESC LIMIT 7"
+      "SELECT * FROM daily_biometrics WHERE resting_hr > 0 ORDER BY log_date DESC LIMIT 7"
     );
-    const baselineRhr = recentRows.length > 0 ? recentRows.reduce((s, r) => s + r.resting_hr, 0) / recentRows.length : 57;
+    const baselineRhr = recentRows.length > 0 ? recentRows.reduce((s, r) => s + r.resting_hr, 0) / recentRows.length : restingHr || 65;
     const yesterdayWorkout = ctx.db.queryOne(
       "SELECT * FROM workout_logs WHERE workout_date = ? ORDER BY id DESC LIMIT 1",
       [formatDateOffset(1)]
     );
-    const readiness = calculateReadinessScore({
-      restingHr,
+    const hasRealMetrics = steps > 0 || currentHr > 0 || restingHr > 0 || sleepHours > 0;
+    const readiness = hasRealMetrics ? calculateReadinessScore({
+      restingHr: restingHr || 65,
       baselineRestingHr: baselineRhr,
-      sleepHours,
+      sleepHours: sleepHours || 7,
       yesterdayStrain: yesterdayWorkout?.rpe_load ?? 5,
       steps
-    });
-    const sourceLabel = activeSources.length > 0 ? activeSources.join(" + ") : todayRow.source;
+    }) : {
+      score: 0,
+      status: "Rest & Recover",
+      recommendation: "No live biometric data received from Home Assistant or Google Fit yet."
+    };
+    const sourceLabel = activeSources.length > 0 ? activeSources.join(" + ") : "no_connection";
     ctx.db.execute(
       `UPDATE daily_biometrics
-       SET steps = ?, current_hr = ?, resting_hr = ?, sleep_hours = ?, weight_kg = ?, readiness_score = ?, source = ?, updated_at = ?
+       SET steps = ?, current_hr = ?, resting_hr = ?, sleep_hours = ?, active_calories = ?, weight_kg = ?, readiness_score = ?, source = ?, updated_at = ?
        WHERE log_date = ?`,
       [
         steps,
         currentHr,
         restingHr,
         sleepHours,
+        activeCalories,
         weightKg,
         readiness.score,
         sourceLabel,
@@ -362,12 +387,18 @@ var index_default = defineThassiApp((ctx) => {
       stepGoal: todayRow.step_goal,
       currentHr,
       restingHr,
+      hrvMs,
       sleepHours,
-      weightKg,
+      activeCalories,
+      distanceKm,
+      floors,
+      respiratoryRate,
+      weightKg: weightKg > 0 ? weightKg : null,
       readinessScore: readiness.score,
       readinessStatus: readiness.status,
       recommendation: readiness.recommendation,
       pixelWatchBattery,
+      source: sourceLabel,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
     const haStatus = await ctx.ha.getStatus();
@@ -416,8 +447,13 @@ var index_default = defineThassiApp((ctx) => {
       readiness,
       hrZone: hrZoneInfo,
       baselineRhr: Number(baselineRhr.toFixed(1)),
+      hrvMs,
+      distanceKm,
+      floors,
+      respiratoryRate,
       pixelWatchBattery,
-      pixelPhoneSteps
+      pixelPhoneSteps,
+      haConnected: haStatus.connected
     };
   }
   ctx.route("GET", "/dashboard", async (_req, { db, sharedDb, google }) => {
