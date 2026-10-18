@@ -94,11 +94,30 @@ function CameraVisionApp() {
   const [intervalInput, setIntervalInput] = useState(180);
   const [testMode, setTestMode] = useState<OptimizationMode>('Personen');
   const [statusMsg, setStatusMsg] = useState('');
+  const [tuyaAuth, setTuyaAuth] = useState<{
+    storedUserCode: string;
+    storedEntryTitle: string;
+    activeFlowId: string | null;
+    qrData: string;
+  } | null>(null);
+  const [onvifIp, setOnvifIp] = useState('192.168.188.140');
+  const [onvifPass, setOnvifPass] = useState('');
 
   async function refresh() {
     try {
-      const res = await client.get<DashboardPayload>('/dashboard');
+      const [res, authRes] = await Promise.all([
+        client.get<DashboardPayload>('/dashboard'),
+        client
+          .get<{
+            storedUserCode: string;
+            storedEntryTitle: string;
+            activeFlowId: string | null;
+            qrData: string;
+          }>('/tuya-reauth')
+          .catch(() => null),
+      ]);
       setData(res);
+      if (authRes) setTuyaAuth(authRes);
       if (res.config?.intervalSeconds) setIntervalInput(res.config.intervalSeconds);
     } catch (e) {
       console.error(e);
@@ -112,6 +131,54 @@ function CameraVisionApp() {
     const timer = setInterval(refresh, 15000);
     return () => clearInterval(timer);
   }, []);
+
+  async function refreshTuyaQrCode() {
+    setStatusMsg('Generiere frischen 5-Minuten QR-Code für LSC / Tuya…');
+    const res = await client.post<{
+      storedUserCode: string;
+      storedEntryTitle: string;
+      activeFlowId: string | null;
+      qrData: string;
+    }>('/tuya-reauth-refresh', {});
+    setTuyaAuth(res);
+    setStatusMsg('Neuer QR-Code bereit! Bitte jetzt mit der App scannen.');
+  }
+
+  async function confirmTuyaQrScanned() {
+    setStatusMsg('Prüfe QR-Code-Bestätigung bei Home Assistant & aktiviere LSC Smart PTZ Camera 2…');
+    const res = await client.post<{ status: number; body?: { type?: string; errors?: Record<string, string> } }>(
+      '/tuya-reauth',
+      { flow_id: tuyaAuth?.activeFlowId }
+    );
+    if (res.body?.errors) {
+      setStatusMsg('QR-Code wurde in der App noch nicht bestätigt. Bitte in der App auf „Anmeldung bestätigen“ tippen und erneut klicken.');
+    } else {
+      setStatusMsg('✅ Tuya / LSC erfolgreich verbunden! LSC Smart PTZ Camera 2 wird abgetastet…');
+      await refresh();
+    }
+  }
+
+  async function configureLocalOnvif(e: React.FormEvent) {
+    e.preventDefault();
+    setStatusMsg(`Verbinde LSC Smart PTZ Camera 2 lokal über RTSP/ONVIF (${onvifIp})…`);
+    const res = await client.post<{
+      rtspUrl: string;
+      port554Open: boolean;
+      sampleRes?: { error?: string; scene_summary?: string };
+    }>('/configure-onvif', {
+      camera_id: 'camera.lsc_smart_ptz_camera_2',
+      lan_ip: onvifIp,
+      password: onvifPass,
+    });
+    if (res.sampleRes?.scene_summary) {
+      setStatusMsg(`✅ Lokaler Stream verbunden & ausgewertet: ${res.sampleRes.scene_summary}`);
+    } else {
+      setStatusMsg(
+        `Stream gesetzt (${res.rtspUrl}). Hinweis: ${res.sampleRes?.error || 'Prüfe ONVIF-Schalter in der LSC App.'}`
+      );
+    }
+    await refresh();
+  }
 
   async function setCameraOptimizationMode(cameraId: string, mode: OptimizationMode) {
     setStatusMsg(`Optimierung für ${cameraId} auf „${mode}“ umgestellt.`);
@@ -313,6 +380,125 @@ function CameraVisionApp() {
           }}
         >
           {statusMsg}
+        </div>
+      )}
+
+      {/* LSC SMART PTZ CAMERA 2 & TUYA ACTIVATION WIZARD */}
+      {tuyaAuth?.activeFlowId && (
+        <div
+          style={{
+            background: 'rgba(14, 24, 52, 0.78)',
+            borderRadius: '22px',
+            padding: '24px 26px',
+            marginBottom: '32px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '24px',
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.14em', color: '#fbbf24', fontWeight: 600 }}>
+              ⚡ LSC Smart PTZ Camera 2 aktivieren · Weg A (QR-Code Scan)
+            </div>
+            <h3 style={{ margin: '6px 0 10px', fontSize: '19px', fontWeight: 500 }}>
+              Tuya / LSC QR-Code direkt scannen ({tuyaAuth.storedEntryTitle})
+            </h3>
+            <ol style={{ margin: '0 0 14px', paddingLeft: '18px', fontSize: '13px', color: 'rgba(248,250,252,0.8)', lineHeight: 1.65 }}>
+              <li>Öffne auf dem Handy die <strong>LSC Smart Connect</strong> (oder <strong>Smart Life</strong>) App.</li>
+              <li>Tippe unten rechts auf <strong>Profil („Ich“)</strong> und oben rechts auf das <strong>QR-Scanner-Symbol [ - ]</strong>.</li>
+              <li>Scanne diesen QR-Code (User-Code: <code>{tuyaAuth.storedUserCode}</code>) und bestätige in der App.</li>
+              <li>Klicke anschließend hier auf <strong>„✅ Ich habe gescannt – Jetzt aktivieren“</strong>.</li>
+            </ol>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                onClick={confirmTuyaQrScanned}
+                style={{
+                  background: '#4ade80',
+                  color: '#040711',
+                  border: 'none',
+                  borderRadius: '99px',
+                  padding: '9px 18px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                ✅ Ich habe gescannt – Jetzt aktivieren
+              </button>
+              <button
+                onClick={refreshTuyaQrCode}
+                style={{
+                  background: 'rgba(255,255,255,0.08)',
+                  color: '#e2e8f0',
+                  border: 'none',
+                  borderRadius: '99px',
+                  padding: '9px 16px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                🔄 Neuen QR-Code generieren
+              </button>
+            </div>
+          </div>
+
+          {tuyaAuth.qrData && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <div style={{ background: '#ffffff', padding: '12px', borderRadius: '16px' }}>
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(tuyaAuth.qrData)}`}
+                  alt="Tuya LSC QR Code"
+                  style={{ width: '170px', height: '170px', display: 'block' }}
+                />
+              </div>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>
+                LSC / Tuya Login-QR
+              </span>
+            </div>
+          )}
+
+          <form onSubmit={configureLocalOnvif} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.14em', color: '#38bdf8', fontWeight: 600 }}>
+              Weg B · Lokales ONVIF / RTSP in der LSC App
+            </div>
+            <div style={{ fontSize: '12.5px', color: 'rgba(248,250,252,0.75)', lineHeight: 1.55 }}>
+              In der <strong>LSC App → LSC Smart PTZ Camera 2 → „...“ (Einstellungen) → ONVIF</strong> einschalten & Passwort festlegen:
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <select
+                value={onvifIp}
+                onChange={(e) => setOnvifIp(e.target.value)}
+                style={{ padding: '8px 10px', borderRadius: '10px', border: 'none', background: '#111a33', color: '#fff', fontSize: '12px' }}
+              >
+                <option value="192.168.188.140">192.168.188.140 (LSC Cam)</option>
+                <option value="192.168.188.121">192.168.188.121 (LSC Cam)</option>
+              </select>
+              <input
+                type="password"
+                placeholder="ONVIF-Passwort aus LSC App"
+                value={onvifPass}
+                onChange={(e) => setOnvifPass(e.target.value)}
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '12px' }}
+              />
+            </div>
+            <button
+              type="submit"
+              style={{
+                background: '#38bdf8',
+                color: '#040711',
+                border: 'none',
+                borderRadius: '99px',
+                padding: '9px 16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                alignSelf: 'flex-start',
+              }}
+            >
+              🔌 Lokalen RTSP/ONVIF-Stream verbinden
+            </button>
+          </form>
         </div>
       )}
 

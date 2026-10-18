@@ -71117,11 +71117,11 @@ var require_tf_data_node = __commonJS({
         }
         FileDataSource2.prototype.iterator = function() {
           return __awaiter(this, void 0, void 0, function() {
-            var fs2;
+            var fs3;
             return __generator(this, function(_a) {
               if (isLocalPath(this.input) && tf2.env().get("IS_NODE")) {
-                fs2 = __require("fs");
-                this.input = fs2.readFileSync(this.input.slice(7));
+                fs3 = __require("fs");
+                this.input = fs3.readFileSync(this.input.slice(7));
               }
               return [2, new FileChunkIterator(this.input, this.options)];
             });
@@ -105789,6 +105789,7 @@ var tf = __toESM(require_tf_node(), 1);
 var cocoSsd = __toESM(require_coco_ssd_node(), 1);
 var import_jpeg_js = __toESM(require_jpeg_js(), 1);
 var import_pngjs = __toESM(require_png(), 1);
+import fs2 from "node:fs";
 import net from "node:net";
 
 // packages/sdk/src/db.ts
@@ -106658,6 +106659,151 @@ var index_default = defineThassiApp((ctx) => {
     };
     appCtx.db.kvSet("vision_config", updated);
     return { saved: true, config: updated };
+  });
+  async function fetchActiveTuyaFlow(haUrl, haToken) {
+    let storedUserCode = "";
+    let storedEntryTitle = "";
+    let storedEntryId = "01KCMYXWZ67QCM7YXY37ZTKBDZ";
+    const storagePath = "/homeassistant/.storage/core.config_entries";
+    try {
+      if (fs2.existsSync(storagePath)) {
+        const raw = JSON.parse(fs2.readFileSync(storagePath, "utf-8"));
+        const entries = raw?.data?.entries || [];
+        const tuyaEntry = entries.find((e) => e.domain === "tuya");
+        if (tuyaEntry) {
+          storedUserCode = tuyaEntry.data?.user_code || "";
+          storedEntryTitle = tuyaEntry.title || "";
+          storedEntryId = tuyaEntry.entry_id || storedEntryId;
+        }
+      }
+    } catch {
+    }
+    const flows = await new Promise(
+      (resolve) => {
+        try {
+          const ws = new WebSocket(haUrl.replace(/^http/, "ws") + "/api/websocket");
+          const t = setTimeout(() => {
+            try {
+              ws.close();
+            } catch {
+            }
+            resolve([]);
+          }, 5e3);
+          ws.addEventListener("message", (ev) => {
+            const msg = JSON.parse(String(ev.data));
+            if (msg.type === "auth_required") ws.send(JSON.stringify({ type: "auth", access_token: haToken }));
+            if (msg.type === "auth_ok") ws.send(JSON.stringify({ id: 1, type: "config_entries/flow/progress" }));
+            if (msg.id === 1) {
+              clearTimeout(t);
+              ws.close();
+              resolve(msg.result || []);
+            }
+          });
+        } catch {
+          resolve([]);
+        }
+      }
+    );
+    const tuyaFlow = flows.find((f) => f.handler === "tuya");
+    let flowDetails = null;
+    let qrData = "";
+    if (tuyaFlow) {
+      try {
+        const r = await fetch(`${haUrl}/api/config/config_entries/flow/${tuyaFlow.flow_id}`, {
+          headers: { Authorization: `Bearer ${haToken}` }
+        });
+        flowDetails = await r.json();
+        const schema = flowDetails?.data_schema || [];
+        qrData = schema[0]?.selector?.qr_code?.data || "";
+      } catch {
+      }
+    }
+    return {
+      storedUserCode,
+      storedEntryTitle,
+      storedEntryId,
+      activeFlowId: tuyaFlow?.flow_id || null,
+      qrData,
+      flowDetails
+    };
+  }
+  ctx.route("GET", "/tuya-reauth", async () => {
+    const { haUrl, haToken } = getHaConnection();
+    return await fetchActiveTuyaFlow(haUrl, haToken);
+  });
+  ctx.route("POST", "/tuya-reauth-refresh", async () => {
+    const { haUrl, haToken } = getHaConnection();
+    const current = await fetchActiveTuyaFlow(haUrl, haToken);
+    if (current.activeFlowId) {
+      await fetch(`${haUrl}/api/config/config_entries/flow/${current.activeFlowId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${haToken}` }
+      }).catch(() => {
+      });
+    }
+    await fetch(`${haUrl}/api/config/config_entries/entry/${current.storedEntryId}/reload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${haToken}` }
+    }).catch(() => {
+    });
+    await new Promise((r) => setTimeout(r, 1400));
+    return await fetchActiveTuyaFlow(haUrl, haToken);
+  });
+  ctx.route("POST", "/tuya-reauth", async (req, appCtx) => {
+    const { haUrl, haToken } = getHaConnection();
+    const body = req.body || {};
+    const flowId = body.flow_id || (await fetchActiveTuyaFlow(haUrl, haToken)).activeFlowId;
+    if (!flowId) {
+      return { status: 400, body: { error: "Kein aktiver Tuya-QR-Flow gefunden. Bitte neuen QR-Code generieren." } };
+    }
+    const r = await fetch(`${haUrl}/api/config/config_entries/flow/${flowId}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${haToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body.user_code ? { user_code: body.user_code } : {})
+    });
+    const resData = await r.json();
+    if (resData.type === "abort" || resData.type === "create_entry") {
+      await new Promise((res) => setTimeout(res, 2500));
+      await sampleSingleCamera("camera.lsc_smart_ptz_camera_2", appCtx);
+    }
+    return { status: r.status, body: resData };
+  });
+  ctx.route("POST", "/configure-onvif", async (req, appCtx) => {
+    const body = req.body || {};
+    const camId = body.camera_id || "camera.lsc_smart_ptz_camera_2";
+    const ip = (body.lan_ip || "192.168.188.140").trim();
+    const user = (body.username || "admin").trim();
+    const pass = (body.password || "").trim();
+    const rtspPath = (body.rtsp_path || "/onvif1").trim();
+    const p554 = await checkTcpPort(ip, 554, 600);
+    const p8554 = await checkTcpPort(ip, 8554, 600);
+    const port = p554 ? 554 : p8554 ? 8554 : 554;
+    const authPart = pass ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : "";
+    const rtspUrl = `rtsp://${authPart}${ip}:${port}${rtspPath.startsWith("/") ? rtspPath : "/" + rtspPath}`;
+    appCtx.db.execute(
+      `UPDATE camera_sources SET lan_ip = ?, stream_url = ?, enabled = 1 WHERE id = ?`,
+      [ip, rtspUrl, camId]
+    );
+    const cfg = getConfig();
+    try {
+      await fetch(
+        `${cfg.go2rtcUrl.replace(/\/+$/, "")}/api/streams?name=${encodeURIComponent(camId)}&src=${encodeURIComponent(rtspUrl)}`,
+        { method: "PUT", signal: AbortSignal.timeout(3e3) }
+      );
+    } catch {
+    }
+    const sampleRes = await sampleSingleCamera(camId, appCtx);
+    return {
+      configured: true,
+      camera_id: camId,
+      rtspUrl,
+      port554Open: p554,
+      port8554Open: p8554,
+      sampleRes
+    };
   });
 });
 export {
