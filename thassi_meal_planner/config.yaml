@@ -1,5 +1,5 @@
 name: "Meal Planner"
-version: "1.0.0"
+version: "1.0.1"
 slug: "thassi_meal_planner"
 description: "Weekly meal calendar, recipe & nutrition database, automated grocery list generator, and Home Assistant dinner/nutrition sensor bridge."
 url: "https://github.com/tsimhofer/thassi"
@@ -11,7 +11,6 @@ startup: application
 boot: auto
 ingress: true
 ingress_port: 8099
-ingress_entry: /
 panel_icon: "mdi:food-apple"
 panel_title: "Meal Planner"
 panel_admin: false

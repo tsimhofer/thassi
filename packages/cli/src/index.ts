@@ -503,7 +503,6 @@ startup: application
 boot: auto
 ingress: true
 ingress_port: 8099
-ingress_entry: /
 panel_icon: "${manifest.icon || 'mdi:application'}"
 panel_title: "${manifest.name}"
 panel_admin: false

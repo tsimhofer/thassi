@@ -196,9 +196,10 @@ function serveAppStaticFile(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   app: LoadedAppInstance,
-  subPath: string
+  subPath: string,
+  mountPrefix = ''
 ) {
-  const ingressPath = (req.headers['x-ingress-path'] as string) || '';
+  const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
   const cleanSub = subPath.replace(/^\/+/, '') || 'index.html';
   let filePath = path.join(app.frontendDir, cleanSub);
 
@@ -217,6 +218,10 @@ function serveAppStaticFile(
 
   if (ext === '.html') {
     let html = fs.readFileSync(filePath, 'utf-8');
+    const assetBase = `${ingressPath}${mountPrefix}`.replace(/\/+$/, '');
+    html = html
+      .replace(/(src|href)="\.\/assets\//g, `$1="${assetBase}/assets/`)
+      .replace(/(src|href)="\/assets\//g, `$1="${assetBase}/assets/`);
     const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};</script>`;
     html = html.includes('</head>')
       ? html.replace('</head>', `${injection}</head>`)
@@ -691,10 +696,11 @@ async function startServer() {
         return sendJson(res, 204, {});
       }
 
-      const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-      const pathname = parsedUrl.pathname;
+      const safeReqUrl = (req.url || '/').replace(/^\/+/, '/');
+      const parsedUrl = new URL(safeReqUrl, 'http://localhost');
+      const pathname = parsedUrl.pathname.replace(/\/+/g, '/');
       const queryObj = Object.fromEntries(parsedUrl.searchParams.entries());
-      const ingressPath = (req.headers['x-ingress-path'] as string) || '';
+      const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
 
       // System API routes (`/api/system/*`)
       if (pathname === '/api/system/status' && req.method === 'GET') {
@@ -816,14 +822,14 @@ async function startServer() {
           res.end(`App "${appId}" not found.`);
           return;
         }
-        serveAppStaticFile(req, res, app, subPath);
+        serveAppStaticFile(req, res, app, subPath, `/apps/${encodeURIComponent(appId)}`);
         return;
       }
 
       // If running as a standalone exported Home Assistant Add-on, serve that app directly at `/`
       if (STANDALONE_APP_ID && loadedApps.has(STANDALONE_APP_ID)) {
         const standaloneApp = loadedApps.get(STANDALONE_APP_ID)!;
-        serveAppStaticFile(req, res, standaloneApp, pathname);
+        serveAppStaticFile(req, res, standaloneApp, pathname, '');
         return;
       }
 

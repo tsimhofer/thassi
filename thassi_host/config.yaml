@@ -1,5 +1,5 @@
 name: "Thassi Personal App Hub"
-version: "1.0.0"
+version: "1.0.1"
 slug: "thassi_host"
 description: "Full-Stack TypeScript App Host, SQLite Data Hub, Google OAuth Vault, and Hot-Deploy Runtime for Home Assistant"
 url: "https://github.com/tsimhofer/thassi"
@@ -11,7 +11,6 @@ startup: application
 boot: auto
 ingress: true
 ingress_port: 8099
-ingress_entry: /
 panel_icon: "mdi:apps-box"
 panel_title: "Thassi Hub"
 panel_admin: false
