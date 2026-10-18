@@ -118,7 +118,8 @@ function discoverGeminiApiKeyFromHassStorage(): string {
     if (fs.existsSync(storagePath)) {
       const raw = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
       const entries = raw?.data?.entries || [];
-      for (const e of entries) {
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
         if (e.domain === 'google_generative_ai_conversation' && e.data?.api_key) {
           return String(e.data.api_key).trim();
         }
@@ -168,11 +169,11 @@ async function resolveWorkingGeminiVisionModel(apiKey: string, preferred: string
         .map((m) => m.name.replace(/^models\//, ''));
 
       const candidates = [
-        preferred,
-        'gemini-2.0-flash',
-        'gemini-2.5-pro',
-        'gemini-1.5-flash',
         'gemini-3.8-flash',
+        preferred,
+        'gemini-2.5-pro',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
         ...generateModels.filter((n) => n.includes('flash') && !n.includes('tts') && !n.includes('image')),
         ...generateModels,
       ].filter(Boolean);
@@ -187,7 +188,7 @@ async function resolveWorkingGeminiVisionModel(apiKey: string, preferred: string
   } catch {
     // Fallback
   }
-  return preferred || 'gemini-2.0-flash';
+  return 'gemini-3.8-flash';
 }
 
 export default defineThassiApp((ctx) => {
@@ -667,6 +668,7 @@ Antworte AUSSCHLIESSLICH mit validem JSON im folgenden Schema:
     return {
       config: {
         ...cfg,
+        geminiApiKey: '',
         geminiApiKeyConfigured: Boolean(cfg.geminiApiKey),
         geminiApiKeyMasked: cfg.geminiApiKey
           ? `${cfg.geminiApiKey.slice(0, 6)}...${cfg.geminiApiKey.slice(-4)}`
