@@ -4,8 +4,8 @@ const PORT = Number(process.env.PORT || 8099);
 const STARTED_AT = Date.now();
 const ADDON_SLUG = "thassi_fuege_neue";
 const ADDON_NAME = "Fuege Neue";
-const ADDON_VERSION = "1.0.0";
-const USER_PROMPT = "füge eine neue App zu meiner home minisystem Installation hinzu die über die Google meine Notizen";
+const ADDON_VERSION = "1.0.1";
+const USER_PROMPT = "Füge eine neue App zu meiner Home Assistant Installation hinzu die über Google meine Notizen synchronisiert";
 
 const server = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];

@@ -1,7 +1,7 @@
 name: "Thassi Fuege Neue"
-version: "1.0.0"
+version: "1.0.1"
 slug: "thassi_fuege_neue"
-description: "füge eine neue App zu meiner home minisystem Installation hinzu die über die Google meine Notizen"
+description: "Füge eine neue App zu meiner Home Assistant Installation hinzu die über Google meine Notizen synchronisiert"
 url: "https://github.com/tsimhofer/thassi"
 arch:
   - amd64
