@@ -69,6 +69,7 @@ export class ThassiHaBridge {
     const url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const res = await fetch(url, {
       ...init,
+      signal: init.signal || AbortSignal.timeout(3500),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -191,22 +192,31 @@ export class ThassiHaBridge {
       },
     };
 
-    const result = await this.request<HaEntityState>(`/states/${entityId}`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-
+    const nowIso = new Date().toISOString();
     // Record published sensor in shared DB so the Thassi Hub can display all published entities
     const published = this.sharedDb.kvGet<Record<string, { entityId: string; appId: string; state: string; updatedAt: string }>>('published_sensors', {}) || {};
     published[entityId] = {
       entityId,
       appId: this.appId,
       state: String(state),
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     };
     this.sharedDb.kvSet('published_sensors', published);
 
-    return result;
+    try {
+      return await this.request<HaEntityState>(`/states/${entityId}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      return {
+        entity_id: entityId,
+        state: payload.state,
+        attributes: payload.attributes,
+        last_changed: nowIso,
+        last_updated: nowIso,
+      };
+    }
   }
 
   /** Fire a custom event on the Home Assistant event bus */

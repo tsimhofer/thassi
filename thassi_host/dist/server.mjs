@@ -363,6 +363,7 @@ var ThassiHaBridge = class {
     const url = `${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
     const res = await fetch(url, {
       ...init,
+      signal: init.signal || AbortSignal.timeout(3500),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -446,19 +447,29 @@ var ThassiHaBridge = class {
         ...attributes
       }
     };
-    const result = await this.request(`/states/${entityId}`, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
     const published = this.sharedDb.kvGet("published_sensors", {}) || {};
     published[entityId] = {
       entityId,
       appId: this.appId,
       state: String(state),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      updatedAt: nowIso
     };
     this.sharedDb.kvSet("published_sensors", published);
-    return result;
+    try {
+      return await this.request(`/states/${entityId}`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+    } catch {
+      return {
+        entity_id: entityId,
+        state: payload.state,
+        attributes: payload.attributes,
+        last_changed: nowIso,
+        last_updated: nowIso
+      };
+    }
   }
   /** Fire a custom event on the Home Assistant event bus */
   async fireEvent(eventType, eventData = {}) {
@@ -5275,6 +5286,12 @@ function renderUnifiedDashboardHtml(ingressPath) {
 // thassi_host/src/server.ts
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path3.dirname(__filename);
+process.on("unhandledRejection", (reason) => {
+  console.warn("[Thassi] Ignored background unhandledRejection:", reason instanceof Error ? reason.message : reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[Thassi] Caught uncaughtException (keeping server alive):", err instanceof Error ? err.message : err);
+});
 function loadDotEnv() {
   const envPath = path3.resolve(process.cwd(), ".env");
   if (!fs3.existsSync(envPath)) return;
@@ -5890,7 +5907,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.1.0",
+          version: "1.2.0",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }

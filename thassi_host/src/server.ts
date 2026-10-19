@@ -18,6 +18,14 @@ import { getHassSidebarStylerScript, syncHassFrontendFiles } from './hass-sideba
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Thassi] Ignored background unhandledRejection:', reason instanceof Error ? reason.message : reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Thassi] Caught uncaughtException (keeping server alive):', err instanceof Error ? err.message : err);
+});
+
 function loadDotEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
@@ -824,7 +832,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.1.0',
+          version: '1.2.0',
           timestamp: new Date().toISOString(),
         });
       }
