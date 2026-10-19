@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
-echo "[Thassi Sidebar Proxy] Starting Finance & Budget (finance-analytics)..."
+echo "[Thassi Sidebar Proxy] Starting thassi.finances (finance-analytics)..."
 exec node --no-warnings /app/proxy.mjs

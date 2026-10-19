@@ -20,6 +20,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     * { box-sizing: border-box; user-select: none; }
+    input, textarea, select { user-select: text !important; -webkit-user-select: text !important; }
     html, body {
       margin: 0;
       padding: 0;
@@ -885,24 +886,38 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       </div>
     </div>
 
-    <!-- FINANCES WIDGET -->
+    <!-- FINANCES WIDGET (HIDDEN BY DEFAULT, CLICK TO TOGGLE VISIBILITY, CONFIGURABLE ELEMENTS + QUICK IMPORT) -->
     <div class="ambient-widget" id="widget-finances" onclick="toggleWidget('finances', event)">
       <div class="w-header">
-        <div class="w-label-row">
-          <span>finances</span>
+        <div class="w-label-row" style="gap:8px;">
+          <span>thassi.finances</span>
+          <button id="finances-eye-btn"
+                  onclick="toggleFinancesVisibility(event)"
+                  title="Klicken, um Finanzdaten ein-/auszublenden"
+                  style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.14); color:#cbd5e1; border-radius:99px; padding:1px 7px; font-size:9.5px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+            🔒 versteckt
+          </button>
           <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7;"></span>
         </div>
-        <div class="w-primary" id="compact-finances">--</div>
-        <div class="w-sub" id="sub-finances">Sparkasse George</div>
+        <div class="w-primary" id="compact-finances" onclick="handleCompactFinancesClick(event)" title="Klicken zum Ein-/Ausblenden">🔒 •••• €</div>
+        <div class="w-sub" id="sub-finances">Klick auf 🔒 zum Anzeigen · Sparkasse George</div>
       </div>
-      <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div class="w-stat-grid">
-          <div class="w-stat-item"><span class="w-stat-k">Income</span><span class="w-stat-v" id="ef-inc" style="color:#4ade80;">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Expenses</span><span class="w-stat-v" id="ef-exp" style="color:#f87171;">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Investments</span><span class="w-stat-v" id="ef-inv" style="color:#38bdf8;">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Groceries</span><span class="w-stat-v" id="ef-groc" style="color:#fbbf24;">--</span></div>
+      <div class="w-expand-body" onclick="event.stopPropagation()" style="min-width:270px;">
+        <div id="finances-preview-dynamic"
+             onclick="toggleFinancesVisibility(event)"
+             title="Klicken, um Zahlen ein-/auszublenden"
+             style="display:flex; flex-direction:column; gap:8px; cursor:pointer; margin-bottom:10px;">
+          <div class="w-stat-grid">
+            <div class="w-stat-item"><span class="w-stat-k">Aktueller Kontostand</span><span class="w-stat-v" id="ef-bal" style="color:#38bdf8;">•••• €</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Ausgaben (Tag / Woche)</span><span class="w-stat-v" id="ef-exp" style="color:#f87171;">•••• €</span></div>
+          </div>
         </div>
-        <button class="w-action-link" onclick="openFullService('finance-analytics', 'Finances')">Open Finances →</button>
+        <div id="finances-quick-import-slot" style="margin-bottom:8px;"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-top:1px solid rgba(255,255,255,0.07); padding-top:8px;">
+          <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="toggleFinancesVisibility(event)" id="finances-toggle-link">👁️ Anzeigen</button>
+          <button class="w-action-link" style="margin:0; color:#94a3b8;" onclick="openFullService('finance-analytics', 'thassi.finances', '#preview-config')">🎛️ Preview</button>
+          <button class="w-action-link" style="margin:0;" onclick="openFullService('finance-analytics', 'thassi.finances')">Finances →</button>
+        </div>
       </div>
     </div>
 
@@ -978,6 +993,46 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">🖨️ Druck starten</button>
           <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor →</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUICK IMPORT ONLINE-BANKING POPUP FLYOUT -->
+  <div id="quick-import-flyout-modal"
+       onclick="closeQuickImportFlyout()"
+       style="position:fixed; inset:0; z-index:95; background:rgba(4,7,17,0.68); backdrop-filter:blur(8px); display:none; justify-content:flex-end;">
+    <div onclick="event.stopPropagation()"
+         style="width:min(540px, 95vw); height:100vh; background:#0b1120; border-left:1px solid #1e293b; display:flex; flex-direction:column; box-shadow:-20px 0 60px rgba(0,0,0,0.75);">
+      <div style="padding:16px 20px; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
+        <div>
+          <div style="font-size:15px; font-weight:700; color:#f8fafc;">⚡ Quick Import — Online-Banking Flyout</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Sparkasse George Auto-Login, Cookie-Tresor & automatischer Datei-Import</div>
+        </div>
+        <button onclick="closeQuickImportFlyout()" style="background:#1e293b; border:1px solid #334155; color:#cbd5e1; border-radius:8px; padding:5px 10px; cursor:pointer; font-size:12px;">✕</button>
+      </div>
+      <div style="padding:14px 18px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #1e293b; background:#0b1120;">
+        <button onclick="launchBankingPopupFromDashboard()"
+                style="padding:8px 13px; border-radius:9px; border:1px solid #38bdf8; background:linear-gradient(135deg,#0284c7,#2563eb); color:#fff; font-size:12px; font-weight:700; cursor:pointer;">
+          🪟 Banking-Popup öffnen
+        </button>
+        <button onclick="triggerDashboardQuickImportSample()"
+                style="padding:8px 13px; border-radius:9px; border:1px solid rgba(16,185,129,0.45); background:rgba(16,185,129,0.15); color:#34d399; font-size:12px; font-weight:700; cursor:pointer;">
+          ⚡ George Export herunterladen & Auto-Import
+        </button>
+        <button onclick="triggerDashboardDownloadsScan()"
+                style="padding:8px 12px; border-radius:9px; border:1px solid #334155; background:#1e293b; color:#e2e8f0; font-size:11.5px; font-weight:600; cursor:pointer;">
+          📂 Downloads scannen
+        </button>
+      </div>
+      <div id="qi-dash-status" style="display:none; margin:10px 18px 0; padding:9px 12px; border-radius:9px; font-size:12px; font-weight:600;"></div>
+      <div style="flex:1; padding:12px 18px; display:flex; flex-direction:column; gap:10px; overflow:hidden;">
+        <iframe id="qi-dash-frame"
+                src="about:blank"
+                style="flex:1; width:100%; border:1px solid #1e293b; border-radius:12px; background:#090d16;"></iframe>
+        <label style="padding:10px 14px; border-radius:10px; border:1px dashed #38bdf8; background:rgba(56,189,248,0.06); text-align:center; font-size:12px; color:#cbd5e1; cursor:pointer;">
+          📥 Bank-Export (.csv, .xml, .sta) hier ablegen oder klicken für sofortigen Auto-Import
+          <input type="file" accept=".csv,.xml,.sta,.mt940,.json,.txt" onchange="handleDashboardQuickFileSelect(event)" style="display:none;" />
+        </label>
       </div>
     </div>
   </div>
@@ -1060,7 +1115,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <script>
     ${sidebarStylerScript}
 
-    const base = window.__THASSI_INGRESS_PATH__ || '';
+    const base = (
+      window.__THASSI_INGRESS_PATH__ ||
+      ((window.location.pathname || '').match(/^(\/api\/hassio_ingress\/[^/]+)/) || [])[1] ||
+      ''
+    ).replace(/\/+$/, '');
     const NOW_ANCHOR_RATIO = 0.22;
 
     let calendarEvents = [];
@@ -1681,9 +1740,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       }
     }
 
-    function openFullService(appId, title) {
+    function openFullService(appId, title, hash) {
       document.getElementById('full-app-title').textContent = title;
-      document.getElementById('full-app-frame').src = base + '/apps/' + appId + '/';
+      document.getElementById('full-app-frame').src = base + '/apps/' + appId + '/' + (hash || '');
       document.getElementById('full-app-overlay').style.display = 'flex';
     }
 
@@ -1692,6 +1751,313 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       document.getElementById('full-app-frame').src = 'about:blank';
       loadAllLiveData();
     }
+
+    // ============================================================================
+    // THASSI.FINANCES CONFIGURABLE PREVIEW & QUICK IMPORT FLYOUT
+    // ============================================================================
+    let financesDashData = null;
+    let financesPrivacyInitialized = false;
+    let financesHidden = true; // Hidden by default until user clicks to toggle
+
+    function fmtEurDash(val, masked) {
+      if (masked) return '•••• €';
+      return Number(val || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    }
+
+    function toggleFinancesVisibility(ev) {
+      if (ev) ev.stopPropagation();
+      financesHidden = !financesHidden;
+      renderFinancesPreviewWidget();
+    }
+
+    function handleCompactFinancesClick(ev) {
+      const w = document.getElementById('widget-finances');
+      if (w && w.classList.contains('expanded')) {
+        ev.stopPropagation();
+        toggleFinancesVisibility(ev);
+      }
+    }
+
+    async function refreshFinancesWidget(fallbackSummary) {
+      try {
+        const res = await fetch(base + '/api/apps/finance-analytics/dashboard');
+        if (res.ok) {
+          financesDashData = await res.json();
+          if (!financesPrivacyInitialized && financesDashData.previewConfig) {
+            financesHidden = financesDashData.previewConfig.hiddenByDefault !== false;
+            financesPrivacyInitialized = true;
+          }
+          renderFinancesPreviewWidget();
+          return;
+        }
+      } catch (err) {
+        console.warn('Finance dashboard endpoint fallback:', err);
+      }
+
+      if (fallbackSummary) {
+        financesDashData = {
+          kpis: {
+            activeMonth: fallbackSummary.activeMonth || 'Aktuell',
+            currentBalance: 4850,
+            accountName: 'Sparkasse George Girokonto',
+            expensesDay: 0,
+            expensesWeek: 0,
+            income: fallbackSummary.income || 0,
+            expenses: fallbackSummary.expenses || 0,
+            net: fallbackSummary.netCashflow || 0,
+          },
+          balanceConfig: {
+            currentBalance: 4850,
+            accountName: 'Sparkasse George Girokonto',
+          },
+          previewGroupBudgets: [],
+          previewConfig: {
+            hiddenByDefault: true,
+            primaryMetric: 'current_balance',
+            enabledElements: ['current_balance', 'expenses_day', 'expenses_week', 'quick_import']
+          }
+        };
+        renderFinancesPreviewWidget();
+      }
+    }
+
+    function renderFinancesPreviewWidget() {
+      const d = financesDashData;
+      const compactEl = document.getElementById('compact-finances');
+      const subEl = document.getElementById('sub-finances');
+      const eyeBtn = document.getElementById('finances-eye-btn');
+      const toggleLink = document.getElementById('finances-toggle-link');
+      const dynEl = document.getElementById('finances-preview-dynamic');
+      const qiSlot = document.getElementById('finances-quick-import-slot');
+
+      if (!d || !compactEl || !dynEl) return;
+
+      const k = d.kpis || {};
+      const bal = d.balanceConfig || {};
+      const currentBalance = bal.currentBalance !== undefined ? bal.currentBalance : (k.currentBalance || 0);
+      const accountName = bal.accountName || k.accountName || 'Sparkasse George';
+      const expensesDay = k.expensesDay !== undefined ? k.expensesDay : (d.expensesToday || 0);
+      const expensesWeek = k.expensesWeek !== undefined ? k.expensesWeek : (d.expensesWeek || 0);
+      const netCashflow = k.net !== undefined ? k.net : (d.netCashflowMonth || 0);
+      const activeMonth = k.activeMonth || d.activeMonth || '';
+      const groupBudgets = d.previewGroupBudgets || d.groupBudgets || [];
+
+      const cfg = d.previewConfig || {
+        hiddenByDefault: true,
+        primaryMetric: 'current_balance',
+        enabledElements: ['current_balance', 'expenses_day', 'expenses_week', 'group_budgets', 'quick_import']
+      };
+      const enabled = cfg.enabledElements || [];
+
+      if (eyeBtn) {
+        eyeBtn.innerHTML = financesHidden ? '🔒 versteckt' : '👁️ sichtbar';
+        eyeBtn.style.color = financesHidden ? '#fbbf24' : '#34d399';
+        eyeBtn.style.borderColor = financesHidden ? 'rgba(251,191,36,0.35)' : 'rgba(52,211,153,0.35)';
+      }
+      if (toggleLink) {
+        toggleLink.innerHTML = financesHidden ? '👁️ Zahlen anzeigen' : '🔒 Zahlen verbergen';
+      }
+
+      // Primary headline
+      if (financesHidden) {
+        compactEl.innerHTML = '<strong>🔒 •••• €</strong>';
+        subEl.textContent = 'Klick zum Anzeigen · ' + accountName;
+      } else {
+        let headlineVal = fmtEurDash(currentBalance, false);
+        let headlineSub = accountName + ' · Kontostand';
+        if (cfg.primaryMetric === 'expenses_day') {
+          headlineVal = '-' + fmtEurDash(expensesDay, false);
+          headlineSub = 'Ausgaben Tag (' + (k.expensesDayDate || 'Heute') + ')';
+        } else if (cfg.primaryMetric === 'expenses_week') {
+          headlineVal = '-' + fmtEurDash(expensesWeek, false);
+          headlineSub = 'Ausgaben 7-Tage (' + (k.expensesWeekRangeLabel || 'Woche') + ')';
+        } else if (cfg.primaryMetric === 'net_cashflow') {
+          const sign = Number(netCashflow) >= 0 ? '+' : '';
+          headlineVal = sign + fmtEurDash(netCashflow, false);
+          headlineSub = 'Cashflow ' + activeMonth;
+        }
+        compactEl.innerHTML = '<strong>' + headlineVal + '</strong>';
+        subEl.textContent = headlineSub;
+      }
+
+      // Build configurable dynamic body
+      const statCards = [];
+      if (enabled.includes('current_balance')) {
+        statCards.push(\`
+          <div class="w-stat-item">
+            <span class="w-stat-k">🏦 Aktueller Kontostand</span>
+            <span class="w-stat-v" style="color:#38bdf8;">\${fmtEurDash(currentBalance, financesHidden)}</span>
+          </div>
+        \`);
+      }
+      if (enabled.includes('expenses_day')) {
+        statCards.push(\`
+          <div class="w-stat-item">
+            <span class="w-stat-k">📅 Ausgaben (Tag)</span>
+            <span class="w-stat-v" style="color:#f8fafc;">-\${fmtEurDash(expensesDay, financesHidden)}</span>
+          </div>
+        \`);
+      }
+      if (enabled.includes('expenses_week')) {
+        statCards.push(\`
+          <div class="w-stat-item">
+            <span class="w-stat-k">📆 Ausgaben (Woche)</span>
+            <span class="w-stat-v" style="color:#fbbf24;">-\${fmtEurDash(expensesWeek, financesHidden)}</span>
+          </div>
+        \`);
+      }
+
+      let html = '';
+      if (statCards.length > 0) {
+        html += \`<div class="w-stat-grid">\${statCards.join('')}</div>\`;
+      }
+
+      if (enabled.includes('group_budgets') && Array.isArray(groupBudgets) && groupBudgets.length > 0) {
+        const budgetRows = groupBudgets.slice(0, 4).map((b) => {
+          const pct = Math.min(100, Math.round(b.pctUsed !== undefined ? b.pctUsed : (b.pct || 0)));
+          const limit = b.budgetLimit !== undefined ? b.budgetLimit : (b.limit || 0);
+          const barColor = b.overBudget ? '#ef4444' : (b.color || '#38bdf8');
+          const valText = financesHidden
+            ? '•••• / •••• €'
+            : \`\${Math.round(b.spent || 0)} / \${Math.round(limit)} €\`;
+          return \`
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <div style="display:flex; justify-content:space-between; font-size:11px; color:rgba(248,250,252,0.88);">
+                <span>\${b.icon || '📦'} \${b.labelDe || b.category}</span>
+                <span style="font-variant-numeric:tabular-nums; color:rgba(248,250,252,0.68);">\${valText}</span>
+              </div>
+              <div style="height:4px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden;">
+                <div style="width:\${financesHidden ? 35 : pct}%; height:100%; background:\${barColor};"></div>
+              </div>
+            </div>
+          \`;
+        }).join('');
+        html += \`<div style="display:flex; flex-direction:column; gap:6px; padding-top:4px;">\${budgetRows}</div>\`;
+      }
+
+      dynEl.innerHTML = html || '<div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Keine Preview-Felder ausgewählt</div>';
+
+      if (qiSlot) {
+        if (enabled.includes('quick_import')) {
+          qiSlot.innerHTML = \`
+            <button onclick="openQuickImportFlyout(event)"
+                    style="width:100%; padding:7px 12px; border-radius:9px; border:1px solid rgba(56,189,248,0.4); background:linear-gradient(135deg, rgba(2,132,199,0.28), rgba(37,99,235,0.28)); color:#38bdf8; font-size:11.5px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
+              ⚡ Quick Import (Online-Banking Flyout)
+            </button>
+          \`;
+        } else {
+          qiSlot.innerHTML = '';
+        }
+      }
+    }
+
+    function openQuickImportFlyout(ev) {
+      if (ev) ev.stopPropagation();
+      const modal = document.getElementById('quick-import-flyout-modal');
+      const frame = document.getElementById('qi-dash-frame');
+      if (frame) {
+        frame.src = base + '/api/apps/finance-analytics/quick-import/portal';
+      }
+      if (modal) {
+        modal.style.display = 'flex';
+      }
+    }
+
+    function closeQuickImportFlyout() {
+      const modal = document.getElementById('quick-import-flyout-modal');
+      const frame = document.getElementById('qi-dash-frame');
+      if (modal) modal.style.display = 'none';
+      if (frame) frame.src = 'about:blank';
+      loadAllLiveData();
+    }
+
+    function showQiDashStatus(msg, ok) {
+      const el = document.getElementById('qi-dash-status');
+      if (!el) return;
+      el.style.display = 'block';
+      el.style.background = ok ? 'rgba(16,185,129,0.16)' : 'rgba(239,68,68,0.16)';
+      el.style.border = '1px solid ' + (ok ? '#10b981' : '#ef4444');
+      el.style.color = ok ? '#34d399' : '#f87171';
+      el.textContent = msg;
+    }
+
+    function launchBankingPopupFromDashboard() {
+      const url = (financesDashData && financesDashData.quickImportConfig && financesDashData.quickImportConfig.loginUrl)
+        || 'https://george.sparkasse.at/index.html#/login';
+      const w = 1040, h = 760;
+      const left = Math.max(0, Math.round((window.screen.width - w) / 2));
+      const top = Math.max(0, Math.round((window.screen.height - h) / 2));
+      window.open(url, 'ThassiOnlineBankingPopup', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',resizable=yes,scrollbars=yes');
+      showQiDashStatus('🪟 Online-Banking Popup geöffnet. Nach Download wird der Export automatisch importiert.', true);
+    }
+
+    async function triggerDashboardQuickImportSample() {
+      try {
+        showQiDashStatus('⏳ Lade George-Umsatzexport herunter & importiere...', true);
+        const impRes = await fetch(base + '/api/apps/finance-analytics/quick-import/simulate-download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountName: 'Girokonto' })
+        });
+        const json = await impRes.json();
+        showQiDashStatus('✅ ' + (json.insertedCount || 0) + ' neue Buchungen importiert (' + (json.skippedDuplicates || 0) + ' Duplikate übersprungen)', true);
+        await refreshFinancesWidget();
+      } catch (e) {
+        showQiDashStatus('❌ Fehler beim Quick-Import', false);
+      }
+    }
+
+    async function triggerDashboardDownloadsScan() {
+      try {
+        showQiDashStatus('🔍 Scanne Downloads-Ordner nach neuen Kontoauszügen...', true);
+        const res = await fetch(base + '/api/apps/finance-analytics/quick-import/scan-downloads', { method: 'POST' });
+        const json = await res.json();
+        const evts = json.events || [];
+        if (evts.length > 0) {
+          const totalIns = evts.reduce((s, x) => s + (x.insertedCount || 0), 0);
+          showQiDashStatus('✅ ' + evts.length + ' Datei(en) erkannt: ' + totalIns + ' neue Buchungen importiert!', true);
+        } else {
+          showQiDashStatus('ℹ️ Keine neuen Bank-Exporte in Downloads gefunden.', true);
+        }
+        await refreshFinancesWidget();
+      } catch (e) {
+        showQiDashStatus('❌ Downloads-Scan fehlgeschlagen', false);
+      }
+    }
+
+    async function handleDashboardQuickFileSelect(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      try {
+        showQiDashStatus('⏳ Importiere ' + file.name + '...', true);
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = window.btoa(binary);
+        const res = await fetch(base + '/api/apps/finance-analytics/import-bank-csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, base64Content: b64 })
+        });
+        const json = await res.json();
+        showQiDashStatus('✅ ' + file.name + ': ' + (json.importedCount || 0) + ' Buchungen importiert!', true);
+        await refreshFinancesWidget();
+      } catch (e) {
+        showQiDashStatus('❌ Datei-Import fehlgeschlagen', false);
+      }
+    }
+
+    window.addEventListener('message', (ev) => {
+      if (!ev.data || typeof ev.data !== 'object') return;
+      if (ev.data.type === 'THASSI_QUICK_IMPORT_DONE') {
+        const p = ev.data.payload || {};
+        showQiDashStatus('✅ Auto-Import abgeschlossen: ' + (p.insertedCount || p.imported || 0) + ' neue Buchungen!', true);
+        refreshFinancesWidget();
+      } else if (ev.data.type === 'THASSI_OPEN_BANK_POPUP') {
+        launchBankingPopupFromDashboard();
+      }
+    });
 
     function toggleEventModal(show) {
       const m = document.getElementById('quick-event-modal');
@@ -1778,21 +2144,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           document.getElementById('sub-health').textContent = 'Waiting for Pixel 10 telemetry';
         }
 
-        // 2. Update FINANCES widget
-        const f = sys.summaries?.finance;
-        if (f && (f.income || f.expenses)) {
-          const net = Number(f.netCashflow || 0);
-          const sign = net >= 0 ? '+' : '';
-          document.getElementById('compact-finances').innerHTML = \`<strong>\${sign}€\${net.toFixed(0)}</strong> · -€\${Number(f.expenses || 0).toFixed(0)}\`;
-          document.getElementById('sub-finances').textContent = \`George · \${f.activeMonth || 'Current'}\`;
-          document.getElementById('ef-inc').textContent = '+€' + Number(f.income || 0).toFixed(0);
-          document.getElementById('ef-exp').textContent = '-€' + Number(f.expenses || 0).toFixed(0);
-          document.getElementById('ef-inv').textContent = '€' + Number(f.investments || 0).toFixed(0);
-          document.getElementById('ef-groc').textContent = '€' + Number(f.grocerySpend || 0).toFixed(0);
-        } else {
-          document.getElementById('compact-finances').textContent = 'No data';
-          document.getElementById('sub-finances').textContent = 'No bank CSV imported';
-        }
+        // 2. Update FINANCES widget (Configurable preview, hidden by default)
+        await refreshFinancesWidget(sys.summaries?.finance);
 
         // 3. Update NOTES widget
         const notes = sys.notes || [];
@@ -1867,6 +2220,35 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       centerZ: 20,
     };
 
+    function transformMiniPt(pt, pos, rotDeg, scale) {
+      let x = pt[0] * ((scale && scale[0]) || 1);
+      let y = pt[1] * ((scale && scale[1]) || 1);
+      let z = pt[2] * ((scale && scale[2]) || 1);
+      const rx = (((rotDeg && rotDeg[0]) || 0) * Math.PI) / 180;
+      const ry = (((rotDeg && rotDeg[1]) || 0) * Math.PI) / 180;
+      const rz = (((rotDeg && rotDeg[2]) || 0) * Math.PI) / 180;
+      if (rx !== 0) {
+        const c = Math.cos(rx), s = Math.sin(rx);
+        const ny = y * c - z * s, nz = y * s + z * c;
+        y = ny; z = nz;
+      }
+      if (ry !== 0) {
+        const c = Math.cos(ry), s = Math.sin(ry);
+        const nx = x * c + z * s, nz = -x * s + z * c;
+        x = nx; z = nz;
+      }
+      if (rz !== 0) {
+        const c = Math.cos(rz), s = Math.sin(rz);
+        const nx = x * c - y * s, ny = x * s + y * c;
+        x = nx; y = ny;
+      }
+      return [
+        x + ((pos && pos[0]) || 0),
+        y + ((pos && pos[1]) || 0),
+        z + ((pos && pos[2]) || 0),
+      ];
+    }
+
     function buildMiniTrianglesFromScene(scene) {
       if (!scene || !Array.isArray(scene.nodes) || scene.nodes.length === 0) return [];
       const tris = [];
@@ -1874,35 +2256,130 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         if (n.operation === 'subtract') continue;
         const p = n.params || {};
         const pos = n.position || [0, 0, 0];
-        const col = n.color || scene.primaryColor || '#00AE42';
-        const w = (p.width || (p.radius ? p.radius * 2 : 36)) / 2;
-        const d = (p.depth || (p.radius ? p.radius * 2 : 36)) / 2;
-        const h = p.height || (p.radius ? p.radius * 2 : 30);
-        const cx = pos[0] || 0;
-        const cy = pos[1] || 0;
-        const z0 = pos[2] || 0;
-        const z1 = z0 + h;
+        const rot = n.rotation || [0, 0, 0];
+        const scl = n.scale || [1, 1, 1];
+        const col = n.color || (scene.printProfile && scene.printProfile.filamentColor) || '#00AE42';
+        const local = [];
+        const addQ = (a, b, c, d) => {
+          local.push([a, b, c]);
+          local.push([a, c, d]);
+        };
 
-        if (n.type === 'cylinder' || n.type === 'cone' || n.type === 'gear' || n.type === 'twisted_vase' || n.type === 'hex_organizer' || n.type === 'sphere' || n.type === 'torus') {
-          const segs = n.type === 'hex_organizer' ? 6 : 16;
-          const rBot = (p.radiusBottom || p.outerRadius || p.radius || w);
-          const rTop = n.type === 'cone' ? (p.radiusTop != null ? p.radiusTop : rBot * 0.2) : rBot;
+        if (n.type === 'apple') {
+          const rad = Math.max(8, p.radius || 34);
+          const h = Math.max(12, p.height || 58);
+          const topInd = p.topIndent || h * 0.21;
+          const botInd = p.bottomIndent || h * 0.09;
+          const prof = [
+            [0.0, botInd],
+            [0.35, 0.0],
+            [0.78, h * 0.18],
+            [1.03, h * 0.54],
+            [0.85, h * 0.88],
+            [0.54, h],
+            [0.24, h - topInd * 0.55],
+            [0.0, h - topInd],
+          ];
+          const segs = 18;
+          for (let ri = 0; ri < prof.length - 1; ri++) {
+            const [rf0, z0] = prof[ri];
+            const [rf1, z1] = prof[ri + 1];
+            for (let li = 0; li < segs; li++) {
+              const a0 = (li / segs) * Math.PI * 2;
+              const a1 = ((li + 1) / segs) * Math.PI * 2;
+              const r0 = rad * rf0, r1 = rad * rf1;
+              const p00 = [r0 * Math.cos(a0), r0 * Math.sin(a0), z0];
+              const p10 = [r0 * Math.cos(a1), r0 * Math.sin(a1), z0];
+              const p11 = [r1 * Math.cos(a1), r1 * Math.sin(a1), z1];
+              const p01 = [r1 * Math.cos(a0), r1 * Math.sin(a0), z1];
+              if (rf0 <= 1e-4) local.push([p00, p11, p01]);
+              else if (rf1 <= 1e-4) local.push([p00, p10, p11]);
+              else addQ(p00, p10, p11, p01);
+            }
+          }
+        } else if (n.type === 'lathe') {
+          const h = Math.max(10, p.height || 65);
+          const ctrl = [
+            p.rBottom || p.radiusBottom || 22,
+            p.rLower || p.rBelly || 28,
+            p.rMid || 26,
+            p.rUpper || 20,
+            p.rNeck || 14,
+            p.rTop || p.radiusTop || 14,
+          ];
+          const segs = 16;
+          for (let ri = 0; ri < ctrl.length - 1; ri++) {
+            const r0 = ctrl[ri], r1 = ctrl[ri + 1];
+            const z0 = (ri / (ctrl.length - 1)) * h;
+            const z1 = ((ri + 1) / (ctrl.length - 1)) * h;
+            for (let li = 0; li < segs; li++) {
+              const a0 = (li / segs) * Math.PI * 2;
+              const a1 = ((li + 1) / segs) * Math.PI * 2;
+              addQ(
+                [r0 * Math.cos(a0), r0 * Math.sin(a0), z0],
+                [r0 * Math.cos(a1), r0 * Math.sin(a1), z0],
+                [r1 * Math.cos(a1), r1 * Math.sin(a1), z1],
+                [r1 * Math.cos(a0), r1 * Math.sin(a0), z1]
+              );
+            }
+          }
+        } else if (n.type === 'sphere') {
+          const rad = Math.max(2, p.radius || 20);
+          const dome = Boolean(p.domeOnly);
+          const latS = dome ? 6 : 10;
+          const lonS = 16;
+          for (let la = 0; la < latS; la++) {
+            const t0 = dome ? (la / latS) * (Math.PI / 2) : -Math.PI / 2 + (la / latS) * Math.PI;
+            const t1 = dome ? ((la + 1) / latS) * (Math.PI / 2) : -Math.PI / 2 + ((la + 1) / latS) * Math.PI;
+            const z0 = dome ? rad * Math.sin(t0) : rad + rad * Math.sin(t0);
+            const z1 = dome ? rad * Math.sin(t1) : rad + rad * Math.sin(t1);
+            const r0 = rad * Math.cos(t0), r1 = rad * Math.cos(t1);
+            for (let lo = 0; lo < lonS; lo++) {
+              const a0 = (lo / lonS) * Math.PI * 2, a1 = ((lo + 1) / lonS) * Math.PI * 2;
+              addQ(
+                [r0 * Math.cos(a0), r0 * Math.sin(a0), z0],
+                [r0 * Math.cos(a1), r0 * Math.sin(a1), z0],
+                [r1 * Math.cos(a1), r1 * Math.sin(a1), z1],
+                [r1 * Math.cos(a0), r1 * Math.sin(a0), z1]
+              );
+            }
+          }
+        } else if (n.type === 'torus') {
+          const R = Math.max(4, p.radius || 22);
+          const r = Math.max(1, p.tubeRadius || 5);
+          const majS = 16, minS = 10;
+          for (let i = 0; i < majS; i++) {
+            const u0 = (i / majS) * Math.PI * 2, u1 = ((i + 1) / majS) * Math.PI * 2;
+            for (let j = 0; j < minS; j++) {
+              const v0 = (j / minS) * Math.PI * 2, v1 = ((j + 1) / minS) * Math.PI * 2;
+              const tp = (u, v) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u), r + r * Math.sin(v)];
+              addQ(tp(u0, v0), tp(u1, v0), tp(u1, v1), tp(u0, v1));
+            }
+          }
+        } else if (n.type === 'cylinder' || n.type === 'cone' || n.type === 'gear' || n.type === 'twisted_vase' || n.type === 'hex_organizer' || n.type === 'star' || n.type === 'heart') {
+          const segs = n.type === 'hex_organizer' ? 6 : 18;
+          const rBot = p.radiusBottom || p.outerRadius || p.radius || (p.width ? p.width / 2 : 20);
+          const rTop = n.type === 'cone' ? (p.radiusTop != null ? p.radiusTop : 1) : (p.radiusTop || rBot);
+          const h = p.height || 30;
           for (let i = 0; i < segs; i++) {
             const a0 = (i / segs) * Math.PI * 2;
             const a1 = ((i + 1) / segs) * Math.PI * 2;
-            const x0b = cx + Math.cos(a0) * rBot, y0b = cy + Math.sin(a0) * rBot;
-            const x1b = cx + Math.cos(a1) * rBot, y1b = cy + Math.sin(a1) * rBot;
-            const x0t = cx + Math.cos(a0) * rTop, y0t = cy + Math.sin(a0) * rTop;
-            const x1t = cx + Math.cos(a1) * rTop, y1t = cy + Math.sin(a1) * rTop;
-            tris.push({ v: [[x0b, y0b, z0], [x1b, y1b, z0], [x1t, y1t, z1]], c: col });
-            tris.push({ v: [[x0b, y0b, z0], [x1t, y1t, z1], [x0t, y0t, z1]], c: col });
-            tris.push({ v: [[cx, cy, z1], [x0t, y0t, z1], [x1t, y1t, z1]], c: col });
+            const m0 = n.type === 'star' && i % 2 === 1 ? 0.45 : 1;
+            const m1 = n.type === 'star' && (i + 1) % 2 === 1 ? 0.45 : 1;
+            const x0b = Math.cos(a0) * rBot * m0, y0b = Math.sin(a0) * rBot * m0;
+            const x1b = Math.cos(a1) * rBot * m1, y1b = Math.sin(a1) * rBot * m1;
+            const x0t = Math.cos(a0) * rTop * m0, y0t = Math.sin(a0) * rTop * m0;
+            const x1t = Math.cos(a1) * rTop * m1, y1t = Math.sin(a1) * rTop * m1;
+            addQ([x0b, y0b, 0], [x1b, y1b, 0], [x1t, y1t, h], [x0t, y0t, h]);
+            local.push([[0, 0, h], [x0t, y0t, h], [x1t, y1t, h]]);
           }
         } else {
-          // Box / Bracket / Default
+          const w = (p.width || 36) / 2;
+          const d = (p.depth || 36) / 2;
+          const h = p.height || 30;
           const v = [
-            [cx - w, cy - d, z0], [cx + w, cy - d, z0], [cx + w, cy + d, z0], [cx - w, cy + d, z0],
-            [cx - w, cy - d, z1], [cx + w, cy - d, z1], [cx + w, cy + d, z1], [cx - w, cy + d, z1]
+            [-w, -d, 0], [w, -d, 0], [w, d, 0], [-w, d, 0],
+            [-w, -d, h], [w, -d, h], [w, d, h], [-w, d, h]
           ];
           const faces = [
             [4, 5, 6], [4, 6, 7],
@@ -1911,9 +2388,18 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
             [2, 3, 7], [2, 7, 6],
             [3, 0, 4], [3, 4, 7]
           ];
-          for (const f of faces) {
-            tris.push({ v: [v[f[0]], v[f[1]], v[f[2]]], c: col });
-          }
+          for (const f of faces) local.push([v[f[0]], v[f[1]], v[f[2]]]);
+        }
+
+        for (const [p0, p1, p2] of local) {
+          tris.push({
+            v: [
+              transformMiniPt(p0, pos, rot, scl),
+              transformMiniPt(p1, pos, rot, scl),
+              transformMiniPt(p2, pos, rot, scl),
+            ],
+            c: col,
+          });
         }
       }
       return tris;
@@ -2197,7 +2683,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
     async function toggleMini3dPlaceholder() {
       try {
-        const nextId = mini3dState.hasActiveProject ? null : 'preset-headphone-hook';
+        const nextId = mini3dState.hasActiveProject ? null : 'preset-organic-apple';
         await fetch(base + '/api/apps/3d-print/projects/select', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2221,6 +2707,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         console.error('Failed starting 3D print:', err);
       }
     }
+
+    window.openFullService = openFullService;
+    window.closeFullService = closeFullService;
+    window.submitMini3dPrompt = submitMini3dPrompt;
+    window.toggleMini3dPlaceholder = toggleMini3dPlaceholder;
+    window.triggerMini3dPrint = triggerMini3dPrint;
 
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
