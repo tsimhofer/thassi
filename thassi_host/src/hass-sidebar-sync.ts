@@ -149,7 +149,10 @@ export function getHassSidebarStylerScript(): string {
         const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
         const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');
         if (huiRoot && huiRoot.shadowRoot) {
-          ensureStyleTag(huiRoot.shadowRoot, 'thassi-lovelace-fullbleed', LOVELACE_FULLBLEED_CSS);
+          const oldFullbleed = huiRoot.shadowRoot.getElementById
+            ? huiRoot.shadowRoot.getElementById('thassi-lovelace-fullbleed')
+            : huiRoot.shadowRoot.querySelector('#thassi-lovelace-fullbleed');
+          if (oldFullbleed) oldFullbleed.remove();
         }
       } catch (_err) {
         // Cross-origin fallback (when opened directly on :8099 outside Home Assistant)

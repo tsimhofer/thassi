@@ -186,6 +186,83 @@ export interface ProjectGoalItem {
   priority: 'high' | 'medium' | 'low';
 }
 
+export interface ProjectRequirementItem {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string;
+  priority: 'must' | 'should' | 'could';
+  status: 'draft' | 'approved' | 'in_progress' | 'implemented' | 'verified';
+  milestoneTitle?: string | null;
+  linkedIssueNumber?: number | null;
+  assignedTo?: string;
+}
+
+export interface ProjectGitHubIssueItem {
+  id: string;
+  number: number;
+  title: string;
+  body: string;
+  state: 'open' | 'closed';
+  labels: string[];
+  author: string;
+  authorAvatarUrl: string;
+  assignee: string | null;
+  assigneeAvatarUrl?: string | null;
+  milestoneTitle: string | null;
+  createdAt: string;
+  updatedAt: string;
+  htmlUrl: string;
+  isPullRequest: boolean;
+  source: 'github' | 'local';
+}
+
+export interface ProjectMilestoneItem {
+  id: string;
+  number: number;
+  title: string;
+  description: string;
+  state: 'open' | 'closed';
+  dueDate: string | null;
+  openIssues: number;
+  closedIssues: number;
+  progressPercent: number;
+  htmlUrl?: string;
+}
+
+export interface ProjectCollaboratorDto {
+  login: string;
+  name: string;
+  avatarUrl: string;
+  role: 'Owner / Admin' | 'Maintainer' | 'Collaborator' | 'Automation Bot';
+  contributions: number;
+  htmlUrl: string;
+  permissions: {
+    admin: boolean;
+    push: boolean;
+    pull: boolean;
+  };
+}
+
+export interface ProjectDeploymentConfig {
+  targetType:
+    | 'thassi_app_hot_deploy'
+    | 'ha_custom_component_samba'
+    | 'ha_addon_supervisor'
+    | 'standalone_docker';
+  targetTypeLabel: string;
+  hassHost: string;
+  targetPath: string;
+  branch: string;
+  autoDeployOnGreenTests: boolean;
+  rollbackOnFailure: boolean;
+  publishHaTelemetrySensor: boolean;
+  haEntityId: string;
+  lastDeployedAt: string;
+  lastDeployStatus: 'LIVE' | 'STANDBY' | 'FAILED';
+}
+
 export interface MonitoredThassiProject {
   id: string;
   name: string;
@@ -205,6 +282,11 @@ export interface MonitoredThassiProject {
   statusFlag: string;
   progressPercent: number;
   goals: ProjectGoalItem[];
+  requirements: ProjectRequirementItem[];
+  issues: ProjectGitHubIssueItem[];
+  milestones: ProjectMilestoneItem[];
+  collaborators: ProjectCollaboratorDto[];
+  deploymentConfig: ProjectDeploymentConfig;
   testSummary: {
     framework: string;
     passed: number;

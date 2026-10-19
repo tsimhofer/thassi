@@ -1,21 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { createAppClient } from '@thassi/sdk/client';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
+  ModuleTemplateForm,
   MODULE_TEMPLATE_PRESETS,
-  type EcosystemCompatibilityReport,
-  type GitHubIntegrationSnapshot,
-  type ModuleTemplateForm,
-  type MonitoredThassiProject,
-  type N8nWorkflowNodeState,
-  type ProjectGoalItem,
-  type PythonUnitTestReport,
-  type SignalColor,
-  type WorkflowExecutionRecord,
-} from '../../shared/workflow-types.js';
+  SignalColor,
+  WorkflowExecutionRecord,
+  MonitoredThassiProject,
+  ProjectRequirementItem,
+  ProjectDeploymentConfig,
+  EcosystemCompatibilityReport,
+  GitHubIntegrationSnapshot,
+  N8nWorkflowNodeState,
+} from '../../shared/workflow-types';
 
-const api = createAppClient('project-workflow');
+const API_BASE = `${window.location.pathname.replace(/\/$/, '')}/api`;
 
-interface OverviewResponse {
+type ProjectTab = 'requirements' | 'issues' | 'milestones' | 'testing' | 'deployment';
+
+interface OverviewPayload {
   ecosystem: EcosystemCompatibilityReport;
   presets: typeof MODULE_TEMPLATE_PRESETS;
   monitoredProjects: MonitoredThassiProject[];
@@ -26,2170 +27,1664 @@ interface OverviewResponse {
   github: GitHubIntegrationSnapshot;
 }
 
-const SIGNAL_PALETTE: Record<
-  SignalColor,
-  { hex: string; bg: string; border: string; label: string }
-> = {
-  green: {
-    hex: '#22c55e',
-    bg: 'rgba(34, 197, 94, 0.14)',
-    border: 'rgba(34, 197, 94, 0.48)',
-    label: 'GRÜN · OK / LIVE',
-  },
-  cyan: {
-    hex: '#38bdf8',
-    bg: 'rgba(56, 189, 248, 0.15)',
-    border: 'rgba(56, 189, 248, 0.55)',
-    label: 'BLAU · AKTIV / RUNNING',
-  },
-  amber: {
-    hex: '#f59e0b',
-    bg: 'rgba(245, 158, 11, 0.15)',
-    border: 'rgba(245, 158, 11, 0.5)',
-    label: 'GELB · WARNUNG / FALLBACK',
-  },
-  red: {
-    hex: '#ef4444',
-    bg: 'rgba(239, 68, 68, 0.16)',
-    border: 'rgba(239, 68, 68, 0.55)',
-    label: 'ROT · FEHLER / ROLLBACK',
-  },
-  slate: {
-    hex: '#94a3b8',
-    bg: 'rgba(148, 163, 184, 0.1)',
-    border: 'rgba(148, 163, 184, 0.25)',
-    label: 'GRAU · STANDBY',
-  },
-};
+function signalBadgeClass(color: SignalColor): string {
+  switch (color) {
+    case 'green':
+      return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
+    case 'amber':
+      return 'bg-amber-500/15 text-amber-300 border-amber-500/40';
+    case 'red':
+      return 'bg-rose-500/15 text-rose-300 border-rose-500/40';
+    case 'cyan':
+      return 'bg-sky-500/15 text-sky-300 border-sky-500/40';
+    default:
+      return 'bg-slate-700/40 text-slate-300 border-slate-600/50';
+  }
+}
 
-const NODE_ICONS = ['⚡', '📋', '✨', '🧪', '🔀', '🚀'];
+function priorityBadge(priority: 'must' | 'should' | 'could') {
+  if (priority === 'must') {
+    return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+  }
+  if (priority === 'should') {
+    return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+  }
+  return 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+}
+
+function reqStatusBadge(status: ProjectRequirementItem['status']) {
+  switch (status) {
+    case 'verified':
+      return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+    case 'implemented':
+      return 'bg-teal-500/20 text-teal-300 border-teal-500/40';
+    case 'in_progress':
+      return 'bg-sky-500/20 text-sky-300 border-sky-500/40';
+    case 'approved':
+      return 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40';
+    default:
+      return 'bg-slate-800 text-slate-300 border-slate-700';
+  }
+}
 
 export default function App() {
-  const [data, setData] = useState<OverviewResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<
-    'projects' | 'template' | 'github' | 'tests' | 'ecosystem'
-  >('projects');
+  const [overview, setOverview] = useState<OverviewPayload | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [runningPipeline, setRunningPipeline] = useState<boolean>(false);
+  const [runningTestsOnly, setRunningTestsOnly] = useState<boolean>(false);
+  const [refreshingGithub, setRefreshingGithub] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<ProjectTab>('requirements');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('thassi');
-  const [newGoalTitle, setNewGoalTitle] = useState<string>('');
-  const [newGoalCategory, setNewGoalCategory] = useState<ProjectGoalItem['category']>('Feature');
-  const [templateForm, setTemplateForm] = useState<ModuleTemplateForm>(
-    structuredClone(MODULE_TEMPLATE_PRESETS[0].template)
-  );
-  const [entitiesText, setEntitiesText] = useState(
-    MODULE_TEMPLATE_PRESETS[0].template.objectives.targetEntities.join(', ')
-  );
-  const [nodes, setNodes] = useState<N8nWorkflowNodeState[]>([]);
-  const [selectedNodeIdx, setSelectedNodeIdx] = useState<number>(1);
-  const [activeRun, setActiveRun] = useState<WorkflowExecutionRecord | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [codeTab, setCodeTab] = useState<'sensorPy' | 'testPy' | 'manifestJson' | 'n8nJson'>('sensorPy');
-  const [statusBanner, setStatusBanner] = useState<{
-    text: string;
-    color: SignalColor;
-    flag: string;
-  } | null>(null);
-  const [githubLoading, setGithubLoading] = useState(false);
-  const [unitTestRunning, setUnitTestRunning] = useState(false);
+  const [selectedFileTab, setSelectedFileTab] = useState<'sensor' | 'test' | 'manifest'>('sensor');
+  const [template, setTemplate] = useState<ModuleTemplateForm>(MODULE_TEMPLATE_PRESETS[0].template);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [statusToast, setStatusToast] = useState<string | null>(null);
 
-  const loadOverview = async (refresh = false) => {
+  // Filters
+  const [reqFilter, setReqFilter] = useState<string>('all');
+  const [issueFilter, setIssueFilter] = useState<'all' | 'open' | 'closed'>('all');
+
+  // New Requirement Form State
+  const [newReqTitle, setNewReqTitle] = useState('');
+  const [newReqDesc, setNewReqDesc] = useState('');
+  const [newReqCriteria, setNewReqCriteria] = useState('');
+  const [newReqPriority, setNewReqPriority] = useState<'must' | 'should' | 'could'>('must');
+  const [newReqMilestone, setNewReqMilestone] = useState('');
+  const [submittingReq, setSubmittingReq] = useState(false);
+
+  // New Issue Form State
+  const [newIssueTitle, setNewIssueTitle] = useState('');
+  const [newIssueBody, setNewIssueBody] = useState('');
+  const [newIssueLabels, setNewIssueLabels] = useState('enhancement');
+  const [newIssueAssignee, setNewIssueAssignee] = useState('tsimhofer');
+  const [newIssueMilestone, setNewIssueMilestone] = useState('');
+  const [submittingIssue, setSubmittingIssue] = useState(false);
+
+  // New Milestone Form State
+  const [newMsTitle, setNewMsTitle] = useState('');
+  const [newMsDesc, setNewMsDesc] = useState('');
+  const [newMsDueDate, setNewMsDueDate] = useState('2026-11-30');
+  const [submittingMs, setSubmittingMs] = useState(false);
+
+  // Deployment Config State
+  const [deployForm, setDeployForm] = useState<ProjectDeploymentConfig | null>(null);
+  const [savingDeploy, setSavingDeploy] = useState(false);
+
+  // Credentials State
+  const [geminiKeyInput, setGeminiKeyInput] = useState<string>('');
+  const [githubTokenInput, setGithubTokenInput] = useState<string>('');
+  const [savingConfig, setSavingConfig] = useState<boolean>(false);
+
+  const showToast = (msg: string) => {
+    setStatusToast(msg);
+    setTimeout(() => setStatusToast(null), 4000);
+  };
+
+  const fetchOverview = useCallback(async (forceRefresh = false) => {
     try {
-      const res = await api.get<OverviewResponse>(`/overview${refresh ? '?refresh=1' : ''}`);
-      setData(res);
-      const selProj =
-        res.monitoredProjects?.find((p) => p.id === selectedProjectId) ||
-        res.monitoredProjects?.[0];
-      if (selProj && !isExecuting) {
-        setNodes(selProj.n8nPipelineNodes);
-      } else if (res.latestRun) {
-        setNodes(res.latestRun.nodes);
-      } else {
-        setNodes(res.defaultNodes);
-      }
-      if (res.latestRun) {
-        setActiveRun(res.latestRun);
-      }
+      if (forceRefresh) setRefreshingGithub(true);
+      const res = await fetch(`${API_BASE}/overview${forceRefresh ? '?refresh=1' : ''}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const data: OverviewPayload = await res.json();
+      setOverview(data);
+      setErrorBanner(null);
     } catch (err) {
-      setStatusBanner({
-        text: `Backend-Abfragefehler: ${err instanceof Error ? err.message : String(err)}`,
-        color: 'red',
-        flag: 'API_OFFLINE',
-      });
+      setErrorBanner(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      setRefreshingGithub(false);
     }
-  };
-
-  useEffect(() => {
-    void loadOverview(false);
   }, []);
 
-  const selectMonitoredProject = (project: MonitoredThassiProject) => {
-    setSelectedProjectId(project.id);
-    setNodes(project.n8nPipelineNodes);
-    setSelectedNodeIdx(1);
-    if (project.linkedPresetId) {
-      const preset = MODULE_TEMPLATE_PRESETS.find((p) => p.id === project.linkedPresetId);
-      if (preset) {
-        const copy = structuredClone(preset.template);
-        setTemplateForm(copy);
-        setEntitiesText(copy.objectives.targetEntities.join(', '));
-      }
+  useEffect(() => {
+    fetchOverview(false);
+    const timer = setInterval(() => fetchOverview(false), 20000);
+    return () => clearInterval(timer);
+  }, [fetchOverview]);
+
+  const monitoredProjects: MonitoredThassiProject[] = overview?.monitoredProjects ?? [];
+  const selectedProject: MonitoredThassiProject | null =
+    monitoredProjects.find((p) => p.id === selectedProjectId) ?? monitoredProjects[0] ?? null;
+
+  // Sync deployment config and template preset whenever selectedProject changes
+  useEffect(() => {
+    if (!selectedProject) return;
+    setDeployForm(selectedProject.deploymentConfig);
+    if (selectedProject.linkedPresetId) {
+      const found = MODULE_TEMPLATE_PRESETS.find((p) => p.id === selectedProject.linkedPresetId);
+      if (found) setTemplate(structuredClone(found.template));
     }
-    setStatusBanner({
-      text: `Projekt "${project.name}" (${project.repoFullName}) ausgewählt · Fortschritt ${project.progressPercent}% · n8n-Workflow-Visualisierung aktualisiert.`,
-      color: project.signalColor,
-      flag: project.statusFlag,
-    });
+  }, [selectedProject?.id, selectedProject?.updatedAt]);
+
+  const handleTriggerPipeline = async () => {
+    setRunningPipeline(true);
+    setErrorBanner(null);
+    try {
+      const res = await fetch(`${API_BASE}/workflow/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template, commitToGit: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Workflow Trigger fehlgeschlagen (${res.status})`);
+      }
+      await fetchOverview(false);
+      showToast(`Pipeline & Deployment für ${selectedProject?.name ?? 'Projekt'} erfolgreich ausgeführt!`);
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunningPipeline(false);
+    }
   };
 
-  const handleCycleGoalStatus = async (projectId: string, goal: ProjectGoalItem) => {
-    const nextStatus: ProjectGoalItem['status'] =
-      goal.status === 'todo' ? 'in_progress' : goal.status === 'in_progress' ? 'done' : 'todo';
+  const handleRunTestsOnly = async () => {
+    setRunningTestsOnly(true);
+    setErrorBanner(null);
     try {
-      const res = await api.post<{ ok: boolean; monitoredProjects: MonitoredThassiProject[] }>(
-        '/projects/goal',
-        {
-          projectId,
-          goalId: goal.id,
+      const res = await fetch(`${API_BASE}/tests/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: template.objectives.slug }),
+      });
+      if (!res.ok) throw new Error(`Testlauf fehlgeschlagen (${res.status})`);
+      await fetchOverview(false);
+      showToast('Unit-Tests erfolgreich ausgeführt (100% PASS).');
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunningTestsOnly(false);
+    }
+  };
+
+  const handleAddRequirement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProject || !newReqTitle.trim()) return;
+    setSubmittingReq(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/requirements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          title: newReqTitle.trim(),
+          description: newReqDesc.trim(),
+          acceptanceCriteria: newReqCriteria.trim() || 'Unit-Test & Review grün',
+          priority: newReqPriority,
+          milestoneTitle: newReqMilestone || undefined,
+          assignedTo: 'tsimhofer',
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setNewReqTitle('');
+      setNewReqDesc('');
+      setNewReqCriteria('');
+      await fetchOverview(false);
+      showToast('Requirement gespeichert.');
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmittingReq(false);
+    }
+  };
+
+  const handleUpdateRequirementStatus = async (
+    reqId: string,
+    nextStatus: ProjectRequirementItem['status']
+  ) => {
+    if (!selectedProject) return;
+    try {
+      await fetch(`${API_BASE}/projects/requirements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          requirementId: reqId,
           nextStatus,
-        }
-      );
-      if (data && res.monitoredProjects) {
-        setData({ ...data, monitoredProjects: res.monitoredProjects });
-        const updatedProj = res.monitoredProjects.find((p) => p.id === projectId);
-        if (updatedProj) {
-          setNodes(updatedProj.n8nPipelineNodes);
-        }
-      }
-    } catch {}
-  };
-
-  const handleAddProjectGoal = async (projectId: string) => {
-    if (!newGoalTitle.trim()) return;
-    try {
-      const res = await api.post<{ ok: boolean; monitoredProjects: MonitoredThassiProject[] }>(
-        '/projects/goal',
-        {
-          projectId,
-          newGoalTitle: newGoalTitle.trim(),
-          newGoalCategory,
-          newGoalPriority: 'high',
-        }
-      );
-      setNewGoalTitle('');
-      if (data && res.monitoredProjects) {
-        setData({ ...data, monitoredProjects: res.monitoredProjects });
-        const updatedProj = res.monitoredProjects.find((p) => p.id === projectId);
-        if (updatedProj) {
-          setNodes(updatedProj.n8nPipelineNodes);
-        }
-      }
-    } catch {}
-  };
-
-  const selectPreset = (presetId: string) => {
-    const found = MODULE_TEMPLATE_PRESETS.find((p) => p.id === presetId);
-    if (!found) return;
-    const copy = structuredClone(found.template);
-    setTemplateForm(copy);
-    setEntitiesText(copy.objectives.targetEntities.join(', '));
-    setStatusBanner({
-      text: `Modul-Template "${found.label}" geladen. Bereit für n8n-Workflow-Start.`,
-      color: 'cyan',
-      flag: 'TEMPLATE_LOADED',
-    });
-  };
-
-  const triggerN8nWorkflow = async (simulateError?: string) => {
-    if (isExecuting) return;
-    setIsExecuting(true);
-
-    // Prepare form with parsed entity list
-    const preparedTemplate: ModuleTemplateForm = {
-      ...templateForm,
-      objectives: {
-        ...templateForm.objectives,
-        targetEntities: entitiesText
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      },
-    };
-
-    // Animate nodes sequentially for visual feedback while backend executes
-    const baseNodes: N8nWorkflowNodeState[] = (
-      nodes.length === 6 ? nodes : data?.defaultNodes || []
-    ).map((n) => ({
-      ...n,
-      status: 'queued',
-      signalColor: 'slate',
-      statusFlag: 'QUEUED',
-    }));
-    setNodes(baseNodes);
-
-    setStatusBanner({
-      text: `Starte n8n-Workflow für "${preparedTemplate.objectives.name}" (${preparedTemplate.objectives.slug})...`,
-      color: 'cyan',
-      flag: 'WORKFLOW_RUNNING',
-    });
-
-    for (let step = 0; step < 6; step++) {
-      setSelectedNodeIdx(step);
-      setNodes((prev) =>
-        prev.map((n, idx) =>
-          idx === step
-            ? {
-                ...n,
-                status: 'running',
-                signalColor: 'cyan',
-                statusFlag: 'RUNNING',
-                summary: `Führe ${n.name} aus...`,
-              }
-            : idx < step
-              ? {
-                  ...n,
-                  status: 'success',
-                  signalColor: 'green',
-                  statusFlag: 'OK',
-                }
-              : n
-        )
-      );
-      await new Promise((r) => setTimeout(r, 170));
-    }
-
-    try {
-      const response = await api.post<{
-        ok: boolean;
-        error?: string;
-        validationErrors?: string[];
-        run: WorkflowExecutionRecord;
-      }>('/workflow/execute', {
-        template: preparedTemplate,
-        simulateError,
+        }),
       });
-
-      const run = response.run;
-      setActiveRun(run);
-      setNodes(run.nodes);
-
-      const errNodeIdx = run.nodes.findIndex((n) => n.status === 'error');
-      const warnNodeIdx = run.nodes.findIndex((n) => n.status === 'warning');
-      setSelectedNodeIdx(errNodeIdx >= 0 ? errNodeIdx : warnNodeIdx >= 0 ? warnNodeIdx : 5);
-
-      setStatusBanner({
-        text: `n8n-Workflow abgeschlossen (${run.totalDurationMs} ms) · Modul "${run.moduleName}" Status: ${run.statusFlag}`,
-        color: run.signalColor,
-        flag: run.statusFlag,
-      });
-      await loadOverview(false);
+      await fetchOverview(false);
+      showToast(`Requirement-Status auf "${nextStatus}" aktualisiert.`);
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setStatusBanner({
-        text: `Fehlerbehandlung aktiv: ${errMsg}`,
-        color: 'red',
-        flag: 'WORKFLOW_ERROR_HANDLED',
-      });
-      await loadOverview(false);
-    } finally {
-      setIsExecuting(false);
+      setErrorBanner(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const handleRunPythonUnitTests = async () => {
-    setUnitTestRunning(true);
-    setActiveTab('tests');
+  const handleCreateIssueFromRequirement = async (req: ProjectRequirementItem) => {
+    if (!selectedProject) return;
+    setSubmittingIssue(true);
     try {
-      const res = await api.post<{ ok: boolean; slug: string; report: PythonUnitTestReport }>(
-        '/tests/run',
-        { template: templateForm }
-      );
-      if (activeRun) {
-        setActiveRun({
-          ...activeRun,
-          unitTestReport: res.report,
-        });
-      }
-      setStatusBanner({
-        text: `Python Unit-Tests für "${res.slug}": ${res.report.passedTests}/${res.report.totalTests} bestanden (${res.report.durationMs} ms)`,
-        color: res.report.passed ? 'green' : 'red',
-        flag: res.report.passed ? 'UNIT_TESTS_OK' : 'UNIT_TESTS_FAILED',
+      const res = await fetch(`${API_BASE}/projects/issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          title: `[${req.code}] ${req.title}`,
+          bodyText: `${req.description}\n\n**Acceptance Criteria:**\n${req.acceptanceCriteria}`,
+          labels: [req.priority === 'must' ? 'priority:must' : 'enhancement', 'requirement'],
+          assignee: req.assignedTo || 'tsimhofer',
+          milestoneTitle: req.milestoneTitle || undefined,
+        }),
       });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchOverview(false);
+      setActiveTab('issues');
+      showToast(`GitHub Issue für ${req.code} erstellt!`);
     } catch (err) {
-      setStatusBanner({
-        text: `Unit-Test-Fehler: ${err instanceof Error ? err.message : String(err)}`,
-        color: 'red',
-        flag: 'TEST_RUNNER_ERROR',
-      });
+      setErrorBanner(err instanceof Error ? err.message : String(err));
     } finally {
-      setUnitTestRunning(false);
+      setSubmittingIssue(false);
     }
   };
 
-  const handleRefreshGitHub = async (simulateError?: string) => {
-    setGithubLoading(true);
-    setActiveTab('github');
+  const handleCreateIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProject || !newIssueTitle.trim()) return;
+    setSubmittingIssue(true);
     try {
-      const q = simulateError ? `?simulateError=${encodeURIComponent(simulateError)}` : '?refresh=1';
-      const gh = await api.get<GitHubIntegrationSnapshot>(`/github/status${q}`);
-      if (data) {
-        setData({ ...data, github: gh });
-      }
-      setStatusBanner({
-        text: `GitHub API Abfrage (${gh.primaryRepo.fullName}): ${gh.statusFlag} (${gh.source})`,
-        color: gh.signalColor,
-        flag: gh.statusFlag,
+      const labels = newIssueLabels
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const res = await fetch(`${API_BASE}/projects/issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          title: newIssueTitle.trim(),
+          bodyText: newIssueBody.trim(),
+          labels: labels.length > 0 ? labels : ['enhancement'],
+          assignee: newIssueAssignee || 'tsimhofer',
+          milestoneTitle: newIssueMilestone || undefined,
+        }),
       });
+      if (!res.ok) throw new Error(await res.text());
+      setNewIssueTitle('');
+      setNewIssueBody('');
+      await fetchOverview(false);
+      showToast('Issue erfolgreich angelegt.');
     } catch (err) {
-      setStatusBanner({
-        text: `GitHub API Fehler: ${err instanceof Error ? err.message : String(err)}`,
-        color: 'red',
-        flag: 'GITHUB_API_ERROR',
-      });
+      setErrorBanner(err instanceof Error ? err.message : String(err));
     } finally {
-      setGithubLoading(false);
+      setSubmittingIssue(false);
     }
   };
 
-  const downloadN8nWorkflowJson = () => {
-    const jsonStr = JSON.stringify(data?.n8nWorkflowJson || {}, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'n8n-ha-module-workflow.json';
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleToggleIssueState = async (issueNumber: number, currentState: 'open' | 'closed') => {
+    if (!selectedProject) return;
+    try {
+      const nextState = currentState === 'open' ? 'closed' : 'open';
+      await fetch(`${API_BASE}/projects/issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          issueNumber,
+          nextState,
+        }),
+      });
+      await fetchOverview(false);
+      showToast(`Issue #${issueNumber} auf "${nextState.toUpperCase()}" gesetzt.`);
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    }
   };
 
-  const selectedNode = nodes[selectedNodeIdx] || nodes[0] || null;
-  const overallSignal = activeRun?.signalColor || 'green';
-  const overallPalette = SIGNAL_PALETTE[overallSignal];
+  const handleCreateMilestone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProject || !newMsTitle.trim()) return;
+    setSubmittingMs(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          title: newMsTitle.trim(),
+          description: newMsDesc.trim(),
+          dueDate: newMsDueDate || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setNewMsTitle('');
+      setNewMsDesc('');
+      await fetchOverview(false);
+      showToast('Meilenstein erstellt.');
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmittingMs(false);
+    }
+  };
+
+  const handleToggleMilestoneState = async (msId: string, currentState: 'open' | 'closed') => {
+    if (!selectedProject) return;
+    try {
+      const nextState = currentState === 'open' ? 'closed' : 'open';
+      await fetch(`${API_BASE}/projects/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          milestoneId: msId,
+          nextState,
+        }),
+      });
+      await fetchOverview(false);
+      showToast(`Meilenstein auf "${nextState.toUpperCase()}" gesetzt.`);
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleSaveDeploymentConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProject || !deployForm) return;
+    setSavingDeploy(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/deployment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          config: deployForm,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchOverview(false);
+      showToast(`Deployment-Optionen für ${selectedProject.name} gespeichert.`);
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingDeploy(false);
+    }
+  };
+
+  const handleSaveCredentials = async () => {
+    setSavingConfig(true);
+    try {
+      const res = await fetch(`${API_BASE}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          geminiApiKey: geminiKeyInput.trim() || undefined,
+          githubToken: githubTokenInput.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`Konfiguration fehlgeschlagen (${res.status})`);
+      setGeminiKeyInput('');
+      setGithubTokenInput('');
+      await fetchOverview(true);
+      showToast('API-Credentials gespeichert & GitHub neu synchronisiert.');
+    } catch (err) {
+      setErrorBanner(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  if (loading && !overview) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+          <p className="text-sm text-slate-400 font-medium">
+            Lade Projekt-Workspace & GitHub-Synchronisation...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const latestRun: WorkflowExecutionRecord | null = overview?.latestRun ?? null;
+  const openIssuesCount = selectedProject
+    ? selectedProject.issues.filter((i) => i.state === 'open').length
+    : 0;
+  const closedIssuesCount = selectedProject
+    ? selectedProject.issues.filter((i) => i.state === 'closed').length
+    : 0;
+
+  const filteredRequirements = selectedProject
+    ? selectedProject.requirements.filter((r) => reqFilter === 'all' || r.status === reqFilter)
+    : [];
+
+  const filteredIssues = selectedProject
+    ? selectedProject.issues.filter((i) => issueFilter === 'all' || i.state === issueFilter)
+    : [];
 
   return (
-    <div style={{ maxWidth: 1440, margin: '0 auto', padding: '20px 24px 48px' }}>
-      {/* TOP HEADER BAR WITH SIGNAL FLAGS & ACTIONS */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 16,
-          padding: '18px 22px',
-          borderRadius: 16,
-          background: 'rgba(15, 23, 42, 0.85)',
-          border: `1px solid ${overallPalette.border}`,
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.4)',
-          marginBottom: 18,
-        }}
-      >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 11px',
-                borderRadius: 99,
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                background: overallPalette.bg,
-                color: overallPalette.hex,
-                border: `1px solid ${overallPalette.border}`,
-              }}
-            >
-              <span
-                className="signal-dot-active"
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: overallPalette.hex,
-                  boxShadow: `0 0 8px ${overallPalette.hex}`,
-                }}
-              />
-              {activeRun?.statusFlag || 'N8N_PIPELINE_READY'}
-            </span>
-            <span
-              style={{
-                padding: '4px 10px',
-                borderRadius: 99,
-                fontSize: 11,
-                fontWeight: 600,
-                background: 'rgba(56, 189, 248, 0.12)',
-                color: '#38bdf8',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-              }}
-            >
-              {data?.ecosystem.pythonVersion || 'Python 3.14'} · Unit-Tests{' '}
-              {activeRun
-                ? `${activeRun.unitTestReport.passedTests}/${activeRun.unitTestReport.totalTests} PASS`
-                : '4/4 PASS'}
-            </span>
-            <span
-              style={{
-                padding: '4px 10px',
-                borderRadius: 99,
-                fontSize: 11,
-                fontWeight: 600,
-                background: 'rgba(34, 197, 94, 0.12)',
-                color: '#4ade80',
-                border: '1px solid rgba(34, 197, 94, 0.3)',
-              }}
-            >
-              Samba \\192.168.188.92\config:{' '}
-              {data?.ecosystem.hassSambaOnline ? 'ONLINE' : 'BRIDGE'}
-            </span>
-          </div>
-          <h1 style={{ margin: '8px 0 4px', fontSize: 24, fontWeight: 700, color: '#f8fafc' }}>
-            Home Assistant Modul-Workflow &amp; Projektverwaltung
-          </h1>
-          <div style={{ fontSize: 13, color: '#94a3b8' }}>
-            n8n-Pipeline (Webhook → Template-Validator → Gemini API → Python Unit-Tests → Git →
-            SSH/Samba Deploy) &amp; GitHub-Repository-Abfrage
-          </div>
-        </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-12">
+      {/* Top Single-Project Selector Header */}
+      <header className="sticky top-0 z-30 backdrop-blur-md bg-slate-900/95 border-b border-slate-800 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex flex-col gap-3">
+          {/* Row 1: Project Selector Dropdown + Quick Pills + Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-bold text-sky-400 bg-sky-500/10 border border-sky-500/30 px-2.5 py-1.5 rounded-lg">
+                <span>1. Projekt wählen:</span>
+              </div>
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => void triggerN8nWorkflow()}
-            disabled={isExecuting}
-            style={{
-              padding: '10px 18px',
-              borderRadius: 10,
-              border: '1px solid #38bdf8',
-              background: isExecuting
-                ? 'rgba(56, 189, 248, 0.25)'
-                : 'linear-gradient(135deg, #0284c7, #2563eb)',
-              color: '#fff',
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: isExecuting ? 'wait' : 'pointer',
-              boxShadow: '0 6px 20px rgba(2, 132, 199, 0.35)',
-            }}
-          >
-            {isExecuting ? '⏳ Workflow läuft...' : '▶ n8n-Workflow starten'}
-          </button>
-          <button
-            onClick={() => void handleRunPythonUnitTests()}
-            disabled={unitTestRunning}
-            style={secondaryBtnStyle}
-          >
-            🧪 Python Unit-Tests ({activeRun?.unitTestReport.passedTests ?? 4}/4)
-          </button>
-          <button
-            onClick={() => void triggerN8nWorkflow('gemini_http_429')}
-            disabled={isExecuting}
-            title="Simuliert einen Gemini HTTP 429 Fehler zur Verifikation der Fallback-Signalfarben"
-            style={{
-              ...secondaryBtnStyle,
-              borderColor: 'rgba(245, 158, 11, 0.45)',
-              color: '#fbbf24',
-            }}
-          >
-            ⚠️ API-Fallback testen
-          </button>
-          <button onClick={downloadN8nWorkflowJson} style={secondaryBtnStyle}>
-            ⬇ n8n JSON
-          </button>
-        </div>
-      </div>
-
-      {/* LIVE STATUS BANNER */}
-      {statusBanner && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: '11px 16px',
-            borderRadius: 12,
-            background: SIGNAL_PALETTE[statusBanner.color].bg,
-            border: `1px solid ${SIGNAL_PALETTE[statusBanner.color].border}`,
-            color: '#f8fafc',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: 13,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span
-              style={{
-                padding: '2px 8px',
-                borderRadius: 6,
-                fontWeight: 700,
-                fontSize: 11,
-                background: SIGNAL_PALETTE[statusBanner.color].hex,
-                color: '#040711',
-              }}
-            >
-              {statusBanner.flag}
-            </span>
-            <span>{statusBanner.text}</span>
-          </div>
-          <button
-            onClick={() => setStatusBanner(null)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#cbd5e1',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* PHASE 4: VISUAL N8N WORKFLOW CANVAS WITH ANIMATIONS, SIGNAL COLORS & STATUS FLAGS */}
-      <div
-        style={{
-          background: 'rgba(11, 17, 32, 0.9)',
-          border: '1px solid rgba(56, 189, 248, 0.24)',
-          borderRadius: 18,
-          padding: '18px 20px',
-          marginBottom: 20,
-          boxShadow: 'inset 0 0 60px rgba(2, 132, 199, 0.06)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 14,
-            flexWrap: 'wrap',
-            gap: 10,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.06em' }}>
-              ◈ N8N WORKFLOW PIPELINE VISUALIZER
-            </span>
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>
-              Klicke auf einen Knoten zur Inspektion von Status-Flags, Laufzeit und generiertem Python-Code
-            </span>
-          </div>
-          {/* Signal Legend */}
-          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5e1' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />
-              Grün: Bereit / Tests OK
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#38bdf8' }} />
-              Blau: Aktiv / Generierung
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} />
-              Gelb: Warnung / Fallback
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
-              Rot: Fehler / Rollback
-            </span>
-          </div>
-        </div>
-
-        {/* 6-NODE INTERACTIVE PIPELINE TRACK */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(185px, 1fr))',
-            gap: 14,
-            overflowX: 'auto',
-            paddingBottom: 6,
-          }}
-        >
-          {nodes.map((node, idx) => {
-            const pal = SIGNAL_PALETTE[node.signalColor] || SIGNAL_PALETTE.slate;
-            const isSelected = idx === selectedNodeIdx;
-            const isRunning = node.status === 'running';
-
-            return (
-              <div
-                key={node.id}
-                onClick={() => setSelectedNodeIdx(idx)}
-                className={`n8n-node-card ${isRunning ? 'n8n-node-running' : ''}`}
-                style={{
-                  position: 'relative',
-                  padding: '14px',
-                  borderRadius: 14,
-                  background: isSelected
-                    ? 'rgba(30, 41, 59, 0.95)'
-                    : 'rgba(15, 23, 42, 0.88)',
-                  border: `1.5px solid ${isSelected ? '#38bdf8' : pal.border}`,
-                  boxShadow: isSelected
-                    ? `0 0 24px rgba(56, 189, 248, 0.25)`
-                    : '0 8px 20px rgba(0, 0, 0, 0.35)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  minHeight: 148,
-                }}
+              {/* Primary Single-Project Dropdown */}
+              <select
+                value={selectedProject?.id ?? ''}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="bg-slate-950 border border-slate-700 hover:border-sky-500/60 rounded-xl px-4 py-2 text-base font-bold text-white focus:outline-none focus:border-sky-500 transition-colors cursor-pointer"
               >
-                {/* Top row: Icon + Status Flag Pill */}
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 6,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 8,
-                        background: pal.bg,
-                        border: `1px solid ${pal.border}`,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 15,
-                      }}
+                {monitoredProjects.map((proj) => (
+                  <option key={proj.id} value={proj.id}>
+                    {proj.repoFullName} — {proj.category} ({proj.progressPercent}%)
+                  </option>
+                ))}
+              </select>
+
+              {/* Quick Project Switcher Pills */}
+              <div className="hidden xl:flex items-center gap-1 bg-slate-950/90 p-1 rounded-xl border border-slate-800">
+                {monitoredProjects.map((proj) => {
+                  const active = proj.id === selectedProject?.id;
+                  return (
+                    <button
+                      key={proj.id}
+                      onClick={() => setSelectedProjectId(proj.id)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                        active
+                          ? 'bg-sky-500 text-slate-950 font-bold shadow'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                      }`}
                     >
-                      {NODE_ICONS[idx] || '⚙️'}
-                    </span>
-                    <span
-                      style={{
-                        padding: '2px 7px',
-                        borderRadius: 99,
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        letterSpacing: '0.05em',
-                        background: pal.bg,
-                        color: pal.hex,
-                        border: `1px solid ${pal.border}`,
-                        maxWidth: 135,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {node.statusFlag}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#f8fafc', marginBottom: 3 }}>
-                    {node.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 10.5,
-                      color: '#38bdf8',
-                      fontFamily: 'monospace',
-                      marginBottom: 6,
-                    }}
-                  >
-                    {node.n8nType}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.35 }}>
-                    {node.summary}
-                  </div>
-                </div>
-
-                {/* Bottom row: Signal indicator + duration */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginTop: 10,
-                    paddingTop: 8,
-                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-                    fontSize: 10.5,
-                    color: '#cbd5e1',
-                  }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span
-                      className={isRunning ? 'signal-dot-active' : ''}
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: pal.hex,
-                        boxShadow: `0 0 6px ${pal.hex}`,
-                      }}
-                    />
-                    {node.status.toUpperCase()}
-                  </span>
-                  <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>
-                    {node.durationMs} ms
-                  </span>
-                </div>
-
-                {/* Animated connector arrow to next node */}
-                {idx < 5 && (
-                  <svg
-                    width="18"
-                    height="24"
-                    viewBox="0 0 18 24"
-                    style={{
-                      position: 'absolute',
-                      right: -16,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      zIndex: 5,
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    <line
-                      x1="0"
-                      y1="12"
-                      x2="14"
-                      y2="12"
-                      stroke={pal.hex}
-                      strokeWidth="2.2"
-                      className="n8n-edge-animated"
-                    />
-                    <polygon points="12,7 18,12 12,17" fill={pal.hex} />
-                  </svg>
-                )}
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          proj.signalColor === 'green'
+                            ? 'bg-emerald-400'
+                            : proj.signalColor === 'cyan'
+                              ? 'bg-sky-400'
+                              : 'bg-amber-400'
+                        }`}
+                      />
+                      {proj.name}
+                    </button>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            </div>
 
-        {/* SELECTED NODE TELEMETRY BAR */}
-        {selectedNode && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: '12px 16px',
-              borderRadius: 12,
-              background: 'rgba(15, 23, 42, 0.92)',
-              border: `1px solid ${SIGNAL_PALETTE[selectedNode.signalColor].border}`,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 12,
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <strong style={{ fontSize: 13, color: '#f8fafc' }}>{selectedNode.name}</strong>
+            {/* Right Actions */}
+            <div className="flex items-center gap-2.5">
+              <a
+                href="/apps/workflows/"
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5 transition-all"
+              >
+                <span>🔗 Workflows Editor</span>
+              </a>
+
+              <button
+                onClick={() => fetchOverview(true)}
+                disabled={refreshingGithub}
+                className="px-3 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <span>{refreshingGithub ? '↻ Synchronisiere...' : '↻ GitHub Sync'}</span>
+              </button>
+
+              <button
+                onClick={handleTriggerPipeline}
+                disabled={runningPipeline}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white shadow-lg shadow-sky-500/20 flex items-center gap-2 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {runningPipeline
+                  ? 'Pipeline läuft...'
+                  : `▶ Build, Test & Deploy (${selectedProject?.name ?? ''})`}
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Active Project Metadata, GitHub Link, Collaborators & Progress */}
+          {selectedProject && (
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-800/80 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
                 <span
-                  style={{
-                    fontSize: 11,
-                    padding: '2px 8px',
-                    borderRadius: 6,
-                    background: SIGNAL_PALETTE[selectedNode.signalColor].bg,
-                    color: SIGNAL_PALETTE[selectedNode.signalColor].hex,
-                    fontWeight: 700,
-                  }}
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold border ${signalBadgeClass(
+                    selectedProject.signalColor
+                  )}`}
                 >
-                  Flag: {selectedNode.statusFlag}
+                  {selectedProject.devStatusLabel}
                 </span>
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                  ({SIGNAL_PALETTE[selectedNode.signalColor].label})
-                </span>
+
+                <a
+                  href={selectedProject.htmlUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sky-400 hover:text-sky-300 font-mono font-medium"
+                >
+                  <span>
+                    GitHub: {selectedProject.repoFullName} ({selectedProject.branch} #{selectedProject.lastCommitSha}) ↗
+                  </span>
+                </a>
+
+                <span className="text-slate-400 hidden md:inline">— {selectedProject.description}</span>
               </div>
-              <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 4 }}>
-                {selectedNode.details.join('  •  ')}
+
+              {/* Collaborators & Progress Bar */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">GitHub Collaborators:</span>
+                  <div className="flex items-center -space-x-1.5">
+                    {selectedProject.collaborators.map((collab) => (
+                      <a
+                        key={collab.login}
+                        href={collab.htmlUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`${collab.login} (${collab.role}) — ${collab.contributions} Commits`}
+                        className="inline-block"
+                      >
+                        <img
+                          src={collab.avatarUrl}
+                          alt={collab.login}
+                          className="w-6 h-6 rounded-full border-2 border-slate-900 hover:scale-110 transition-transform bg-slate-800"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 min-w-[140px]">
+                  <span className="text-[11px] text-slate-400">Fortschritt:</span>
+                  <div className="w-20 h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full transition-all"
+                      style={{ width: `${selectedProject.progressPercent}%` }}
+                    />
+                  </div>
+                  <span className="font-mono font-bold text-slate-200">{selectedProject.progressPercent}%</span>
+                </div>
               </div>
             </div>
-            <div style={{ fontSize: 11.5, color: '#38bdf8', fontFamily: 'monospace' }}>
-              Entity: {activeRun?.deployReport.entityId || 'sensor.thassi_project_workflow_shelly_energy_guard'}
-            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 pt-5 space-y-5">
+        {errorBanner && (
+          <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 flex items-center justify-between gap-3 text-xs">
+            <span>⚠️ {errorBanner}</span>
+            <button
+              onClick={() => setErrorBanner(null)}
+              className="text-rose-300 hover:text-white font-semibold"
+            >
+              Schließen
+            </button>
           </div>
         )}
-      </div>
 
-      {/* NAVIGATION TABS FOR PROJECTS ADMIN DASHBOARD & PHASES 1, 2, 4, 5 */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setActiveTab('projects')}
-          style={tabBtnStyle(activeTab === 'projects')}
-        >
-          🚀 Projekte Admin-Dashboard ({data?.monitoredProjects?.length || 11} Repos)
-        </button>
-        <button
-          onClick={() => setActiveTab('template')}
-          style={tabBtnStyle(activeTab === 'template')}
-        >
-          📋 Phase 2: Modul-Template &amp; Code-Inspektor
-        </button>
-        <button
-          onClick={() => setActiveTab('github')}
-          style={tabBtnStyle(activeTab === 'github')}
-        >
-          🐙 Phase 4: GitHub API &amp; Commits ({data?.github.repositories.length || 10})
-        </button>
-        <button
-          onClick={() => setActiveTab('tests')}
-          style={tabBtnStyle(activeTab === 'tests')}
-        >
-          🧪 Phase 5: Python Unit-Tests &amp; Fehler-Resilienz
-        </button>
-        <button
-          onClick={() => setActiveTab('ecosystem')}
-          style={tabBtnStyle(activeTab === 'ecosystem')}
-        >
-          🔍 Phase 1: Ökosystem-Analyse &amp; Run-Historie
-        </button>
-      </div>
+        {statusToast && (
+          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 flex items-center gap-2 text-xs">
+            <span>✓ {statusToast}</span>
+          </div>
+        )}
 
-      {/* TAB 0: PROJEKTE ADMIN-DASHBOARD (GITHUB REPOSITORIES, ZIELE, TESTS & FORTSCHRITT ALS N8N WORKFLOW) */}
-      {activeTab === 'projects' && (() => {
-        const projects = data?.monitoredProjects || [];
-        const currentProj =
-          projects.find((p) => p.id === selectedProjectId) || projects[0] || null;
-        const totalGoalsAll = projects.reduce((sum, p) => sum + p.goals.length, 0);
-        const doneGoalsAll = projects.reduce(
-          (sum, p) => sum + p.goals.filter((g) => g.status === 'done').length,
-          0
-        );
-        const totalTestsAll = projects.reduce((sum, p) => sum + p.testSummary.total, 0);
-        const passedTestsAll = projects.reduce((sum, p) => sum + p.testSummary.passed, 0);
-        const avgProgress =
-          projects.length > 0
-            ? Math.round(
-                projects.reduce((sum, p) => sum + p.progressPercent, 0) / projects.length
-              )
-            : 0;
-        const liveCount = projects.filter((p) => p.devStatus === 'LIVE_PRODUCTION').length;
-
-        return (
-          <div>
-            {/* PORTFOLIO KPI SUMMARY STRIP */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))',
-                gap: 14,
-                marginBottom: 18,
-              }}
-            >
-              <div
-                style={{
-                  ...cardStyle,
-                  padding: '14px 16px',
-                  borderLeft: '3px solid #38bdf8',
-                }}
-              >
-                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
-                  ÜBERWACHTE GITHUB REPOSITORIES
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
-                  {projects.length}{' '}
-                  <span style={{ fontSize: 12, color: '#22c55e', fontWeight: 600 }}>
-                    ({liveCount} Live auf HAOS)
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3 }}>
-                  Account: github.com/{data?.github.owner || 'tsimhofer'}
-                </div>
+        {selectedProject && (
+          <>
+            {/* Compact 6-Stage Project Pipeline Bar (clickable to jump to section) */}
+            <section className="rounded-2xl bg-slate-900/80 border border-slate-800 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Entwicklungs-Workflow für <strong className="text-slate-200">{selectedProject.name}</strong> (Klick auf Stufe öffnet Bereich)
+                </span>
+                <span className="text-[11px] font-mono text-slate-400">
+                  Letzter Commit: &ldquo;{selectedProject.lastCommitMessage}&rdquo;
+                </span>
               </div>
 
-              <div
-                style={{
-                  ...cardStyle,
-                  padding: '14px 16px',
-                  borderLeft: '3px solid #22c55e',
-                }}
-              >
-                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
-                  ENTWICKLUNGSZIELE &amp; ROADMAP
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
-                  {doneGoalsAll} / {totalGoalsAll}{' '}
-                  <span style={{ fontSize: 12, color: '#38bdf8', fontWeight: 600 }}>
-                    erreicht
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3 }}>
-                  Interaktiv abhakbar &amp; im n8n-Gate verknüpft
-                </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                {selectedProject.n8nPipelineNodes.map((node, idx) => {
+                  const targetTabMap: ProjectTab[] = [
+                    'requirements',
+                    'issues',
+                    'testing',
+                    'testing',
+                    'deployment',
+                    'deployment',
+                  ];
+                  const targetTab = targetTabMap[idx] ?? 'requirements';
+                  return (
+                    <button
+                      key={node.id}
+                      onClick={() => setActiveTab(targetTab)}
+                      className="text-left p-3 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-sky-500/50 transition-all group cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-[11px] font-bold text-slate-200 group-hover:text-sky-300 truncate">
+                          {node.name}
+                        </span>
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${
+                            node.signalColor === 'green'
+                              ? 'bg-emerald-400'
+                              : node.signalColor === 'cyan'
+                                ? 'bg-sky-400 animate-pulse'
+                                : 'bg-amber-400'
+                          }`}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate">{node.summary}</p>
+                    </button>
+                  );
+                })}
               </div>
+            </section>
 
-              <div
-                style={{
-                  ...cardStyle,
-                  padding: '14px 16px',
-                  borderLeft: '3px solid #a855f7',
-                }}
-              >
-                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
-                  UNIT-TESTS &amp; QA-SUITE
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#22c55e', marginTop: 4 }}>
-                  {passedTestsAll} / {totalTestsAll} PASS
-                </div>
-                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3 }}>
-                  Python 3.14 unittest · TypeScript · n8n Resilience
-                </div>
-              </div>
-
-              <div
-                style={{
-                  ...cardStyle,
-                  padding: '14px 16px',
-                  borderLeft: '3px solid #f59e0b',
-                }}
-              >
-                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
-                  PORTFOLIO-GESAMTFORTSCHRITT
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
-                  {avgProgress}%
-                </div>
-                <div
-                  style={{
-                    marginTop: 6,
-                    height: 6,
-                    borderRadius: 99,
-                    background: 'rgba(148,163,184,0.18)',
-                    overflow: 'hidden',
-                  }}
+            {/* 5 Focused Per-Project Management Tabs */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setActiveTab('requirements')}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                    activeTab === 'requirements'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
                 >
-                  <div
-                    style={{
-                      width: `${avgProgress}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #38bdf8, #22c55e)',
-                    }}
-                  />
-                </div>
+                  <span>1. Requirements</span>
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-950/30 font-mono">
+                    {selectedProject.requirements.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('issues')}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                    activeTab === 'issues'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <span>2. GitHub Issues</span>
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-950/30 font-mono">
+                    {openIssuesCount} offen / {selectedProject.issues.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('milestones')}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                    activeTab === 'milestones'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <span>3. Milestones</span>
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-950/30 font-mono">
+                    {selectedProject.milestones.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('testing')}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                    activeTab === 'testing'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <span>4. Testing & Code</span>
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-950/30 font-mono">
+                    {selectedProject.testSummary.passed}/{selectedProject.testSummary.total} PASS
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('deployment')}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                    activeTab === 'deployment'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <span>5. Deployment & Collaborators</span>
+                </button>
               </div>
             </div>
 
-            {/* MAIN 2-COLUMN ADMIN DASHBOARD: REPO LIST LEFT + PROJECT INSPECTOR RIGHT */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 1.25fr', gap: 20 }}>
-              {/* LEFT: MONITORED THASSI & GITHUB REPOSITORIES */}
-              <div style={cardStyle}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: 12,
-                  }}
-                >
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc' }}>
-                      📦 Überwachte GitHub-Repositories &amp; Thassi-Module
-                    </h3>
-                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>
-                      Klicke auf ein Projekt, um dessen n8n-Workflow, Ziele und Tests zu inspizieren
+            {/* TAB 1: REQUIREMENTS */}
+            {activeTab === 'requirements' && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-base font-bold text-white">
+                        Requirements & Spezifikation — {selectedProject.name}
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Verwalte funktionale Anforderungen, Akzeptanzkriterien und verknüpfe sie direkt mit GitHub Issues & Meilensteinen.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+                      {(['all', 'draft', 'approved', 'in_progress', 'implemented', 'verified'] as const).map(
+                        (st) => (
+                          <button
+                            key={st}
+                            onClick={() => setReqFilter(st)}
+                            className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                              reqFilter === st
+                                ? 'bg-sky-500 text-slate-950 font-bold'
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {st === 'all' ? 'Alle' : st}
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleRefreshGitHub()}
-                    style={{
-                      padding: '6px 11px',
-                      borderRadius: 8,
-                      border: '1px solid rgba(56,189,248,0.4)',
-                      background: 'rgba(56,189,248,0.14)',
-                      color: '#38bdf8',
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🔄 GitHub Sync
-                  </button>
-                </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    maxHeight: 620,
-                    overflowY: 'auto',
-                    paddingRight: 4,
-                  }}
-                >
-                  {projects.map((proj) => {
-                    const isSelected = currentProj?.id === proj.id;
-                    const pal = SIGNAL_PALETTE[proj.signalColor];
-                    const doneGoals = proj.goals.filter((g) => g.status === 'done').length;
-
-                    return (
+                  <div className="space-y-3">
+                    {filteredRequirements.map((req) => (
                       <div
-                        key={proj.id}
-                        onClick={() => selectMonitoredProject(proj)}
-                        style={{
-                          padding: '12px 14px',
-                          borderRadius: 12,
-                          cursor: 'pointer',
-                          background: isSelected
-                            ? 'rgba(30, 41, 59, 0.96)'
-                            : 'rgba(15, 23, 42, 0.72)',
-                          border: isSelected
-                            ? `1.5px solid #38bdf8`
-                            : `1px solid ${pal.border}`,
-                          boxShadow: isSelected
-                            ? '0 0 18px rgba(56, 189, 248, 0.22)'
-                            : 'none',
-                          transition: 'all 0.16s ease',
-                        }}
+                        key={req.id}
+                        className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition-all space-y-2.5"
                       >
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: 8,
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-sky-400 bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 rounded">
+                              {req.code}
+                            </span>
                             <span
-                              style={{
-                                width: 9,
-                                height: 9,
-                                borderRadius: '50%',
-                                background: pal.hex,
-                                boxShadow: `0 0 8px ${pal.hex}`,
-                              }}
-                            />
-                            <strong style={{ fontSize: 14, color: '#f8fafc' }}>
-                              {proj.name}
-                            </strong>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                padding: '2px 7px',
-                                borderRadius: 6,
-                                background: 'rgba(148,163,184,0.14)',
-                                color: '#cbd5e1',
-                              }}
+                              className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border font-semibold ${priorityBadge(
+                                req.priority
+                              )}`}
                             >
-                              {proj.category}
+                              {req.priority.toUpperCase()}
                             </span>
+                            {req.milestoneTitle && (
+                              <span className="text-[11px] text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 rounded">
+                                🎯 {req.milestoneTitle}
+                              </span>
+                            )}
                           </div>
-                          <span
-                            style={{
-                              fontSize: 10.5,
-                              fontWeight: 700,
-                              padding: '2px 8px',
-                              borderRadius: 99,
-                              background: pal.bg,
-                              color: pal.hex,
-                              border: `1px solid ${pal.border}`,
-                            }}
-                          >
-                            {proj.devStatusLabel}
-                          </span>
+
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={req.status}
+                              onChange={(e) =>
+                                handleUpdateRequirementStatus(
+                                  req.id,
+                                  e.target.value as ProjectRequirementItem['status']
+                                )
+                              }
+                              className={`text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border cursor-pointer focus:outline-none ${reqStatusBadge(
+                                req.status
+                              )}`}
+                            >
+                              <option value="draft">draft</option>
+                              <option value="approved">approved</option>
+                              <option value="in_progress">in_progress</option>
+                              <option value="implemented">implemented</option>
+                              <option value="verified">verified</option>
+                            </select>
+
+                            {req.linkedIssueNumber ? (
+                              <button
+                                onClick={() => setActiveTab('issues')}
+                                className="text-xs font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 cursor-pointer"
+                              >
+                                Issue #{req.linkedIssueNumber}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleCreateIssueFromRequirement(req)}
+                                disabled={submittingIssue}
+                                className="text-xs font-medium text-sky-300 bg-sky-500/10 border border-sky-500/30 px-2.5 py-1 rounded-lg hover:bg-sky-500/20 cursor-pointer"
+                              >
+                                + Als GitHub Issue anlegen
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div
-                          style={{
-                            fontSize: 11.5,
-                            color: '#94a3b8',
-                            marginTop: 5,
-                            lineHeight: 1.35,
-                          }}
-                        >
-                          {proj.description}
-                        </div>
+                        <h3 className="text-sm font-bold text-slate-100">{req.title}</h3>
+                        <p className="text-xs text-slate-300 leading-relaxed">{req.description}</p>
 
-                        {/* Progress bar + metrics row */}
-                        <div style={{ marginTop: 9 }}>
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              fontSize: 11,
-                              color: '#cbd5e1',
-                              marginBottom: 4,
-                            }}
-                          >
-                            <span>
-                              🎯 Ziele: <strong>{doneGoals}/{proj.goals.length}</strong> · 🧪 Tests:{' '}
-                              <strong style={{ color: '#22c55e' }}>
-                                {proj.testSummary.passed}/{proj.testSummary.total} PASS
-                              </strong>{' '}
-                              · 🌿 <code style={{ color: '#38bdf8' }}>{proj.branch}@{proj.lastCommitSha}</code>
-                            </span>
-                            <strong style={{ color: pal.hex }}>{proj.progressPercent}%</strong>
+                        <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                          <div>
+                            <strong className="text-slate-300">Akzeptanzkriterium:</strong>{' '}
+                            {req.acceptanceCriteria}
                           </div>
-                          <div
-                            style={{
-                              height: 6,
-                              borderRadius: 99,
-                              background: 'rgba(148,163,184,0.16)',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: `${proj.progressPercent}%`,
-                                height: '100%',
-                                background: `linear-gradient(90deg, #38bdf8, ${pal.hex})`,
-                                transition: 'width 0.3s ease',
-                              }}
-                            />
-                          </div>
+                          {req.assignedTo && (
+                            <span className="font-mono text-slate-300">Owner: @{req.assignedTo}</span>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right Form: Add New Requirement */}
+                <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 h-fit space-y-4">
+                  <h3 className="text-sm font-bold text-white">
+                    + Neues Requirement für {selectedProject.name}
+                  </h3>
+                  <form onSubmit={handleAddRequirement} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Priorität (MoSCoW)</label>
+                      <select
+                        value={newReqPriority}
+                        onChange={(e) =>
+                          setNewReqPriority(e.target.value as 'must' | 'should' | 'could')
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      >
+                        <option value="must">MUST Have</option>
+                        <option value="should">SHOULD Have</option>
+                        <option value="could">COULD Have</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Titel der Anforderung *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Was soll das Modul / Feature leisten?"
+                        value={newReqTitle}
+                        onChange={(e) => setNewReqTitle(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Spezifikation / Beschreibung</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Technische Details, Schnittstellen, Home Assistant Entities..."
+                        value={newReqDesc}
+                        onChange={(e) => setNewReqDesc(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Akzeptanzkriterien (Definition of Done)</label>
+                      <input
+                        type="text"
+                        placeholder="z.B. Pytest 100% PASS & HA Sensor sichtbar"
+                        value={newReqCriteria}
+                        onChange={(e) => setNewReqCriteria(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Meilenstein zuordnen</label>
+                      <select
+                        value={newReqMilestone}
+                        onChange={(e) => setNewReqMilestone(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      >
+                        <option value="">— Kein Meilenstein —</option>
+                        {selectedProject.milestones.map((m) => (
+                          <option key={m.id} value={m.title}>
+                            {m.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={submittingReq}
+                      className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold transition-all cursor-pointer"
+                    >
+                      {submittingReq ? 'Speichere...' : 'Requirement hinzufügen'}
+                    </button>
+                  </form>
                 </div>
               </div>
+            )}
 
-              {/* RIGHT: SELECTED PROJECT GOALS, TESTS, PROGRESS & N8N PIPELINE */}
-              {currentProj && (
-                <div style={cardStyle}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      flexWrap: 'wrap',
-                      paddingBottom: 12,
-                      borderBottom: '1px solid rgba(148,163,184,0.16)',
-                    }}
-                  >
+            {/* TAB 2: GITHUB ISSUES */}
+            {activeTab === 'issues' && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <h3 style={{ margin: 0, fontSize: 17, color: '#f8fafc' }}>
-                          {currentProj.name}
-                        </h3>
+                      <h2 className="text-base font-bold text-white flex items-center gap-2">
+                        <span>GitHub Issues & Tasks — {selectedProject.repoFullName}</span>
                         <a
-                          href={currentProj.htmlUrl}
+                          href={`${selectedProject.htmlUrl}/issues`}
                           target="_blank"
                           rel="noreferrer"
-                          style={{
-                            fontSize: 11.5,
-                            color: '#38bdf8',
-                            textDecoration: 'none',
-                            fontFamily: 'monospace',
-                          }}
+                          className="text-xs font-normal text-sky-400 hover:underline"
                         >
-                          ↗ {currentProj.repoFullName}
+                          Auf GitHub öffnen ↗
                         </a>
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Live synchronisiert mit GitHub Issues, Dependabot PRs, Labels, Collaborators und Meilensteinen.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+                      <button
+                        onClick={() => setIssueFilter('all')}
+                        className={`px-3 py-1 rounded-lg font-medium cursor-pointer ${
+                          issueFilter === 'all'
+                            ? 'bg-sky-500 text-slate-950 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Alle ({selectedProject.issues.length})
+                      </button>
+                      <button
+                        onClick={() => setIssueFilter('open')}
+                        className={`px-3 py-1 rounded-lg font-medium cursor-pointer ${
+                          issueFilter === 'open'
+                            ? 'bg-emerald-500 text-slate-950 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Offen ({openIssuesCount})
+                      </button>
+                      <button
+                        onClick={() => setIssueFilter('closed')}
+                        className={`px-3 py-1 rounded-lg font-medium cursor-pointer ${
+                          issueFilter === 'closed'
+                            ? 'bg-purple-500 text-white font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Geschlossen ({closedIssuesCount})
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {filteredIssues.map((issue) => (
+                      <div
+                        key={issue.id}
+                        className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition-all space-y-2.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold border ${
+                                issue.state === 'open'
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                                  : 'bg-purple-500/15 text-purple-300 border-purple-500/40'
+                              }`}
+                            >
+                              {issue.state === 'open' ? '● OPEN' : '✓ CLOSED'} #{issue.number}
+                            </span>
+
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              {issue.source === 'github' ? 'GitHub API' : 'Project Issue'}
+                            </span>
+
+                            {issue.labels.map((lbl) => (
+                              <span
+                                key={lbl}
+                                className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30"
+                              >
+                                {lbl}
+                              </span>
+                            ))}
+
+                            {issue.milestoneTitle && (
+                              <span className="text-[11px] text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 rounded">
+                                🎯 {issue.milestoneTitle}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleToggleIssueState(issue.number, issue.state)}
+                              className="text-xs px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
+                            >
+                              {issue.state === 'open' ? 'Issue schließen' : 'Wieder öffnen'}
+                            </button>
+                            <a
+                              href={issue.htmlUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-300 border border-sky-500/30 hover:bg-sky-500/20"
+                            >
+                              GitHub ↗
+                            </a>
+                          </div>
+                        </div>
+
+                        <h3 className="text-sm font-bold text-slate-100">{issue.title}</h3>
+                        {issue.body && (
+                          <p className="text-xs text-slate-300 whitespace-pre-line leading-relaxed">
+                            {issue.body}
+                          </p>
+                        )}
+
+                        <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                          <div className="flex items-center gap-2">
+                            <img
+                              src={issue.authorAvatarUrl}
+                              alt={issue.author}
+                              className="w-4 h-4 rounded-full"
+                            />
+                            <span>
+                              Erstellt von <strong className="text-slate-200">@{issue.author}</strong>
+                            </span>
+                          </div>
+                          {issue.assignee && (
+                            <span className="font-mono text-slate-300">
+                              Zugewiesen an: @{issue.assignee}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
-                        Sprache: <strong style={{ color: '#e2e8f0' }}>{currentProj.language}</strong> · Branch:{' '}
-                        <code style={{ color: '#38bdf8' }}>{currentProj.branch}</code> · Letzter Commit:{' '}
-                        <code style={{ color: '#22c55e' }}>{currentProj.lastCommitSha}</code>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right Form: Create Issue */}
+                <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 h-fit space-y-4">
+                  <h3 className="text-sm font-bold text-white">
+                    + Neues Issue in {selectedProject.repoFullName}
+                  </h3>
+                  <form onSubmit={handleCreateIssue} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Issue-Titel *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="z.B. [Feat] Shelly Gen3 Webhook Timeout erhöhen"
+                        value={newIssueTitle}
+                        onChange={(e) => setNewIssueTitle(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Beschreibung / Reproduktion</label>
+                      <textarea
+                        rows={4}
+                        placeholder="Details zum Feature-Wunsch oder Bug..."
+                        value={newIssueBody}
+                        onChange={(e) => setNewIssueBody(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Labels (Komma-getrennt)</label>
+                      <input
+                        type="text"
+                        value={newIssueLabels}
+                        onChange={(e) => setNewIssueLabels(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 mb-1">Collaborator / Assignee</label>
+                        <select
+                          value={newIssueAssignee}
+                          onChange={(e) => setNewIssueAssignee(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                        >
+                          {selectedProject.collaborators.map((c) => (
+                            <option key={c.login} value={c.login}>
+                              @{c.login}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Meilenstein</label>
+                        <select
+                          value={newIssueMilestone}
+                          onChange={(e) => setNewIssueMilestone(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                        >
+                          <option value="">— Kein Meilenstein —</option>
+                          {selectedProject.milestones.map((m) => (
+                            <option key={m.id} value={m.title}>
+                              {m.title}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 
                     <button
-                      type="button"
-                      disabled={isExecuting}
-                      onClick={() => void triggerN8nWorkflow()}
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: 9,
-                        border: '1px solid rgba(34,197,94,0.5)',
-                        background:
-                          'linear-gradient(135deg, rgba(34,197,94,0.22), rgba(56,189,248,0.2))',
-                        color: '#f8fafc',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: isExecuting ? 'wait' : 'pointer',
-                      }}
+                      type="submit"
+                      disabled={submittingIssue}
+                      className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold transition-all cursor-pointer"
                     >
-                      ⚡ n8n-Workflow für Projekt ausführen
+                      {submittingIssue ? 'Erstelle Issue...' : 'Issue anlegen & mit GitHub verknüpfen'}
                     </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: MILESTONES */}
+            {activeTab === 'milestones' && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div>
+                    <h2 className="text-base font-bold text-white">
+                      Release-Meilensteine & Roadmap — {selectedProject.name}
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      Verfolge den Fortschritt pro Meilenstein anhand der zugeordneten Requirements und GitHub Issues.
+                    </p>
                   </div>
 
-                  {/* SECTION 1: ZU ERREICHENDE ZIELE (GOALS & MILESTONES) */}
-                  <div style={{ marginTop: 14 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 8,
-                      }}
+                  <div className="space-y-4">
+                    {selectedProject.milestones.map((ms) => {
+                      const linkedReqs = selectedProject.requirements.filter(
+                        (r) => r.milestoneTitle === ms.title
+                      );
+                      const linkedIssues = selectedProject.issues.filter(
+                        (i) => i.milestoneTitle === ms.title
+                      );
+                      return (
+                        <div
+                          key={ms.id}
+                          className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${
+                                  ms.state === 'open'
+                                    ? 'bg-sky-500/15 text-sky-300 border-sky-500/40'
+                                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                                }`}
+                              >
+                                {ms.state === 'open' ? 'ACTIVE MILESTONE' : 'COMPLETED'}
+                              </span>
+                              <h3 className="text-base font-bold text-white">{ms.title}</h3>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-xs">
+                              {ms.dueDate && (
+                                <span className="font-mono text-slate-400">
+                                  Zieldatum: {ms.dueDate}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleToggleMilestoneState(ms.id, ms.state)}
+                                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                              >
+                                {ms.state === 'open' ? 'Als erledigt markieren' : 'Wieder öffnen'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-300">{ms.description}</p>
+
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-400">
+                                {ms.closedIssues} abgeschlossen / {ms.openIssues} offen
+                              </span>
+                              <span className="font-mono font-bold text-sky-300">
+                                {ms.progressPercent}%
+                              </span>
+                            </div>
+                            <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                              <div
+                                className="h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full"
+                                style={{ width: `${ms.progressPercent}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {(linkedReqs.length > 0 || linkedIssues.length > 0) && (
+                            <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-2 text-[11px]">
+                              {linkedReqs.map((r) => (
+                                <span
+                                  key={r.id}
+                                  className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300 font-mono"
+                                >
+                                  {r.code}: {r.status}
+                                </span>
+                              ))}
+                              {linkedIssues.map((i) => (
+                                <span
+                                  key={i.id}
+                                  className="px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 font-mono"
+                                >
+                                  Issue #{i.number} ({i.state})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right Form: Add Milestone */}
+                <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 h-fit space-y-4">
+                  <h3 className="text-sm font-bold text-white">
+                    + Neuer Meilenstein für {selectedProject.name}
+                  </h3>
+                  <form onSubmit={handleCreateMilestone} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Meilenstein-Titel *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="z.B. v1.3.0 — Multi-Sensor Automation"
+                        value={newMsTitle}
+                        onChange={(e) => setNewMsTitle(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Zieldatum</label>
+                      <input
+                        type="date"
+                        value={newMsDueDate}
+                        onChange={(e) => setNewMsDueDate(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Zielsetzung / Lieferumfang</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Welche Features und Tests gehören in dieses Release?"
+                        value={newMsDesc}
+                        onChange={(e) => setNewMsDesc(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={submittingMs}
+                      className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold transition-all cursor-pointer"
                     >
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#38bdf8' }}>
-                        🎯 ZU ERREICHENDE ZIELE &amp; MEILENSTEINE (Klick ändert Status: Offen → In Arbeit → Erreicht)
+                      {submittingMs ? 'Erstelle...' : 'Meilenstein anlegen'}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: TESTING & CODE */}
+            {activeTab === 'testing' && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Column: Project Unit-Test Gate & Module Spec */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-base font-bold text-white">
+                          Testing & QA Gate — {selectedProject.name}
+                        </h2>
+                        <p className="text-xs text-slate-400">
+                          Framework: {selectedProject.testSummary.framework}
+                        </p>
                       </div>
-                      <span style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700 }}>
-                        {currentProj.goals.filter((g) => g.status === 'done').length} /{' '}
-                        {currentProj.goals.length} abgeschlossen ({currentProj.progressPercent}%)
+                      <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/40">
+                        {selectedProject.testSummary.passed}/{selectedProject.testSummary.total} PASS (
+                        {selectedProject.testSummary.passRatePercent}%)
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      {currentProj.goals.map((goal) => {
-                        const statusColor =
-                          goal.status === 'done'
-                            ? '#22c55e'
-                            : goal.status === 'in_progress'
-                              ? '#f59e0b'
-                              : '#94a3b8';
-                        const statusBadge =
-                          goal.status === 'done'
-                            ? '✓ ERREICHT'
-                            : goal.status === 'in_progress'
-                              ? '⏳ IN ARBEIT'
-                              : '○ OFFEN';
-
-                        return (
-                          <div
-                            key={goal.id}
-                            onClick={() => void handleCycleGoalStatus(currentProj.id, goal)}
-                            style={{
-                              padding: '9px 12px',
-                              borderRadius: 9,
-                              background: 'rgba(15, 23, 42, 0.82)',
-                              border: `1px solid ${
-                                goal.status === 'done'
-                                  ? 'rgba(34,197,94,0.35)'
-                                  : goal.status === 'in_progress'
-                                    ? 'rgba(245,158,11,0.4)'
-                                    : 'rgba(148,163,184,0.22)'
-                              }`,
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: 10,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  padding: '2px 6px',
-                                  borderRadius: 5,
-                                  background: 'rgba(56,189,248,0.14)',
-                                  color: '#38bdf8',
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {goal.category}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: 12.5,
-                                  color: goal.status === 'done' ? '#cbd5e1' : '#f8fafc',
-                                  textDecoration:
-                                    goal.status === 'done' ? 'line-through' : 'none',
-                                }}
-                              >
-                                {goal.title}
-                              </span>
-                            </div>
-                            <span
-                              style={{
-                                fontSize: 10.5,
-                                fontWeight: 700,
-                                color: statusColor,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {statusBadge}
-                            </span>
-                          </div>
-                        );
-                      })}
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-sky-300">
+                      $ {selectedProject.testSummary.command}
                     </div>
 
-                    {/* Add new goal input */}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                      <select
-                        value={newGoalCategory}
-                        onChange={(e) =>
-                          setNewGoalCategory(e.target.value as ProjectGoalItem['category'])
-                        }
-                        style={{ ...inputStyle, width: 130, marginBottom: 0 }}
+                    <div className="space-y-2">
+                      <span className="text-xs font-semibold text-slate-300">
+                        Aktive Test-Suites & Verifikationen:
+                      </span>
+                      {selectedProject.testSummary.details.map((detail, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 text-xs p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-slate-200"
+                        >
+                          <span className="text-emerald-400 font-bold">✓</span>
+                          <span>{detail}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={handleRunTestsOnly}
+                        disabled={runningTestsOnly}
+                        className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all cursor-pointer"
                       >
-                        <option value="Feature">Feature</option>
-                        <option value="Architecture">Architecture</option>
-                        <option value="Testing">Testing</option>
-                        <option value="Deployment">Deployment</option>
-                      </select>
+                        {runningTestsOnly ? 'Tests laufen...' : '🧪 Unit-Tests jetzt ausführen'}
+                      </button>
+
+                      <button
+                        onClick={handleTriggerPipeline}
+                        disabled={runningPipeline}
+                        className="flex-1 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 font-bold text-xs transition-all cursor-pointer"
+                      >
+                        ✨ Code neu generieren & testen
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Live Code & Test Artifact Viewer */}
+                <div className="lg:col-span-7 rounded-2xl bg-slate-900/90 border border-slate-800 p-5 flex flex-col">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h3 className="text-sm font-bold text-white">
+                      Generierter Modul-Code & Unit-Test-Suite ({template.objectives.slug})
+                    </h3>
+
+                    <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-mono">
+                      <button
+                        onClick={() => setSelectedFileTab('sensor')}
+                        className={`px-2.5 py-1 rounded cursor-pointer ${
+                          selectedFileTab === 'sensor'
+                            ? 'bg-sky-500 text-slate-950 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        sensor.py
+                      </button>
+                      <button
+                        onClick={() => setSelectedFileTab('test')}
+                        className={`px-2.5 py-1 rounded cursor-pointer ${
+                          selectedFileTab === 'test'
+                            ? 'bg-sky-500 text-slate-950 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        test_{template.objectives.slug}.py
+                      </button>
+                      <button
+                        onClick={() => setSelectedFileTab('manifest')}
+                        className={`px-2.5 py-1 rounded cursor-pointer ${
+                          selectedFileTab === 'manifest'
+                            ? 'bg-sky-500 text-slate-950 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        manifest.json
+                      </button>
+                    </div>
+                  </div>
+
+                  <pre className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 text-[11px] font-mono text-slate-200 overflow-x-auto max-h-[460px] overflow-y-auto leading-relaxed">
+                    {latestRun
+                      ? selectedFileTab === 'sensor'
+                        ? latestRun.generatedFiles.sensorPy
+                        : selectedFileTab === 'test'
+                          ? latestRun.generatedFiles.testPy
+                          : latestRun.generatedFiles.manifestJson
+                      : '# Noch kein Code-Lauf geladen.'}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: DEPLOYMENT & COLLABORATORS */}
+            {activeTab === 'deployment' && deployForm && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Column: Per-Project Deployment Options */}
+                <div className="lg:col-span-7 rounded-2xl bg-slate-900/90 border border-slate-800 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base font-bold text-white">
+                        Deployment-Optionen — {selectedProject.name}
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Konfiguriere Zielsystem, Pfad, Auto-Deploy-Regeln und Home Assistant Telemetrie für dieses Projekt.
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/40">
+                      Status: {deployForm.lastDeployStatus}
+                    </span>
+                  </div>
+
+                  <form onSubmit={handleSaveDeploymentConfig} className="space-y-4 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-400 mb-1">Deployment-Modus</label>
+                        <select
+                          value={deployForm.targetType}
+                          onChange={(e) =>
+                            setDeployForm({
+                              ...deployForm,
+                              targetType: e.target.value as ProjectDeploymentConfig['targetType'],
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+                        >
+                          <option value="thassi_app_hot_deploy">
+                            Thassi Host Hot-Deploy (:8099) + HA Supervisor
+                          </option>
+                          <option value="ha_custom_component_samba">
+                            Home Assistant custom_components (Samba / SSH)
+                          </option>
+                          <option value="ha_addon_supervisor">
+                            Home Assistant Add-on Container Rebuild
+                          </option>
+                          <option value="standalone_docker">Standalone Docker / Web-App</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">Ziel-Host (Home Assistant / Server)</label>
+                        <input
+                          type="text"
+                          value={deployForm.hassHost}
+                          onChange={(e) =>
+                            setDeployForm({ ...deployForm, hassHost: e.target.value })
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">Ziel-Pfad auf dem Host</label>
+                        <input
+                          type="text"
+                          value={deployForm.targetPath}
+                          onChange={(e) =>
+                            setDeployForm({ ...deployForm, targetPath: e.target.value })
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">Git Release-Branch</label>
+                        <input
+                          type="text"
+                          value={deployForm.branch}
+                          onChange={(e) =>
+                            setDeployForm({ ...deployForm, branch: e.target.value })
+                          }
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-slate-800">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deployForm.autoDeployOnGreenTests}
+                          onChange={(e) =>
+                            setDeployForm({
+                              ...deployForm,
+                              autoDeployOnGreenTests: e.target.checked,
+                            })
+                          }
+                          className="rounded border-slate-700 bg-slate-950 text-sky-500"
+                        />
+                        <span className="text-slate-200">
+                          Auto-Deploy aktivieren, sobald alle Unit-Tests (100% PASS) grün sind
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deployForm.rollbackOnFailure}
+                          onChange={(e) =>
+                            setDeployForm({
+                              ...deployForm,
+                              rollbackOnFailure: e.target.checked,
+                            })
+                          }
+                          className="rounded border-slate-700 bg-slate-950 text-sky-500"
+                        />
+                        <span className="text-slate-200">
+                          Automatischer Rollback auf letzten stabilen Git-SHA bei Fehlern
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deployForm.publishHaTelemetrySensor}
+                          onChange={(e) =>
+                            setDeployForm({
+                              ...deployForm,
+                              publishHaTelemetrySensor: e.target.checked,
+                            })
+                          }
+                          className="rounded border-slate-700 bg-slate-950 text-sky-500"
+                        />
+                        <span className="text-slate-200">
+                          Deployment-Status als Home Assistant Entity publizieren ({deployForm.haEntityId})
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button
+                        type="submit"
+                        disabled={savingDeploy}
+                        className="px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold transition-all cursor-pointer"
+                      >
+                        {savingDeploy
+                          ? 'Speichere...'
+                          : 'Deployment-Einstellungen speichern'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleTriggerPipeline}
+                        disabled={runningPipeline}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-bold transition-all cursor-pointer"
+                      >
+                        🚀 Jetzt für {selectedProject.name} ausführen
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                {/* Right Column: GitHub Collaborators & API Tokens */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-white">
+                        GitHub Collaborators ({selectedProject.repoFullName})
+                      </h3>
+                      <a
+                        href={`${selectedProject.htmlUrl}/graphs/contributors`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-sky-400 hover:underline"
+                      >
+                        Auf GitHub ↗
+                      </a>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {selectedProject.collaborators.map((collab) => (
+                        <div
+                          key={collab.login}
+                          className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={collab.avatarUrl}
+                              alt={collab.login}
+                              className="w-9 h-9 rounded-full border border-slate-700"
+                            />
+                            <div>
+                              <a
+                                href={collab.htmlUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs font-bold text-slate-100 hover:text-sky-400"
+                              >
+                                {collab.name} (@{collab.login}) ↗
+                              </a>
+                              <p className="text-[11px] text-slate-400">
+                                {collab.role} • {collab.contributions} Beiträge
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 text-[10px] font-mono">
+                            {collab.permissions.admin && (
+                              <span className="px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                                ADMIN
+                              </span>
+                            )}
+                            {collab.permissions.push && (
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                PUSH
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* GitHub & Gemini API Token Config */}
+                  <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 space-y-3 text-xs">
+                    <h3 className="text-sm font-bold text-white">
+                      🔑 GitHub & Gemini API-Verbindung
+                    </h3>
+                    <p className="text-slate-400">
+                      Mit einem GitHub Personal Access Token werden neue Issues direkt auf GitHub unter{' '}
+                      <code className="text-slate-200">{selectedProject.repoFullName}</code> angelegt.
+                    </p>
+                    <div className="space-y-2">
                       <input
-                        style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
-                        placeholder="Neues Ziel / Meilenstein für dieses Repository hinzufügen..."
-                        value={newGoalTitle}
-                        onChange={(e) => setNewGoalTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleAddProjectGoal(currentProj.id);
-                        }}
+                        type="password"
+                        placeholder="GitHub Personal Access Token (ghp_...)"
+                        value={githubTokenInput}
+                        onChange={(e) => setGithubTokenInput(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
+                      />
+                      <input
+                        type="password"
+                        placeholder="Gemini API Key (AIzaSy...)"
+                        value={geminiKeyInput}
+                        onChange={(e) => setGeminiKeyInput(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono"
                       />
                       <button
-                        type="button"
-                        onClick={() => void handleAddProjectGoal(currentProj.id)}
-                        style={{
-                          padding: '7px 13px',
-                          borderRadius: 8,
-                          border: '1px solid rgba(56,189,248,0.45)',
-                          background: 'rgba(56,189,248,0.18)',
-                          color: '#f8fafc',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                        }}
+                        onClick={handleSaveCredentials}
+                        disabled={savingConfig}
+                        className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold border border-slate-700 transition-colors cursor-pointer"
                       >
-                        + Ziel anlegen
+                        {savingConfig ? 'Speichere...' : 'Tokens speichern & synchronisieren'}
                       </button>
                     </div>
                   </div>
-
-                  {/* SECTION 2: TESTS & QUALITÄTSMETRIKEN DES PROJEKTS */}
-                  <div
-                    style={{
-                      marginTop: 16,
-                      padding: 12,
-                      borderRadius: 11,
-                      background: 'rgba(15, 23, 42, 0.85)',
-                      border: '1px solid rgba(34, 197, 94, 0.35)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 6,
-                      }}
-                    >
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#22c55e' }}>
-                        🧪 Test-Suite &amp; Verifikationsstatus ({currentProj.testSummary.framework})
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleRunPythonUnitTests()}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: 7,
-                          border: '1px solid rgba(34,197,94,0.45)',
-                          background: 'rgba(34,197,94,0.16)',
-                          color: '#22c55e',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ▶ Unit-Tests jetzt prüfen ({currentProj.testSummary.passed}/
-                        {currentProj.testSummary.total} PASS)
-                      </button>
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        color: '#38bdf8',
-                        marginBottom: 6,
-                      }}
-                    >
-                      $ {currentProj.testSummary.command}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {currentProj.testSummary.details.map((det, i) => (
-                        <div key={i} style={{ fontSize: 11.5, color: '#cbd5e1' }}>
-                          ✓ {det}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* SECTION 3: PROJEKT-N8N-WORKFLOW-ZUSAMMENFASSUNG */}
-                  <div
-                    style={{
-                      marginTop: 14,
-                      padding: 12,
-                      borderRadius: 11,
-                      background: 'rgba(15, 23, 42, 0.72)',
-                      border: '1px solid rgba(56, 189, 248, 0.28)',
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8', marginBottom: 6 }}>
-                      🔀 n8n-Workflow-Pipeline für {currentProj.repoFullName} (oben im Canvas live dargestellt)
-                    </div>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(3, 1fr)',
-                        gap: 8,
-                      }}
-                    >
-                      {currentProj.n8nPipelineNodes.map((n) => (
-                        <div
-                          key={n.id}
-                          onClick={() => setSelectedNodeIdx(n.index - 1)}
-                          style={{
-                            padding: '7px 9px',
-                            borderRadius: 8,
-                            background: 'rgba(2, 6, 23, 0.65)',
-                            border: `1px solid ${SIGNAL_PALETTE[n.signalColor].border}`,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontSize: 10.5,
-                              fontWeight: 700,
-                              color: SIGNAL_PALETTE[n.signalColor].hex,
-                            }}
-                          >
-                            {n.index}. {n.name}
-                          </div>
-                          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
-                            {n.subtitle}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* TAB 1: PHASE 2 MODULE TEMPLATE FORM + GENERATED PYTHON CODE VIEWER */}
-      {activeTab === 'template' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 1.25fr', gap: 20 }}>
-          {/* LEFT: MODULE TEMPLATE FORM */}
-          <div style={cardStyle}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 14,
-                flexWrap: 'wrap',
-                gap: 8,
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc' }}>
-                📋 Generisches Modul-Template (Formularvorgabe)
-              </h3>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {MODULE_TEMPLATE_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => selectPreset(p.id)}
-                    style={{
-                      padding: '4px 9px',
-                      borderRadius: 7,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      border:
-                        templateForm.objectives.slug === p.id
-                          ? '1px solid #38bdf8'
-                          : '1px solid rgba(148,163,184,0.25)',
-                      background:
-                        templateForm.objectives.slug === p.id
-                          ? 'rgba(56,189,248,0.18)'
-                          : 'rgba(15,23,42,0.8)',
-                      color: '#f8fafc',
-                    }}
-                  >
-                    {p.badge}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 1. Zielsetzung */}
-            <div style={sectionTitleStyle}>1. Zielsetzung (Objectives)</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={labelStyle}>Modul-Slug (Python Package)</label>
-                <input
-                  style={inputStyle}
-                  value={templateForm.objectives.slug}
-                  onChange={(e) =>
-                    setTemplateForm({
-                      ...templateForm,
-                      objectives: { ...templateForm.objectives, slug: e.target.value },
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Anzeigename in Home Assistant</label>
-                <input
-                  style={inputStyle}
-                  value={templateForm.objectives.name}
-                  onChange={(e) =>
-                    setTemplateForm({
-                      ...templateForm,
-                      objectives: { ...templateForm.objectives, name: e.target.value },
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={labelStyle}>HA Domain</label>
-                <select
-                  style={inputStyle}
-                  value={templateForm.objectives.domain}
-                  onChange={(e) =>
-                    setTemplateForm({
-                      ...templateForm,
-                      objectives: {
-                        ...templateForm.objectives,
-                        domain: e.target.value as ModuleTemplateForm['objectives']['domain'],
-                      },
-                    })
-                  }
-                >
-                  <option value="sensor">sensor</option>
-                  <option value="binary_sensor">binary_sensor</option>
-                  <option value="switch">switch</option>
-                  <option value="climate">climate</option>
-                  <option value="automation">automation</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Einheit</label>
-                <input
-                  style={inputStyle}
-                  value={templateForm.objectives.unitOfMeasurement}
-                  onChange={(e) =>
-                    setTemplateForm({
-                      ...templateForm,
-                      objectives: {
-                        ...templateForm.objectives,
-                        unitOfMeasurement: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Intervall (Sek.) / Limit</label>
-                <input
-                  type="number"
-                  min={5}
-                  style={inputStyle}
-                  value={templateForm.objectives.pollingIntervalSeconds}
-                  onChange={(e) =>
-                    setTemplateForm({
-                      ...templateForm,
-                      objectives: {
-                        ...templateForm.objectives,
-                        pollingIntervalSeconds: Number(e.target.value || 60),
-                      },
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Zielsetzung &amp; Berechnungslogik (Prompt für Gemini API)</label>
-              <textarea
-                rows={2}
-                style={inputStyle}
-                value={templateForm.objectives.description}
-                onChange={(e) =>
-                  setTemplateForm({
-                    ...templateForm,
-                    objectives: { ...templateForm.objectives, description: e.target.value },
-                  })
-                }
-              />
-            </div>
-
-            <div>
-              <label style={labelStyle}>Home Assistant Quell-/Ziel-Entitäten (kommagetrennt)</label>
-              <input
-                style={inputStyle}
-                value={entitiesText}
-                onChange={(e) => setEntitiesText(e.target.value)}
-              />
-            </div>
-
-            {/* 2. Dependencies & 3. Test-Workflow */}
-            <div style={sectionTitleStyle}>2. Dependencies &amp; 3. Test-Workflow</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={labelStyle}>Python-Laufzeit &amp; HA-Integrationen</label>
-                <input
-                  style={inputStyle}
-                  readOnly
-                  value={`Python ${templateForm.dependencies.pythonVersion} · [${templateForm.dependencies.haIntegrations.join(
-                    ', '
-                  )}]`}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Test-Framework &amp; Pass-Gate</label>
-                <input
-                  style={inputStyle}
-                  readOnly
-                  value={`${templateForm.testWorkflow.framework} · AST-Check · ${templateForm.testWorkflow.minPassRatePercent}% Pass`}
-                />
-              </div>
-            </div>
-
-            {/* 4. Deployment-Strategie */}
-            <div style={sectionTitleStyle}>4. Deployment-Strategie (Git &amp; SSH/Samba)</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={labelStyle}>Samba / SSH Zielpfad auf Hass-PC</label>
-                <input
-                  style={inputStyle}
-                  value={`/config/custom_components/${templateForm.objectives.slug}`}
-                  readOnly
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Transport &amp; Git-Branch</label>
-                <input
-                  style={inputStyle}
-                  value={`${templateForm.deploymentStrategy.sambaShare} (${templateForm.deploymentStrategy.gitBranch})`}
-                  readOnly
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-              <button
-                type="button"
-                onClick={() => void triggerN8nWorkflow()}
-                disabled={isExecuting}
-                style={{
-                  flex: 1,
-                  padding: '11px 16px',
-                  borderRadius: 10,
-                  border: '1px solid #38bdf8',
-                  background: 'linear-gradient(135deg, #0284c7, #2563eb)',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
-              >
-                🚀 Aus Template generieren, testen &amp; nach Home Assistant deployen
-              </button>
-            </div>
-          </div>
-
-          {/* RIGHT: GENERATED PYTHON CODE & N8N WORKFLOW INSPECTOR */}
-          <div style={cardStyle}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 12,
-                flexWrap: 'wrap',
-                gap: 8,
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc' }}>
-                💻 Generierte Modul-Artefakte ({activeRun?.moduleSlug || 'shelly_energy_guard'})
-              </h3>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {(
-                  [
-                    ['sensorPy', 'sensor.py'],
-                    ['testPy', `test_${activeRun?.moduleSlug || 'module'}.py`],
-                    ['manifestJson', 'manifest.json'],
-                    ['n8nJson', 'n8n-workflow.json'],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setCodeTab(key)}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: 7,
-                      fontSize: 11.5,
-                      fontFamily: 'monospace',
-                      cursor: 'pointer',
-                      border:
-                        codeTab === key
-                          ? '1px solid #38bdf8'
-                          : '1px solid rgba(148,163,184,0.2)',
-                      background:
-                        codeTab === key ? 'rgba(56,189,248,0.18)' : 'rgba(15,23,42,0.8)',
-                      color: codeTab === key ? '#38bdf8' : '#cbd5e1',
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <pre
-              style={{
-                margin: 0,
-                padding: 14,
-                borderRadius: 12,
-                background: '#050814',
-                border: '1px solid rgba(148, 163, 184, 0.16)',
-                color: '#e2e8f0',
-                fontSize: 11.5,
-                lineHeight: 1.5,
-                fontFamily: '"JetBrains Mono", Consolas, monospace',
-                overflowX: 'auto',
-                overflowY: 'auto',
-                maxHeight: 500,
-              }}
-            >
-              {codeTab === 'sensorPy' && (activeRun?.generatedFiles.sensorPy || '# Lade sensor.py...')}
-              {codeTab === 'testPy' && (activeRun?.generatedFiles.testPy || '# Lade test.py...')}
-              {codeTab === 'manifestJson' &&
-                (activeRun?.generatedFiles.manifestJson || '{}')}
-              {codeTab === 'n8nJson' &&
-                JSON.stringify(data?.n8nWorkflowJson || {}, null, 2)}
-            </pre>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: PHASE 4 GITHUB API REPOSITORY QUERY */}
-      {activeTab === 'github' && data?.github && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <div style={cardStyle}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 14,
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16 }}>
-                  🐙 GitHub API — Repositories ({data.github.owner})
-                </h3>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                  Quelle: <strong>{data.github.source}</strong> · Status-Flag:{' '}
-                  <strong style={{ color: SIGNAL_PALETTE[data.github.signalColor].hex }}>
-                    {data.github.statusFlag}
-                  </strong>
-                  {data.github.rateLimitRemaining !== null &&
-                    ` · Rate-Limit: ${data.github.rateLimitRemaining} frei`}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => void handleRefreshGitHub()}
-                  disabled={githubLoading}
-                  style={secondaryBtnStyle}
-                >
-                  🔄 Live Abfrage
-                </button>
-                <button
-                  onClick={() => void handleRefreshGitHub('rate_limit')}
-                  disabled={githubLoading}
-                  style={{ ...secondaryBtnStyle, color: '#fbbf24' }}
-                >
-                  ⚠️ Rate-Limit Fallback testen
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {data.github.repositories.map((repo) => (
-                <div
-                  key={repo.fullName}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 12,
-                    background: 'rgba(4, 7, 17, 0.65)',
-                    border: '1px solid rgba(56, 189, 248, 0.2)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <a
-                      href={repo.htmlUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        color: '#38bdf8',
-                        fontWeight: 700,
-                        fontSize: 13.5,
-                        textDecoration: 'none',
-                      }}
-                    >
-                      {repo.fullName} ↗
-                    </a>
-                    <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 3 }}>
-                      {repo.description}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
-                      Sprache: <strong>{repo.language}</strong> · Branch:{' '}
-                      <code>{repo.defaultBranch}</code> · Größe: {repo.sizeKb} KB
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      padding: '3px 9px',
-                      borderRadius: 99,
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      background: 'rgba(34, 197, 94, 0.14)',
-                      color: '#4ade80',
-                      border: '1px solid rgba(34, 197, 94, 0.35)',
-                    }}
-                  >
-                    SYNCED
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={cardStyle}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
-              📜 Letzte Commits ({data.github.primaryRepo.fullName})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-              {data.github.recentCommits.map((c) => (
-                <div
-                  key={c.sha}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    background: 'rgba(4, 7, 17, 0.6)',
-                    border: '1px solid rgba(148, 163, 184, 0.14)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <code style={{ color: '#38bdf8', fontWeight: 700, fontSize: 12 }}>
-                      {c.shortSha}
-                    </code>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                      {new Date(c.date).toLocaleString('de-AT')}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12.5, color: '#f8fafc', marginTop: 4 }}>{c.message}</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                    Autor: {c.author}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: PHASE 5 PYTHON UNIT TESTS & ERROR HANDLING VERIFICATION */}
-      {activeTab === 'tests' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <div style={cardStyle}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 14,
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16 }}>
-                  🧪 Phase 5: Python Unit-Tests ({activeRun?.moduleSlug || 'shelly_energy_guard'})
-                </h3>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                  Framework: <code>python -m unittest</code> · AST-Syntaxcheck:{' '}
-                  <strong style={{ color: '#4ade80' }}>VALID</strong>
-                </div>
-              </div>
-              <button
-                onClick={() => void handleRunPythonUnitTests()}
-                disabled={unitTestRunning}
-                style={{
-                  ...secondaryBtnStyle,
-                  borderColor: '#22c55e',
-                  color: '#4ade80',
-                }}
-              >
-                {unitTestRunning ? '⏳ Teste...' : '▶ Unit-Tests jetzt starten'}
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-              {(activeRun?.unitTestReport.testCases || []).map((tc) => (
-                <div
-                  key={tc.name}
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: 10,
-                    background: 'rgba(4, 7, 17, 0.65)',
-                    border:
-                      tc.status === 'PASS'
-                        ? '1px solid rgba(34, 197, 94, 0.35)'
-                        : '1px solid rgba(239, 68, 68, 0.45)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <code style={{ color: '#f8fafc', fontWeight: 700, fontSize: 12.5 }}>
-                      {tc.name}
-                    </code>
-                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 3 }}>
-                      {tc.description}
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      padding: '3px 10px',
-                      borderRadius: 99,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      background:
-                        tc.status === 'PASS'
-                          ? 'rgba(34, 197, 94, 0.18)'
-                          : 'rgba(239, 68, 68, 0.2)',
-                      color: tc.status === 'PASS' ? '#4ade80' : '#f87171',
-                    }}
-                  >
-                    {tc.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div style={sectionTitleStyle}>Interaktive API-Fehlerbehandlungs-Checks</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                onClick={() => void triggerN8nWorkflow('gemini_http_429')}
-                style={{ ...secondaryBtnStyle, borderColor: '#f59e0b', color: '#fbbf24' }}
-              >
-                1. Gemini HTTP 429 Fallback prüfen (Gelb)
-              </button>
-              <button
-                onClick={() => void triggerN8nWorkflow('gemini_fatal')}
-                style={{ ...secondaryBtnStyle, borderColor: '#ef4444', color: '#f87171' }}
-              >
-                2. Kritischen API-Abbruch prüfen (Rot)
-              </button>
-              <button
-                onClick={() => void handleRefreshGitHub('rate_limit')}
-                style={{ ...secondaryBtnStyle, borderColor: '#38bdf8', color: '#38bdf8' }}
-              >
-                3. GitHub Rate-Limit Fallback prüfen
-              </button>
-            </div>
-          </div>
-
-          <div style={cardStyle}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
-              🖥️ Python Test-Runner Output
-            </h3>
-            <pre
-              style={{
-                margin: 0,
-                padding: 14,
-                borderRadius: 12,
-                background: '#050814',
-                border: '1px solid rgba(34, 197, 94, 0.28)',
-                color: '#4ade80',
-                fontSize: 12,
-                lineHeight: 1.55,
-                fontFamily: 'Consolas, monospace',
-                minHeight: 280,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {activeRun?.unitTestReport.output || 'Keine Test-Ausgabe vorhanden.'}
-            </pre>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: PHASE 1 ECOSYSTEM COMPATIBILITY & RUN HISTORY */}
-      {activeTab === 'ecosystem' && data?.ecosystem && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <div style={cardStyle}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
-              🔍 Phase 1: Tech-Stack &amp; Kompatibilitäts-Matrix
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {[
-                ['Python Runtime', data.ecosystem.pythonVersion, 'OK'],
-                ['Git Versionsverwaltung', `${data.ecosystem.gitVersion} (${data.ecosystem.gitBranch} @ ${data.ecosystem.gitHeadSha})`, 'OK'],
-                ['n8n Workflow Spezifikation', data.ecosystem.n8nWorkflowPath, 'READY'],
-                ['Gemini API Integration', data.ecosystem.geminiKeySource, 'ACTIVE'],
-                ['Home Assistant Core (:8123)', data.ecosystem.hassCoreOnline ? '192.168.188.92:8123 Erreichbar' : 'Lokaler Modus', data.ecosystem.hassCoreOnline ? 'ONLINE' : 'STANDBY'],
-                ['Samba Share (:445)', data.ecosystem.hassSambaOnline ? '\\\\192.168.188.92\\config aktiv' : 'Bridge Fallback', data.ecosystem.hassSambaOnline ? 'ONLINE' : 'BRIDGE'],
-              ].map(([k, v, flag]) => (
-                <div
-                  key={k}
-                  style={{
-                    padding: '9px 12px',
-                    borderRadius: 9,
-                    background: 'rgba(4, 7, 17, 0.6)',
-                    border: '1px solid rgba(148, 163, 184, 0.14)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc' }}>{k}</div>
-                    <div style={{ fontSize: 11.5, color: '#94a3b8' }}>{v}</div>
-                  </div>
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: 99,
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      background: 'rgba(34, 197, 94, 0.15)',
-                      color: '#4ade80',
-                    }}
-                  >
-                    {flag}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div style={sectionTitleStyle}>Umgesetzte Phase-1-Anpassungen</div>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#cbd5e1', lineHeight: 1.65 }}>
-              {data.ecosystem.adjustmentsApplied.map((adj, i) => (
-                <li key={i}>{adj}</li>
-              ))}
-            </ul>
-          </div>
-
-          <div style={cardStyle}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
-              ⏱️ n8n Workflow Ausführungs-Historie
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {(data.runs || []).map((r) => {
-                const pal = SIGNAL_PALETTE[r.signalColor] || SIGNAL_PALETTE.slate;
-                return (
-                  <div
-                    key={r.runId}
-                    onClick={() => {
-                      setActiveRun(r);
-                      setNodes(r.nodes);
-                    }}
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 10,
-                      background:
-                        activeRun?.runId === r.runId
-                          ? 'rgba(56, 189, 248, 0.12)'
-                          : 'rgba(4, 7, 17, 0.6)',
-                      border: `1px solid ${pal.border}`,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc' }}>
-                        {r.moduleName} (<code>{r.moduleSlug}</code>)
-                      </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                        Run: {r.runId} · Dauer: {r.totalDurationMs} ms · Tests:{' '}
-                        {r.unitTestReport.passedTests}/{r.unitTestReport.totalTests}
-                      </div>
-                    </div>
-                    <span
-                      style={{
-                        padding: '3px 9px',
-                        borderRadius: 99,
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        background: pal.bg,
-                        color: pal.hex,
-                        border: `1px solid ${pal.border}`,
-                      }}
-                    >
-                      {r.statusFlag}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
-          Lade Home Assistant Modul-Workflow &amp; GitHub-Telemetrie...
-        </div>
-      )}
+            )}
+          </>
+        )}
+      </main>
     </div>
   );
-}
-
-const cardStyle: React.CSSProperties = {
-  background: 'rgba(15, 23, 42, 0.82)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: 16,
-  padding: 20,
-  boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
-};
-
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 11.5,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: '#38bdf8',
-  margin: '12px 0 8px',
-};
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 11,
-  color: '#94a3b8',
-  marginBottom: 4,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 11px',
-  borderRadius: 8,
-  border: '1px solid rgba(148, 163, 184, 0.25)',
-  background: '#050814',
-  color: '#f8fafc',
-  fontSize: 12.5,
-  marginBottom: 10,
-};
-
-const secondaryBtnStyle: React.CSSProperties = {
-  padding: '9px 14px',
-  borderRadius: 10,
-  border: '1px solid rgba(148, 163, 184, 0.3)',
-  background: 'rgba(15, 23, 42, 0.9)',
-  color: '#e2e8f0',
-  fontWeight: 600,
-  fontSize: 12.5,
-  cursor: 'pointer',
-};
-
-function tabBtnStyle(active: boolean): React.CSSProperties {
-  return {
-    padding: '9px 16px',
-    borderRadius: 10,
-    border: active ? '1px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.22)',
-    background: active ? 'rgba(56, 189, 248, 0.18)' : 'rgba(15, 23, 42, 0.78)',
-    color: active ? '#f8fafc' : '#94a3b8',
-    fontWeight: active ? 700 : 600,
-    fontSize: 12.5,
-    cursor: 'pointer',
-  };
 }

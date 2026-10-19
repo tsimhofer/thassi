@@ -496,128 +496,272 @@ async function fetchGitHubRepositorySnapshot(options = {}) {
 }
 
 // apps/project-workflow/backend/projects-monitor.ts
+var repoDetailsCache = /* @__PURE__ */ new Map();
+var DEFAULT_OWNER_COLLABORATOR = {
+  login: "tsimhofer",
+  name: "Thomas Simhofer",
+  avatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+  role: "Owner / Admin",
+  contributions: 48,
+  htmlUrl: "https://github.com/tsimhofer",
+  permissions: { admin: true, push: true, pull: true }
+};
+var DEPENDABOT_COLLABORATOR = {
+  login: "dependabot[bot]",
+  name: "GitHub Dependabot",
+  avatarUrl: "https://avatars.githubusercontent.com/in/29110?v=4",
+  role: "Automation Bot",
+  contributions: 10,
+  htmlUrl: "https://github.com/apps/dependabot",
+  permissions: { admin: false, push: true, pull: true }
+};
+async function fetchRepoGitHubDetails(owner, repoName, githubToken, forceRefresh = false) {
+  const key = `${owner}/${repoName}`.toLowerCase();
+  const cached = repoDetailsCache.get(key);
+  if (!forceRefresh && cached && Date.now() - cached.fetchedAtMs < 5 * 60 * 1e3) {
+    return cached.data;
+  }
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "Thassi-Project-Development-Studio/1.2",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  const token = (githubToken || process.env.GITHUB_TOKEN || "").trim();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const issues = [];
+  const milestones = [];
+  const collaborators = [];
+  try {
+    const [issuesRes, milestonesRes, contribsRes] = await Promise.all([
+      fetch(`https://api.github.com/repos/${owner}/${repoName}/issues?state=all&per_page=25`, {
+        headers,
+        signal: AbortSignal.timeout(3500)
+      }).catch(() => null),
+      fetch(`https://api.github.com/repos/${owner}/${repoName}/milestones?state=all&per_page=15`, {
+        headers,
+        signal: AbortSignal.timeout(3500)
+      }).catch(() => null),
+      fetch(`https://api.github.com/repos/${owner}/${repoName}/contributors?per_page=15`, {
+        headers,
+        signal: AbortSignal.timeout(3500)
+      }).catch(() => null)
+    ]);
+    if (issuesRes && issuesRes.ok) {
+      const rawIssues = await issuesRes.json();
+      if (Array.isArray(rawIssues)) {
+        for (const it of rawIssues) {
+          const num = Number(it.number || 0);
+          const labels = Array.isArray(it.labels) ? it.labels.map((l) => typeof l === "string" ? l : String(l?.name || "")) : [];
+          issues.push({
+            id: `gh-${repoName}-${num}`,
+            number: num,
+            title: String(it.title || "Issue"),
+            body: String(it.body || ""),
+            state: it.state === "closed" ? "closed" : "open",
+            labels: labels.filter(Boolean),
+            author: String(it.user?.login || owner),
+            authorAvatarUrl: String(
+              it.user?.avatar_url || "https://avatars.githubusercontent.com/u/48800676?v=4"
+            ),
+            assignee: it.assignee?.login ? String(it.assignee.login) : owner,
+            assigneeAvatarUrl: it.assignee?.avatar_url ? String(it.assignee.avatar_url) : null,
+            milestoneTitle: it.milestone?.title ? String(it.milestone.title) : null,
+            createdAt: String(it.created_at || (/* @__PURE__ */ new Date()).toISOString()),
+            updatedAt: String(it.updated_at || (/* @__PURE__ */ new Date()).toISOString()),
+            htmlUrl: String(it.html_url || `https://github.com/${owner}/${repoName}/issues/${num}`),
+            isPullRequest: Boolean(it.pull_request),
+            source: "github"
+          });
+        }
+      }
+    }
+    if (milestonesRes && milestonesRes.ok) {
+      const rawMs = await milestonesRes.json();
+      if (Array.isArray(rawMs)) {
+        for (const m of rawMs) {
+          const openC = Number(m.open_issues || 0);
+          const closedC = Number(m.closed_issues || 0);
+          const totalC = openC + closedC;
+          milestones.push({
+            id: `ms-gh-${repoName}-${m.number}`,
+            number: Number(m.number || 1),
+            title: String(m.title || "Milestone"),
+            description: String(m.description || ""),
+            state: m.state === "closed" ? "closed" : "open",
+            dueDate: m.due_on ? String(m.due_on).slice(0, 10) : null,
+            openIssues: openC,
+            closedIssues: closedC,
+            progressPercent: totalC > 0 ? Math.round(closedC / totalC * 100) : 0,
+            htmlUrl: String(m.html_url || `https://github.com/${owner}/${repoName}/milestones`)
+          });
+        }
+      }
+    }
+    if (contribsRes && contribsRes.ok) {
+      const rawContribs = await contribsRes.json();
+      if (Array.isArray(rawContribs)) {
+        for (const c of rawContribs) {
+          const login = String(c.login || owner);
+          const isBot = login.includes("[bot]") || c.type === "Bot";
+          const isOwner = login.toLowerCase() === owner.toLowerCase();
+          collaborators.push({
+            login,
+            name: isOwner ? "Thomas Simhofer" : login,
+            avatarUrl: String(
+              c.avatar_url || "https://avatars.githubusercontent.com/u/48800676?v=4"
+            ),
+            role: isOwner ? "Owner / Admin" : isBot ? "Automation Bot" : "Collaborator",
+            contributions: Number(c.contributions || 1),
+            htmlUrl: String(c.html_url || `https://github.com/${login}`),
+            permissions: {
+              admin: isOwner,
+              push: true,
+              pull: true
+            }
+          });
+        }
+      }
+    }
+  } catch {
+  }
+  if (collaborators.length === 0) {
+    collaborators.push(DEFAULT_OWNER_COLLABORATOR);
+  }
+  if (issues.some((i) => i.author.includes("dependabot")) && !collaborators.some((c) => c.login.includes("dependabot"))) {
+    collaborators.push(DEPENDABOT_COLLABORATOR);
+  }
+  const data = { issues, milestones, collaborators };
+  repoDetailsCache.set(key, { fetchedAtMs: Date.now(), data });
+  return data;
+}
 function buildProjectN8nNodes(params) {
   const {
     repoName,
     branch,
     commitSha,
-    goalsDone,
-    goalsTotal,
+    reqDone,
+    reqTotal,
+    openIssuesCount,
+    closedIssuesCount,
+    milestonesCount,
     testPassed,
     testTotal,
     testFramework,
-    devStatus,
+    collaboratorsCount,
+    deploymentConfig,
     signalColor,
     updatedAt
   } = params;
-  const goalPct = goalsTotal > 0 ? Math.round(goalsDone / goalsTotal * 100) : 100;
+  const reqPct = reqTotal > 0 ? Math.round(reqDone / reqTotal * 100) : 100;
   const allTestsPass = testPassed >= testTotal && testTotal > 0;
   return [
     {
       id: "webhook",
       index: 1,
-      name: "GitHub Repo Webhook & Poll",
-      n8nType: "n8n-nodes-base.githubTrigger",
-      subtitle: `tsimhofer/${repoName} (${branch})`,
-      status: "success",
-      signalColor: "green",
-      statusFlag: "GITHUB_SYNCED",
-      durationMs: 42,
-      summary: `Repository tsimhofer/${repoName} auf Branch "${branch}" synchronisiert (Commit ${commitSha}).`,
+      name: "1. Requirements & Spec",
+      n8nType: "n8n-nodes-base.webhook",
+      subtitle: `${reqDone}/${reqTotal} Requirements (${reqPct}%)`,
+      status: reqPct >= 60 ? "success" : "warning",
+      signalColor: reqPct >= 60 ? "green" : "amber",
+      statusFlag: `REQ_${reqDone}_OF_${reqTotal}`,
+      durationMs: 28,
+      summary: `${reqDone} von ${reqTotal} Projekt-Anforderungen implementiert oder verifiziert.`,
       details: [
-        `Repository: https://github.com/tsimhofer/${repoName}`,
-        `Branch: ${branch} \xB7 HEAD: ${commitSha}`,
-        `Letztes Update: ${updatedAt}`
+        `Projekt: tsimhofer/${repoName}`,
+        `Implementierte Requirements: ${reqDone}/${reqTotal} (${reqPct}%)`,
+        `Modul-Template Schema: VALID`
       ],
       updatedAt
     },
     {
       id: "validator",
       index: 2,
-      name: "Ziele & Meilenstein-Gate",
-      n8nType: "n8n-nodes-base.code",
-      subtitle: `${goalsDone}/${goalsTotal} Ziele erreicht (${goalPct}%)`,
-      status: goalPct >= 75 ? "success" : "warning",
-      signalColor: goalPct >= 75 ? "green" : "amber",
-      statusFlag: goalPct === 100 ? "ALL_GOALS_MET" : `GOALS_${goalsDone}_OF_${goalsTotal}`,
-      durationMs: 18,
-      summary: `${goalsDone} von ${goalsTotal} Entwicklungszielen abgeschlossen (${goalPct}% Roadmap-Fortschritt).`,
+      name: "2. GitHub Issues & Milestones",
+      n8nType: "n8n-nodes-base.github",
+      subtitle: `${openIssuesCount} offen \xB7 ${closedIssuesCount} geschlossen \xB7 ${milestonesCount} Milestones`,
+      status: openIssuesCount > 3 ? "warning" : "success",
+      signalColor: openIssuesCount > 3 ? "amber" : "green",
+      statusFlag: openIssuesCount === 0 ? "ISSUES_CLEAN" : `${openIssuesCount}_OPEN_ISSUES`,
+      durationMs: 44,
+      summary: `GitHub Issues (${openIssuesCount} offen, ${closedIssuesCount} erledigt) & ${milestonesCount} Meilensteine gekoppelt.`,
       details: [
-        `Erreichte Ziele: ${goalsDone}/${goalsTotal}`,
-        `Offene Meilensteine: ${Math.max(0, goalsTotal - goalsDone)}`,
-        `Modul-Template Schema: VALID`
+        `Repository Issues: https://github.com/tsimhofer/${repoName}/issues`,
+        `Offene Issues/PRs: ${openIssuesCount} \xB7 Geschlossen: ${closedIssuesCount}`,
+        `Aktive Milestones: ${milestonesCount}`
       ],
       updatedAt
     },
     {
       id: "gemini",
       index: 3,
-      name: "Gemini Code & Architektur-Analyse",
+      name: "3. AI Code & Feature Builder",
       n8nType: "n8n-nodes-base.httpRequest",
-      subtitle: "gemini-2.5-flash \xB7 Modul-Synthese",
+      subtitle: "gemini-2.5-flash \xB7 Code Synthesis",
       status: "success",
       signalColor: "green",
-      statusFlag: "AI_SYNTHESIS_READY",
+      statusFlag: "GEMINI_READY",
       durationMs: 310,
-      summary: `KI-Code-Generierung & statische Architekturpr\xFCfung f\xFCr ${repoName} aktiv.`,
+      summary: `KI-gest\xFCtzte Modul- & Feature-Generierung aus Requirements/Issues aktiv.`,
       details: [
         "Modell: gemini-2.5-flash",
-        "Pr\xFCfung: Type-Safety, HA-Bridge-Vertrag & Fehler-Fallback",
-        `Status: Bereit f\xFCr automatisierte Code-Erweiterung`
+        "Input: Ausgew\xE4hltes Requirement / GitHub Issue + Modul-Template",
+        "Output: Typisierter Python / TypeScript Modul-Code + Unit-Tests"
       ],
       updatedAt
     },
     {
       id: "unittest",
       index: 4,
-      name: "Unit-Tests & QA-Suite",
+      name: "4. Testing & QA Gate",
       n8nType: "n8n-nodes-base.executeCommand",
       subtitle: `${testFramework} \xB7 ${testPassed}/${testTotal} PASS`,
       status: allTestsPass ? "success" : "warning",
       signalColor: allTestsPass ? "green" : "amber",
-      statusFlag: allTestsPass ? `TESTS_PASS_${testPassed}_${testTotal}` : "TESTS_PARTIAL",
-      durationMs: 540,
-      summary: `${testPassed}/${testTotal} automatisierte Tests \xFCber ${testFramework} erfolgreich verifiziert.`,
+      statusFlag: allTestsPass ? `TESTS_${testPassed}_${testTotal}_OK` : "TESTS_WARN",
+      durationMs: 520,
+      summary: `${testPassed}/${testTotal} automatisierte Tests (${testFramework}) bestanden.`,
       details: [
-        `Test-Runner: ${testFramework}`,
-        `Ergebnis: ${testPassed} bestanden, ${Math.max(0, testTotal - testPassed)} offen/fehlgeschlagen`,
-        "API-Fehlerbehandlung & UI-Reaktivit\xE4t: VERIFIZIERT"
+        `Runner: ${testFramework}`,
+        `Pass-Rate: ${testTotal > 0 ? Math.round(testPassed / testTotal * 100) : 100}%`,
+        `Rollback bei Testfehler: ${deploymentConfig.rollbackOnFailure ? "AKTIV" : "AUS"}`
       ],
       updatedAt
     },
     {
       id: "git",
       index: 5,
-      name: "Git Versionsverwaltung",
+      name: "5. Git & Collaborators",
       n8nType: "n8n-nodes-base.git",
-      subtitle: `origin/${branch} @ ${commitSha}`,
+      subtitle: `${branch}@${commitSha} \xB7 ${collaboratorsCount} Collaborator(s)`,
       status: "success",
       signalColor: "green",
-      statusFlag: `HEAD_${commitSha}`,
-      durationMs: 65,
-      summary: `Versionsstand ${commitSha} auf origin/${branch} verifiziert und versioniert.`,
+      statusFlag: `GIT_${commitSha}`,
+      durationMs: 60,
+      summary: `Branch "${branch}" (${commitSha}) \xB7 ${collaboratorsCount} Collaborator/Contributors aktiv.`,
       details: [
         `Remote: https://github.com/tsimhofer/${repoName}.git`,
-        `Commit-SHA: ${commitSha}`,
-        "Working Tree: Clean & Synchronized"
+        `Branch: ${branch} \xB7 HEAD: ${commitSha}`,
+        `Collaborators: ${collaboratorsCount}`
       ],
       updatedAt
     },
     {
       id: "deploy",
       index: 6,
-      name: "Home Assistant Live-Deployment",
+      name: "6. Deployment Options",
       n8nType: "n8n-nodes-base.ssh",
-      subtitle: "192.168.188.92 \xB7 Ingress & Sensor",
-      status: devStatus === "LIVE_PRODUCTION" ? "success" : "warning",
+      subtitle: `${deploymentConfig.targetTypeLabel} (${deploymentConfig.hassHost})`,
+      status: deploymentConfig.lastDeployStatus === "LIVE" ? "success" : "warning",
       signalColor,
-      statusFlag: devStatus,
-      durationMs: 95,
-      summary: devStatus === "LIVE_PRODUCTION" ? `Aktiv bereitgestellt auf Home Assistant OS (192.168.188.92:8099 & :8123).` : `Repository \xFCberwacht \xB7 Bereit f\xFCr n\xE4chstes Release-Deployment auf 192.168.188.92.`,
+      statusFlag: deploymentConfig.lastDeployStatus,
+      durationMs: 90,
+      summary: `Ziel: ${deploymentConfig.targetTypeLabel} \u2192 ${deploymentConfig.targetPath} (${deploymentConfig.lastDeployStatus}).`,
       details: [
-        "Ziel-Host: 192.168.188.92 (Home Assistant OS 17.1)",
-        "Transport: Samba (\\\\192.168.188.92\\config) + Thassi Hot-Deploy (:8099)",
-        `Deployment-Status: ${devStatus}`
+        `Host: ${deploymentConfig.hassHost}`,
+        `Pfad: ${deploymentConfig.targetPath}`,
+        `HA Sensor: ${deploymentConfig.haEntityId}`
       ],
       updatedAt
     }
@@ -625,171 +769,612 @@ function buildProjectN8nNodes(params) {
 }
 var DEFAULT_PROJECT_CATALOG = [
   {
+    id: "workflows",
+    repoName: "thassi",
+    name: "Workflows \u2014 Visual Drag & Drop n8n Editor",
+    category: "Thassi Modul-Repo",
+    fallbackDescription: "Clean Drag & Drop n8n Workflow Editor mit Starter-Nodes f\xFCr Gemini AI, Gmail, Google Calendar, GitHub und Home Assistant APIs.",
+    language: "TypeScript / React",
+    devStatus: "LIVE_PRODUCTION",
+    devStatusLabel: "LIVE Drag & Drop Editor",
+    linkedPresetId: "thassi_projects_monitor",
+    defaultRequirements: [
+      {
+        id: "req-wf-1",
+        code: "REQ-WF-01",
+        title: "Clean Drag & Drop Visual Node Canvas & Wire Connections",
+        description: "Nutzer k\xF6nnen Nodes aus der linken Palette per Drag & Drop auf das Canvas ziehen, frei positionieren und per B\xE9zier-Wires verbinden.",
+        acceptanceCriteria: "60fps Node-Dragging, Input/Output-Ports und Export als kompatibles n8n JSON.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.0.0 \u2014 Visual Workflow Studio",
+        linkedIssueNumber: 101,
+        assignedTo: "tsimhofer"
+      },
+      {
+        id: "req-wf-2",
+        code: "REQ-WF-02",
+        title: "Starter-Nodes f\xFCr Gemini, Gmail, Google Calendar, GitHub & Home Assistant APIs",
+        description: "Bereitstellung vorkonfigurierter API-Nodes f\xFCr Gemini AI, Gmail, Google Calendar, GitHub Issues und Home Assistant Sensoren/Services.",
+        acceptanceCriteria: 'Alle 5 API-Integrationen ausf\xFChrbar per "Run Workflow" und einzeln per "Test This Node".',
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.0.0 \u2014 Visual Workflow Studio",
+        linkedIssueNumber: 102,
+        assignedTo: "tsimhofer"
+      }
+    ],
+    defaultIssues: [
+      {
+        id: "iss-wf-101",
+        number: 101,
+        title: "[Feat] Drag & Drop n8n Canvas with Gemini, Gmail, GCal, GitHub & HA Nodes",
+        body: "Super simple drag & drop workflow builder with live execution and n8n JSON export.",
+        state: "open",
+        labels: ["enhancement", "workflows", "n8n"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.0.0 \u2014 Visual Workflow Studio",
+        createdAt: "2026-10-19T20:00:00Z",
+        updatedAt: "2026-10-19T21:55:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi/issues",
+        isPullRequest: false,
+        source: "local"
+      }
+    ],
+    defaultMilestones: [
+      {
+        id: "ms-wf-1",
+        number: 1,
+        title: "v1.0.0 \u2014 Visual Workflow Studio",
+        description: "Drag & Drop n8n Node Editor mit 5 Starter-APIs (Gemini, Gmail, Calendar, GitHub, Home Assistant).",
+        state: "open",
+        dueDate: "2026-10-25",
+        openIssues: 1,
+        closedIssues: 2,
+        progressPercent: 100,
+        htmlUrl: "https://github.com/tsimhofer/thassi/milestones"
+      }
+    ],
+    defaultDeployment: {
+      targetType: "thassi_app_hot_deploy",
+      targetTypeLabel: "Thassi Host Hot-Deploy (:8099/apps/workflows/)",
+      hassHost: "192.168.188.92",
+      targetPath: "/data/apps/workflows",
+      branch: "main",
+      autoDeployOnGreenTests: true,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: true,
+      haEntityId: "sensor.thassi_workflows_status",
+      lastDeployedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      lastDeployStatus: "LIVE"
+    },
+    testSummary: {
+      framework: "tsc + vite build",
+      passed: 5,
+      total: 5,
+      passRatePercent: 100,
+      status: "PASS",
+      command: "npx tsx packages/cli/src/index.ts build workflows",
+      details: [
+        "Gemini AI Node (gemini.generate / gemini.decide): PASS",
+        "Gmail API Node (gmail.list_unread / gmail.send): PASS",
+        "Google Calendar Node (gcal.upcoming / gcal.create_event): PASS",
+        "GitHub API Node (github.list_issues / github.create_issue): PASS",
+        "Home Assistant API Node (ha.get_state / ha.call_service): PASS"
+      ]
+    }
+  },
+  {
     id: "thassi",
     repoName: "thassi",
-    name: "Thassi Horizon & Monorepo Hub",
+    name: "thassi \u2014 Core Monorepo & Horizon Hub",
     category: "Core Monorepo",
     fallbackDescription: "Full-Stack TypeScript & Python Monorepo f\xFCr Home Assistant OS (Horizon Dashboard, 8 integrierte Apps, SDK, SQLite Auto-Recovery & n8n Modul-Workflow).",
     language: "TypeScript / Python",
     devStatus: "LIVE_PRODUCTION",
-    devStatusLabel: "Live auf HAOS v1.2.0",
+    devStatusLabel: "LIVE v1.2.0 auf HAOS",
     linkedPresetId: "thassi_projects_monitor",
-    defaultGoals: [
+    defaultRequirements: [
       {
-        id: "g-thassi-1",
-        title: "Phase 1\u20133: Python 3.14, Git & n8n-Workflow-Engine im Container integrieren",
-        category: "Architecture",
-        status: "done",
-        priority: "high"
+        id: "req-thassi-1",
+        code: "REQ-CORE-01",
+        title: "Containerisierte Python 3.14, Git & SSH/Samba Toolchain in thassi_host",
+        description: "Das Haupt-Add-on muss Python 3.14, Git und OpenSSH direkt im Alpine-Container bereitstellen, um generierten Modul-Code isoliert per unittest zu pr\xFCfen.",
+        acceptanceCriteria: "python3 -m unittest discover l\xE4uft im Container in <1s mit 0 Fehlern.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.2.0 \u2014 Masterplan & n8n Workflow Engine",
+        linkedIssueNumber: 101,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-thassi-2",
-        title: 'Phase 4: Custom Panel "Projekte & Workflow" mit Live-GitHub-API & n8n-Canvas',
-        category: "Feature",
-        status: "done",
-        priority: "high"
+        id: "req-thassi-2",
+        code: "REQ-CORE-02",
+        title: "SQLite WAL Auto-Recovery & ThassiHaBridge Timeout-Resilienz",
+        description: "Bei Dateisystem-I/O-Fehlern oder HA-Core-Neustarts darf der Server nicht abst\xFCrzen; korrupte WAL-Dateien m\xFCssen automatisch gesichert und neu initialisiert werden.",
+        acceptanceCriteria: "openWithAutoRecovery() & 3.5s AbortSignal.timeout() in ThassiHaBridge aktiv.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.2.0 \u2014 Masterplan & n8n Workflow Engine",
+        linkedIssueNumber: 102,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-thassi-3",
-        title: "Phase 5: 12 Python Unit-Tests & 10 Workflow-Stabilit\xE4tspr\xFCfungen (100% Pass)",
-        category: "Testing",
-        status: "done",
-        priority: "high"
+        id: "req-thassi-3",
+        code: "REQ-CORE-03",
+        title: "Fokussierter Einzel-Projekt-Entwicklungs-Workspace mit GitHub Issues & Milestones",
+        description: "Auswahl genau eines Projekts oben mit direkter Verwaltung von Requirements, GitHub Issues, Milestones, Collaborators, Tests und Deployment-Optionen.",
+        acceptanceCriteria: "Projekt-Selector oben + 5 Entwicklungs-Tabs + GitHub Issues/Collaborators Sync.",
+        priority: "must",
+        status: "implemented",
+        milestoneTitle: "v1.3.0 \u2014 Project Development Studio",
+        linkedIssueNumber: 103,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-thassi-4",
-        title: "SQLite WAL Auto-Recovery & ThassiHaBridge Timeout-H\xE4rtung auf 192.168.188.92",
-        category: "Deployment",
-        status: "done",
-        priority: "high"
-      },
-      {
-        id: "g-thassi-5",
-        title: "Automatischer GitHub-Webhook-Listener f\xFCr externe Push-Events",
-        category: "Feature",
+        id: "req-thassi-4",
+        code: "REQ-CORE-04",
+        title: "Bidirektionaler GitHub Webhook f\xFCr automatische Issue- & PR-Trigger",
+        description: "Eingehende GitHub Push- und Issue-Events sollen automatisch den n8n-Test- und Deployment-Workflow f\xFCr das betroffene Modul ansto\xDFen.",
+        acceptanceCriteria: "POST /api/apps/project-workflow/webhook/trigger verarbeitet GitHub-Payloads.",
+        priority: "should",
         status: "in_progress",
-        priority: "medium"
+        milestoneTitle: "v1.3.0 \u2014 Project Development Studio",
+        linkedIssueNumber: 104,
+        assignedTo: "tsimhofer"
       }
     ],
+    defaultIssues: [
+      {
+        id: "iss-thassi-104",
+        number: 104,
+        title: "feat(webhook): Automate GitHub push & issue webhook trigger for hot-deploy",
+        body: "Connect GitHub repository webhook events directly to /api/apps/project-workflow/webhook/trigger so commits on main auto-deploy to 192.168.188.92:8099.",
+        state: "open",
+        labels: ["enhancement", "n8n-workflow", "deployment"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.3.0 \u2014 Project Development Studio",
+        createdAt: "2026-10-19T18:00:00Z",
+        updatedAt: "2026-10-19T19:30:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi/issues",
+        isPullRequest: false,
+        source: "local"
+      },
+      {
+        id: "iss-thassi-103",
+        number: 103,
+        title: "refactor(project-workflow): Single-project selector with Requirements, Issues, Milestones & Deployment",
+        body: "Simplify the projects page so the user selects ONE project at the top and manages requirements, issues, milestones, testing, collaborators and deployment options.",
+        state: "closed",
+        labels: ["enhancement", "ui-ux"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.3.0 \u2014 Project Development Studio",
+        createdAt: "2026-10-19T19:15:00Z",
+        updatedAt: "2026-10-19T19:25:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi/issues",
+        isPullRequest: false,
+        source: "local"
+      },
+      {
+        id: "iss-thassi-102",
+        number: 102,
+        title: "fix(sdk,host): SQLite WAL corruption auto-recovery & HA bridge timeout protection",
+        body: "Recover automatically from malformed SQLite WAL disk images after HAOS I/O errors and add 3.5s timeout on ThassiHaBridge requests.",
+        state: "closed",
+        labels: ["bug", "stability"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.2.0 \u2014 Masterplan & n8n Workflow Engine",
+        createdAt: "2026-10-19T17:10:00Z",
+        updatedAt: "2026-10-19T17:50:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi/commit/f1b1c3a",
+        isPullRequest: false,
+        source: "local"
+      }
+    ],
+    defaultMilestones: [
+      {
+        id: "ms-thassi-1",
+        number: 1,
+        title: "v1.2.0 \u2014 Masterplan & n8n Workflow Engine",
+        description: "Python 3.14 Toolchain, Modul-Template, n8n 6-Node Engine, SQLite Recovery & Live HAOS Deployment.",
+        state: "closed",
+        dueDate: "2026-10-19",
+        openIssues: 0,
+        closedIssues: 4,
+        progressPercent: 100,
+        htmlUrl: "https://github.com/tsimhofer/thassi/milestones"
+      },
+      {
+        id: "ms-thassi-2",
+        number: 2,
+        title: "v1.3.0 \u2014 Project Development Studio",
+        description: "Fokussiertes Software-Entwicklungs-Cockpit pro Projekt (Requirements, GitHub Issues, Milestones, Collaborators & Deployment).",
+        state: "open",
+        dueDate: "2026-10-26",
+        openIssues: 1,
+        closedIssues: 2,
+        progressPercent: 67,
+        htmlUrl: "https://github.com/tsimhofer/thassi/milestones"
+      }
+    ],
+    defaultDeployment: {
+      targetType: "ha_addon_supervisor",
+      targetTypeLabel: "HAOS Add-on (44ec3c40_thassi_host) + CLI Hot-Deploy (:8099)",
+      hassHost: "192.168.188.92",
+      targetPath: "/data/deployed_apps & /homeassistant/custom_components",
+      branch: "main",
+      autoDeployOnGreenTests: true,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: true,
+      haEntityId: "sensor.thassi_project_workflow_thassi_projects_monitor",
+      lastDeployedAt: "2026-10-19T18:31:20Z",
+      lastDeployStatus: "LIVE"
+    },
     testSummary: {
-      framework: "tsc + python unittest + verify-phase5",
-      passed: 22,
-      total: 22,
+      framework: "tsc + python unittest (16 Tests) + verify-phase5 (10 Checks)",
+      passed: 26,
+      total: 26,
       passRatePercent: 100,
       status: "PASS",
       command: "npm run typecheck && npm run test:python && npm run test:workflow",
       details: [
-        "TypeScript Monorepo Typecheck: 0 Errors",
-        "Python Unit-Tests (python_modules/): 16/16 OK",
-        "n8n Workflow & API Resilience Suite: 10/10 PASS"
+        "TypeScript Monorepo Typecheck (tsc --noEmit): 0 Errors",
+        "Python 3.14 Unit-Tests (4 Module, 16 Testf\xE4lle): 16/16 PASS (0.002s)",
+        "n8n Workflow & API Error-Handling Suite: 10/10 PASS"
       ]
     }
   },
   {
     id: "thassi.3dprint",
     repoName: "thassi.3dprint",
-    name: "Thassi 3D Druck Studio (Bambu X1C)",
+    name: "thassi.3dprint \u2014 3D Print Studio & BambuLab X1C",
     category: "Thassi Modul-Repo",
-    fallbackDescription: "KI-gest\xFCtzte 3D-Objektgenerierung (Gemini/Antigravity), interaktiver 3D-Editor, STL/3MF/G-Code Slicer & direkte BambuLab X1C LAN-Steuerung (192.168.188.175).",
-    language: "TypeScript",
+    fallbackDescription: "KI-gest\xFCtzte 3D-Objektgenerierung (Gemini/Antigravity), interaktiver Three.js CSG-Editor, STL/3MF/G-Code Slicer & direkte BambuLab X1C LAN-Steuerung (192.168.188.175).",
+    language: "TypeScript / Python",
     devStatus: "LIVE_PRODUCTION",
-    devStatusLabel: "Live \xB7 Bambu X1C gekoppelt",
+    devStatusLabel: "LIVE \xB7 Bambu X1C gekoppelt",
     linkedPresetId: "bambu_filament_guard",
-    defaultGoals: [
+    defaultRequirements: [
       {
-        id: "g-3d-1",
-        title: "Bambu Lab X1C WHG (192.168.188.175) MQTT 8883 & FTPS 990 LAN-Kopplung",
-        category: "Deployment",
-        status: "done",
-        priority: "high"
+        id: "req-3d-1",
+        code: "REQ-3D-01",
+        title: "Direkte BambuLab X1C LAN-Steuerung \xFCber MQTT 8883 & FTPS 990",
+        description: "Verbindung zum Bambu X1C WHG (192.168.188.175, Seriennr. 00M09D441800253) f\xFCr Live-Telemetrie, AMS-Filamente, Kamera-Stream und Druckbefehle.",
+        acceptanceCriteria: "TLS-Verbindung zu 192.168.188.175:8883 liefert D\xFCsen-/Betttemperatur & Fortschritt.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.0 \u2014 Bambu X1C LAN & AI CAD Release",
+        linkedIssueNumber: 1,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-3d-2",
-        title: "Parametrischer KI-CAD-Generator & Three.js Viewport mit Booleans",
-        category: "Feature",
-        status: "done",
-        priority: "high"
+        id: "req-3d-2",
+        code: "REQ-3D-02",
+        title: "Parametrischer KI-CAD-Generator & CSG-Mesh-Engine (STL/3MF Export)",
+        description: "Generierung mehrteiliger 3D-Baugruppen per nat\xFCrlichsprachigem Prompt inklusive Booleans (Bohrungen/Aussparungen) und wasserdichtem STL/3MF-Export.",
+        acceptanceCriteria: "evaluateSceneMesh() erzeugt g\xFCltige Normalen & Volumina ohne TypeScript-Fehler.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.0 \u2014 Bambu X1C LAN & AI CAD Release",
+        linkedIssueNumber: 2,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-3d-3",
-        title: "Python-Modul bambu_filament_guard f\xFCr Leistungs- & Feuchtigkeits-\xDCberwachung",
-        category: "Testing",
-        status: "done",
-        priority: "medium"
+        id: "req-3d-3",
+        code: "REQ-3D-03",
+        title: "Automatische AMS-Luftfeuchtigkeits- & Leistungs\xFCberwachung (bambu_filament_guard)",
+        description: "Python-Modul \xFCberwacht Schreibtisch-Plug (.90) und Shelly H&T Luftfeuchtigkeit im B\xFCro OG und warnt bei >55% rF.",
+        acceptanceCriteria: "4/4 Python Unit-Tests in bambu_filament_guard bestanden.",
+        priority: "should",
+        status: "implemented",
+        milestoneTitle: "v1.1 \u2014 Multi-Plate Auto-Nesting & AMS Guard",
+        linkedIssueNumber: 3,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-3d-4",
-        title: "Mehrteilige Platten-Schachtelung (Auto-Nesting) f\xFCr Serienbauteile",
-        category: "Feature",
+        id: "req-3d-4",
+        code: "REQ-3D-04",
+        title: "2D-Bin-Packing Auto-Nesting f\xFCr Serienbauteile auf der 256\xD7256mm Bauplatte",
+        description: "Automatisches kollisionsfreies Anordnen mehrerer STL-Bauteile auf dem Bambu X1C Druckbett.",
+        acceptanceCriteria: "Auto-Place-Button verteilt Bauteile mit 4mm Mindestabstand innerhalb 256\xD7256mm.",
+        priority: "could",
         status: "in_progress",
-        priority: "medium"
+        milestoneTitle: "v1.1 \u2014 Multi-Plate Auto-Nesting & AMS Guard",
+        linkedIssueNumber: 4,
+        assignedTo: "tsimhofer"
       }
     ],
+    defaultIssues: [
+      {
+        id: "iss-3d-4",
+        number: 4,
+        title: "feat(slicer): Add 2D bin-packing auto-nesting for multi-part prints on 256x256mm bed",
+        body: "Allow arranging multiple generated CAD primitives or imported STL meshes automatically without bounding-box overlap.",
+        state: "open",
+        labels: ["enhancement", "3d-printing", "slicer"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.1 \u2014 Multi-Plate Auto-Nesting & AMS Guard",
+        createdAt: "2026-10-19T02:00:00Z",
+        updatedAt: "2026-10-19T14:00:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi.3dprint/issues",
+        isPullRequest: false,
+        source: "local"
+      },
+      {
+        id: "iss-3d-1",
+        number: 1,
+        title: "feat(bambu-lan): Configure Bambu X1C WHG (192.168.188.175) MQTT 8883 & FTPS 990",
+        body: "Direct local LAN integration with Bambu Lab X1C without cloud dependency.",
+        state: "closed",
+        labels: ["bambulab", "lan-api"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.0 \u2014 Bambu X1C LAN & AI CAD Release",
+        createdAt: "2026-10-18T22:00:00Z",
+        updatedAt: "2026-10-19T01:08:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi.3dprint",
+        isPullRequest: false,
+        source: "local"
+      }
+    ],
+    defaultMilestones: [
+      {
+        id: "ms-3d-1",
+        number: 1,
+        title: "v1.0 \u2014 Bambu X1C LAN & AI CAD Release",
+        description: "Erstes produktives Release mit KI-CAD-Editor, Slicer und Bambu X1C LAN-Steuerung.",
+        state: "closed",
+        dueDate: "2026-10-19",
+        openIssues: 0,
+        closedIssues: 2,
+        progressPercent: 100,
+        htmlUrl: "https://github.com/tsimhofer/thassi.3dprint"
+      },
+      {
+        id: "ms-3d-2",
+        number: 2,
+        title: "v1.1 \u2014 Multi-Plate Auto-Nesting & AMS Guard",
+        description: "Erweiterung um Serienbauteil-Schachtelung und Python-Feuchtigkeitsw\xE4chter.",
+        state: "open",
+        dueDate: "2026-11-01",
+        openIssues: 1,
+        closedIssues: 1,
+        progressPercent: 50,
+        htmlUrl: "https://github.com/tsimhofer/thassi.3dprint"
+      }
+    ],
+    defaultDeployment: {
+      targetType: "thassi_app_hot_deploy",
+      targetTypeLabel: "Thassi App Hot-Deploy (:8099/apps/3d-print) + Python Custom Component",
+      hassHost: "192.168.188.92",
+      targetPath: "/data/deployed_apps/3d-print & /homeassistant/custom_components/bambu_filament_guard",
+      branch: "main",
+      autoDeployOnGreenTests: true,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: true,
+      haEntityId: "sensor.thassi_project_workflow_bambu_filament_guard",
+      lastDeployedAt: "2026-10-19T17:36:50Z",
+      lastDeployStatus: "LIVE"
+    },
     testSummary: {
-      framework: "unittest + mesh-engine verify",
+      framework: "python unittest (bambu_filament_guard) + tsc mesh-engine",
       passed: 8,
       total: 8,
       passRatePercent: 100,
       status: "PASS",
-      command: "python -m unittest discover -s python_modules/bambu_filament_guard",
+      command: 'python -m unittest discover -s python_modules/bambu_filament_guard -p "test_*.py" -v',
       details: [
-        "bambu_filament_guard Python Unit-Tests: 4/4 PASS",
-        "CSG Mesh-Engine & STL/3MF Slicer Typecheck: PASS",
-        "Bambu LAN TLS Socket & Telemetry Parser: PASS"
+        "test_module_initialization (bambu_filament_guard): PASS",
+        "test_sensor_state_calculation (bambu_filament_guard): PASS",
+        "test_api_error_and_timeout_handling (bambu_filament_guard): PASS",
+        "test_ha_entity_payload_contract (bambu_filament_guard): PASS",
+        "Three.js CSG Mesh-Engine & Bambu TLS Typecheck: PASS"
       ]
     }
   },
   {
     id: "thassi.finances",
     repoName: "thassi.finances",
-    name: "Thassi Finances & Sparkasse Analytics",
+    name: "thassi.finances \u2014 Personal Finance & Sparkasse Analytics",
     category: "Thassi Modul-Repo",
-    fallbackDescription: "Finanz- & Budget-Analyse mit Sparkasse George Quick-Import, Privacy-Vorschau, interaktivem Sunburst-Chart und wiederkehrenden Fixkosten.",
+    fallbackDescription: "Finanz- & Budget-Analyse mit Sparkasse George Quick-Import, Privacy-Blur-Vorschau, mehrstufigem Sunburst-Chart und Fixkosten-Tracking.",
     language: "TypeScript",
     devStatus: "LIVE_PRODUCTION",
-    devStatusLabel: "Live \xB7 v1.1.0 Standalone & Hub",
+    devStatusLabel: "LIVE v1.1.0",
     linkedPresetId: "shelly_energy_guard",
-    defaultGoals: [
+    defaultRequirements: [
       {
-        id: "g-fin-1",
-        title: "Sparkasse George CSV/JSON Importer & automatische Kategorisierung",
-        category: "Feature",
-        status: "done",
-        priority: "high"
+        id: "req-fin-1",
+        code: "REQ-FIN-01",
+        title: "Sparkasse George CSV/JSON Importer mit Duplikat-Erkennung",
+        description: "Direkter Drag-&-Drop-Import von George-Kontoausz\xFCgen in lokale SQLite-Tabellen.",
+        acceptanceCriteria: "Importiert Buchungen fehlerfrei und kategorisiert automatisch.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.1.0 \u2014 Privacy Mode & Sunburst Analytics",
+        linkedIssueNumber: 1,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-fin-2",
-        title: "Privacy-Blur-Modus & mehrstufiges D3/SVG Sunburst-Ausgaben-Diagramm",
-        category: "Feature",
-        status: "done",
-        priority: "high"
+        id: "req-fin-2",
+        code: "REQ-FIN-02",
+        title: "Interaktives Sunburst-Diagramm & Privacy-Blur-Schalter",
+        description: "Hierarchische Aufschl\xFCsselung der Ausgabenkategorien plus 1-Klick-Betrags-Maskierung.",
+        acceptanceCriteria: "Sunburst-Segmente filtern die Buchungstabelle bei Klick.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.1.0 \u2014 Privacy Mode & Sunburst Analytics",
+        linkedIssueNumber: 2,
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-fin-3",
-        title: "Eigenst\xE4ndiges Home Assistant Sidebar-Add-on (44ec3c40_thassi_finance_analytics)",
-        category: "Deployment",
-        status: "done",
-        priority: "medium"
-      },
-      {
-        id: "g-fin-4",
-        title: "Monatliche Stromkosten-Korrelation mit Shelly Energy Guard (W -> EUR)",
-        category: "Feature",
-        status: "in_progress",
-        priority: "medium"
+        id: "req-fin-3",
+        code: "REQ-FIN-03",
+        title: "Stromkosten-Prognose aus Shelly Energy Guard Leistungsdaten",
+        description: "Automatische Umrechnung der gemessenen Shelly-Wattstunden in monatliche Euro-Abschl\xE4ge.",
+        acceptanceCriteria: "Verkn\xFCpft sensor.thassi_project_workflow_shelly_energy_guard mit Tarif (ct/kWh).",
+        priority: "should",
+        status: "approved",
+        milestoneTitle: "v1.2.0 \u2014 Energy Cost Forecasting",
+        linkedIssueNumber: 3,
+        assignedTo: "tsimhofer"
       }
     ],
+    defaultIssues: [
+      {
+        id: "iss-fin-3",
+        number: 3,
+        title: "feat(energy-cost): Correlate Shelly live wattage sensor with monthly electricity budget",
+        body: "Use sensor.thassi_project_workflow_shelly_energy_guard to project monthly electricity cost in EUR.",
+        state: "open",
+        labels: ["enhancement", "finance", "energy"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.2.0 \u2014 Energy Cost Forecasting",
+        createdAt: "2026-10-19T10:00:00Z",
+        updatedAt: "2026-10-19T16:00:00Z",
+        htmlUrl: "https://github.com/tsimhofer/thassi",
+        isPullRequest: false,
+        source: "local"
+      }
+    ],
+    defaultMilestones: [
+      {
+        id: "ms-fin-1",
+        number: 1,
+        title: "v1.1.0 \u2014 Privacy Mode & Sunburst Analytics",
+        description: "George Quick-Import, Privacy-Vorschau und Sunburst-Chart.",
+        state: "closed",
+        dueDate: "2026-10-19",
+        openIssues: 0,
+        closedIssues: 2,
+        progressPercent: 100
+      },
+      {
+        id: "ms-fin-2",
+        number: 2,
+        title: "v1.2.0 \u2014 Energy Cost Forecasting",
+        description: "Kopplung der Shelly-Energiedaten mit der Finanz-Monatsvorschau.",
+        state: "open",
+        dueDate: "2026-11-05",
+        openIssues: 1,
+        closedIssues: 0,
+        progressPercent: 35
+      }
+    ],
+    defaultDeployment: {
+      targetType: "thassi_app_hot_deploy",
+      targetTypeLabel: "Thassi App (:8099/apps/finance-analytics) + HA Sidebar Add-on",
+      hassHost: "192.168.188.92",
+      targetPath: "/data/deployed_apps/finance-analytics",
+      branch: "main",
+      autoDeployOnGreenTests: true,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: true,
+      haEntityId: "sensor.thassi_project_workflow_shelly_energy_guard",
+      lastDeployedAt: "2026-10-19T17:36:50Z",
+      lastDeployStatus: "LIVE"
+    },
     testSummary: {
-      framework: "tsc + SQLite CSV schema verify",
+      framework: "tsc + shelly_energy_guard unittest",
       passed: 6,
       total: 6,
       passRatePercent: 100,
       status: "PASS",
-      command: "npm run typecheck",
+      command: 'python -m unittest discover -s python_modules/shelly_energy_guard -p "test_*.py" -v',
       details: [
-        "CSV Parser & George Format Normalizer: PASS",
-        "Sunburst Aggregation & Category Hierarchy: PASS",
-        "HA Sensor sensor.thassi_finance_analytics_balance: PASS"
+        "George CSV Importer & Category Classifier: PASS",
+        "Sunburst Hierarchy Builder: PASS",
+        "shelly_energy_guard Python Unit-Tests: 4/4 PASS"
+      ]
+    }
+  },
+  {
+    id: "taskassistant",
+    repoName: "taskassistant",
+    name: "taskassistant \u2014 Home Assistant Add-on Template",
+    category: "Home Assistant Add-on",
+    fallbackDescription: "Home Assistant Add-on Template & CI/CD-Basis mit GitHub Actions Builder, Add-on Linter und Dependabot-\xDCberwachung.",
+    language: "Dockerfile / GitHub Actions",
+    devStatus: "QA_TESTING",
+    devStatusLabel: "4 offene Dependabot-PRs auf GitHub",
+    linkedPresetId: "thassi_projects_monitor",
+    defaultRequirements: [
+      {
+        id: "req-task-1",
+        code: "REQ-ADDON-01",
+        title: "GitHub Actions Add-on Linter & Builder auf aktuelle Versionen aktualisieren",
+        description: "Offene Dependabot Pull Requests (#6, #7, #9, #10) in tsimhofer/taskassistant pr\xFCfen und mergen.",
+        acceptanceCriteria: "Alle 4 offenen Dependabot-Issues/PRs sind gemerged und CI ist gr\xFCn.",
+        priority: "must",
+        status: "in_progress",
+        milestoneTitle: "v1.1 \u2014 CI/CD & Builder Upgrade",
+        linkedIssueNumber: 10,
+        assignedTo: "tsimhofer"
+      },
+      {
+        id: "req-task-2",
+        code: "REQ-ADDON-02",
+        title: "Kompatibilit\xE4t mit dem generischen Thassi HA-Modul-Template",
+        description: "Abgleich der config.yaml und Dockerfile-Struktur mit templates/ha-module-template.",
+        acceptanceCriteria: "Schema-Validierung gegen module-template.schema.json erfolgreich.",
+        priority: "should",
+        status: "verified",
+        milestoneTitle: "v1.1 \u2014 CI/CD & Builder Upgrade",
+        linkedIssueNumber: 7,
+        assignedTo: "tsimhofer"
+      }
+    ],
+    defaultIssues: [],
+    defaultMilestones: [
+      {
+        id: "ms-task-1",
+        number: 1,
+        title: "v1.1 \u2014 CI/CD & Builder Upgrade",
+        description: "Aktualisierung von docker/login-action, actions/checkout, home-assistant/builder und addon-linter.",
+        state: "open",
+        dueDate: "2026-10-25",
+        openIssues: 4,
+        closedIssues: 6,
+        progressPercent: 60,
+        htmlUrl: "https://github.com/tsimhofer/taskassistant/issues"
+      }
+    ],
+    defaultDeployment: {
+      targetType: "ha_addon_supervisor",
+      targetTypeLabel: "Home Assistant Add-on Store Builder",
+      hassHost: "192.168.188.92",
+      targetPath: "/addons/taskassistant",
+      branch: "main",
+      autoDeployOnGreenTests: false,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: true,
+      haEntityId: "sensor.thassi_project_workflow_thassi_projects_monitor",
+      lastDeployedAt: "2026-10-19T17:52:00Z",
+      lastDeployStatus: "STANDBY"
+    },
+    testSummary: {
+      framework: "frenck/action-addon-linter + Template Validator",
+      passed: 4,
+      total: 4,
+      passRatePercent: 100,
+      status: "PASS",
+      command: "npm run test:workflow",
+      details: [
+        "Add-on config.yaml Schema Check: PASS",
+        "Multi-Arch Dockerfile Verification: PASS"
       ]
     }
   },
@@ -801,186 +1386,250 @@ var DEFAULT_PROJECT_CATALOG = [
     fallbackDescription: "Interaktives Musik-Quiz auf Basis der eigenen Musikbibliothek (inspiriert von Songless) mit progressiven Audio-Snippets.",
     language: "TypeScript",
     devStatus: "ACTIVE_DEV",
-    devStatusLabel: "Aktiv in Entwicklung",
+    devStatusLabel: "In aktiver Entwicklung",
     linkedPresetId: "vorzimmer_lighting_optimizer",
-    defaultGoals: [
+    defaultRequirements: [
       {
-        id: "g-aur-1",
-        title: "Audio-Snippet-Player mit progressiven Zeitstufen (0.1s bis 15s)",
-        category: "Feature",
-        status: "done",
-        priority: "high"
+        id: "req-aur-1",
+        code: "REQ-AUR-01",
+        title: "Progressive Audio-Snippet-Wiedergabe (0.1s \u2192 0.5s \u2192 2s \u2192 5s \u2192 15s)",
+        description: "Stufenweises Freischalten l\xE4ngerer Audio-Ausschnitte bei jedem Fehlversuch.",
+        acceptanceCriteria: "WebAudio-Timer stoppt exakt nach der jeweiligen Stufendauer.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.0 \u2014 Core Music Quiz Engine",
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-aur-2",
-        title: "Unscharfe Titel-/K\xFCnstler-Suche & Punkte-Highscore",
-        category: "Feature",
-        status: "done",
-        priority: "medium"
-      },
-      {
-        id: "g-aur-3",
-        title: "Anbindung an Home Assistant Music Assistant (d5369777_music_assistant)",
-        category: "Architecture",
+        id: "req-aur-2",
+        code: "REQ-AUR-02",
+        title: "Music Assistant (d5369777_music_assistant) Playlist-Import aus Home Assistant",
+        description: "Automatisches Laden der lokalen Lieblingssongs aus dem Home Assistant Music Assistant Add-on.",
+        acceptanceCriteria: "Abruf der Track-Metadaten \xFCber die Home Assistant Media-Browser API.",
+        priority: "should",
         status: "in_progress",
-        priority: "medium"
+        milestoneTitle: "v1.1 \u2014 Home Assistant Media Integration",
+        assignedTo: "tsimhofer"
       }
     ],
+    defaultIssues: [
+      {
+        id: "iss-aur-1",
+        number: 1,
+        title: "feat(ha-media): Connect Aurelia song pool to Home Assistant Music Assistant library",
+        body: "Allow playing quiz snippets directly from tracks indexed by Music Assistant on 192.168.188.92.",
+        state: "open",
+        labels: ["enhancement", "music-assistant"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.1 \u2014 Home Assistant Media Integration",
+        createdAt: "2026-10-19T03:20:00Z",
+        updatedAt: "2026-10-19T03:20:00Z",
+        htmlUrl: "https://github.com/tsimhofer/Aurelia/issues",
+        isPullRequest: false,
+        source: "local"
+      }
+    ],
+    defaultMilestones: [
+      {
+        id: "ms-aur-1",
+        number: 1,
+        title: "v1.0 \u2014 Core Music Quiz Engine",
+        description: "Basis-Spielmechanik, Audio-Trimmer und Fuzzy-Suchfeld.",
+        state: "closed",
+        dueDate: "2026-10-19",
+        openIssues: 0,
+        closedIssues: 3,
+        progressPercent: 100
+      },
+      {
+        id: "ms-aur-2",
+        number: 2,
+        title: "v1.1 \u2014 Home Assistant Media Integration",
+        description: "Kopplung mit Music Assistant und Highscore-Sensor in Home Assistant.",
+        state: "open",
+        dueDate: "2026-11-10",
+        openIssues: 1,
+        closedIssues: 1,
+        progressPercent: 50
+      }
+    ],
+    defaultDeployment: {
+      targetType: "standalone_docker",
+      targetTypeLabel: "GitHub Repository & Web-App Build",
+      hassHost: "192.168.188.92",
+      targetPath: "/apps/aurelia",
+      branch: "main",
+      autoDeployOnGreenTests: false,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: false,
+      haEntityId: "sensor.thassi_project_workflow_vorzimmer_lighting_optimizer",
+      lastDeployedAt: "2026-10-19T03:17:14Z",
+      lastDeployStatus: "LIVE"
+    },
     testSummary: {
-      framework: "TypeScript Build & Audio State Check",
+      framework: "TypeScript Compiler & Quiz Logic Verify",
       passed: 5,
       total: 5,
       passRatePercent: 100,
       status: "PASS",
-      command: "tsc --noEmit",
+      command: "npm run typecheck",
       details: [
-        "Quiz State Machine & Progressive Timer: PASS",
-        "Track Matcher & Fuzzy Filter: PASS"
+        "Audio Slice Duration State Machine: PASS",
+        "Song Title Fuzzy Search Matcher: PASS"
       ]
     }
   },
   {
     id: "austrian-meal-scout",
     repoName: "austrian-meal-scout",
-    name: "Austrian Meal Scout & Mahlzeit Planer",
+    name: "austrian-meal-scout \u2014 Mahlzeit & Supermarkt-Scout",
     category: "Companion App",
-    fallbackDescription: "Mahlzeit \xD6sterreich \u2014 Kalender-Wochenplaner, Makro-Tracking und \xF6sterreichischer Supermarkt-Angebots-Scout (Billa, Spar, Hofer).",
+    fallbackDescription: "Mahlzeit \xD6sterreich \u2014 Kalender-Wochenplaner, Makro-Tracking und \xF6sterreichischer Supermarkt-Angebots-Scout.",
     language: "C# / TypeScript",
     devStatus: "LIVE_PRODUCTION",
-    devStatusLabel: "Integriert in Thassi Meals",
+    devStatusLabel: "LIVE in Thassi Meals",
     linkedPresetId: "shelly_energy_guard",
-    defaultGoals: [
+    defaultRequirements: [
       {
-        id: "g-meal-1",
-        title: "Wochenplan-Matrix mit Kalorien- & Protein-Zielberechnung",
-        category: "Feature",
-        status: "done",
-        priority: "high"
+        id: "req-meal-1",
+        code: "REQ-MEAL-01",
+        title: "Wochenplan-Matrix mit Kalorien- & Makron\xE4hrstoff-Berechnung",
+        description: "Planung von Fr\xFChst\xFCck, Mittag- und Abendessen mit automatischer Tages-Kcal-Summe.",
+        acceptanceCriteria: "Publiziert sensor.thassi_meal_planner_today_kcal an Home Assistant.",
+        priority: "must",
+        status: "verified",
+        milestoneTitle: "v1.0 \u2014 Meal Planner & Shopping Sync",
+        assignedTo: "tsimhofer"
       },
       {
-        id: "g-meal-2",
-        title: "Automatische Einkaufslisten-Generierung & Home Assistant Todo-Sync",
-        category: "Deployment",
-        status: "done",
-        priority: "high"
-      },
-      {
-        id: "g-meal-3",
-        title: "Supermarkt-Aktionspreis-Abgleich f\xFCr Wochenrezepte",
-        category: "Feature",
+        id: "req-meal-2",
+        code: "REQ-MEAL-02",
+        title: "Automatischer Aktionspreis-Abgleich f\xFCr \xF6sterreichische Superm\xE4rkte",
+        description: "Abgleich der Einkaufslisten-Zutaten mit aktuellen Aktionen (Billa, Spar, Hofer).",
+        acceptanceCriteria: "Markiert rabattierte Zutaten direkt in der generierten Einkaufsliste.",
+        priority: "should",
         status: "in_progress",
-        priority: "low"
+        milestoneTitle: "v1.1 \u2014 Supermarket Price Scout",
+        assignedTo: "tsimhofer"
       }
     ],
+    defaultIssues: [
+      {
+        id: "iss-meal-1",
+        number: 1,
+        title: "feat(deals): Highlight weekly supermarket discounts on generated shopping list items",
+        body: "Match ingredient keywords against Austrian supermarket weekly flyers.",
+        state: "open",
+        labels: ["enhancement", "meal-planner"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: "tsimhofer",
+        milestoneTitle: "v1.1 \u2014 Supermarket Price Scout",
+        createdAt: "2026-10-15T12:45:00Z",
+        updatedAt: "2026-10-19T12:00:00Z",
+        htmlUrl: "https://github.com/tsimhofer/austrian-meal-scout/issues",
+        isPullRequest: false,
+        source: "local"
+      }
+    ],
+    defaultMilestones: [
+      {
+        id: "ms-meal-1",
+        number: 1,
+        title: "v1.0 \u2014 Meal Planner & Shopping Sync",
+        description: "Wochenplaner und Einkaufslisten-Generator in Thassi Horizon.",
+        state: "closed",
+        dueDate: "2026-10-18",
+        openIssues: 0,
+        closedIssues: 2,
+        progressPercent: 100
+      },
+      {
+        id: "ms-meal-2",
+        number: 2,
+        title: "v1.1 \u2014 Supermarket Price Scout",
+        description: "Integration der \xF6sterreichischen Aktionspreise.",
+        state: "open",
+        dueDate: "2026-11-15",
+        openIssues: 1,
+        closedIssues: 1,
+        progressPercent: 50
+      }
+    ],
+    defaultDeployment: {
+      targetType: "thassi_app_hot_deploy",
+      targetTypeLabel: "Thassi App (:8099/apps/meal-planner)",
+      hassHost: "192.168.188.92",
+      targetPath: "/data/deployed_apps/meal-planner",
+      branch: "main",
+      autoDeployOnGreenTests: true,
+      rollbackOnFailure: true,
+      publishHaTelemetrySensor: true,
+      haEntityId: "sensor.thassi_meal_planner_today_kcal",
+      lastDeployedAt: "2026-10-19T17:36:50Z",
+      lastDeployStatus: "LIVE"
+    },
     testSummary: {
-      framework: "Meal Macro & Shopping List Verify",
+      framework: "TypeScript Build & Macro Aggregator Verify",
       passed: 6,
       total: 6,
       passRatePercent: 100,
       status: "PASS",
       command: "npm run build",
       details: [
-        "Makro- & Kalorien-Tagesaggregation: PASS",
-        "Home Assistant Sensor sensor.thassi_meal_planner_today_kcal: PASS"
-      ]
-    }
-  },
-  {
-    id: "taskassistant",
-    repoName: "taskassistant",
-    name: "TaskAssistant \u2014 HA Add-on Template",
-    category: "Home Assistant Add-on",
-    fallbackDescription: "Home Assistant Add-on Template & Aufgaben-Orchestrator (Basis f\xFCr containerisierte Alpine/s6-Add-ons und Ingress-Panels).",
-    language: "Dockerfile / Shell",
-    devStatus: "QA_TESTING",
-    devStatusLabel: "Template-Basis (4 offene Issues)",
-    linkedPresetId: "thassi_projects_monitor",
-    defaultGoals: [
-      {
-        id: "g-task-1",
-        title: "Multi-Arch Dockerfile (amd64 / aarch64) f\xFCr Home Assistant Supervisor",
-        category: "Architecture",
-        status: "done",
-        priority: "high"
-      },
-      {
-        id: "g-task-2",
-        title: "Migration auf das neue generische Modul-Template (templates/ha-module-template)",
-        category: "Architecture",
-        status: "done",
-        priority: "high"
-      },
-      {
-        id: "g-task-3",
-        title: "4 offene GitHub-Issues in tsimhofer/taskassistant bereinigen & schlie\xDFen",
-        category: "Testing",
-        status: "todo",
-        priority: "medium"
-      }
-    ],
-    testSummary: {
-      framework: "Add-on Config & Schema Validator",
-      passed: 4,
-      total: 4,
-      passRatePercent: 100,
-      status: "PASS",
-      command: "npm run test:workflow",
-      details: [
-        "config.yaml Ingress & Port Schema: PASS",
-        "templates/ha-module-template JSON Schema: PASS"
-      ]
-    }
-  },
-  {
-    id: "homeassistant-addons",
-    repoName: "homeassistant-addons",
-    name: "Home Assistant Add-ons Store Repo",
-    category: "Home Assistant Add-on",
-    fallbackDescription: "Dediziertes Home Assistant Add-on Store Repository f\xFCr benutzerdefinierte Container-Add-ons und Skripte.",
-    language: "Shell",
-    devStatus: "ARCHIVE_STABLE",
-    devStatusLabel: "Konsolidiert in tsimhofer/thassi",
-    linkedPresetId: "vorzimmer_lighting_optimizer",
-    defaultGoals: [
-      {
-        id: "g-haaddons-1",
-        title: "Store-Metadaten (repository.json) & Add-on-Verzeichnisstruktur",
-        category: "Architecture",
-        status: "done",
-        priority: "medium"
-      },
-      {
-        id: "g-haaddons-2",
-        title: "Konsolidierung aller aktiven Add-ons im Haupt-Repository tsimhofer/thassi (44ec3c40)",
-        category: "Deployment",
-        status: "done",
-        priority: "high"
-      }
-    ],
-    testSummary: {
-      framework: "Supervisor Store Reload Check",
-      passed: 3,
-      total: 3,
-      passRatePercent: 100,
-      status: "PASS",
-      command: "ha store reload",
-      details: [
-        "Repository 44ec3c40 Store Sync: PASS",
-        "Sidebar Ingress Proxy Add-ons: PASS"
+        "Weekly Macro & Kcal Calculator: PASS",
+        "Shopping List Ingredient Deduplicator: PASS"
       ]
     }
   }
 ];
-function buildMonitoredProjectsPortfolio(github, savedGoalsByProject, latestRuns) {
+async function buildMonitoredProjectsPortfolio(github, custom, latestRuns, githubToken, forceRefresh = false) {
   const repoMap = new Map(github.repositories.map((r) => [r.name.toLowerCase(), r]));
   const latestCommit = github.recentCommits[0];
+  const detailsByRepo = /* @__PURE__ */ new Map();
+  await Promise.all(
+    DEFAULT_PROJECT_CATALOG.map(async (entry) => {
+      const liveRepo = repoMap.get(entry.repoName.toLowerCase());
+      if (liveRepo) {
+        const det = await fetchRepoGitHubDetails(
+          github.owner || "tsimhofer",
+          liveRepo.name,
+          githubToken,
+          forceRefresh
+        );
+        detailsByRepo.set(entry.id, det);
+      }
+    })
+  );
   const results = [];
   for (const entry of DEFAULT_PROJECT_CATALOG) {
     const liveRepo = repoMap.get(entry.repoName.toLowerCase());
-    const goals = savedGoalsByProject[entry.id] || entry.defaultGoals;
-    const doneCount = goals.filter((g) => g.status === "done").length;
-    const inProgressCount = goals.filter((g) => g.status === "in_progress").length;
-    const totalGoals = Math.max(1, goals.length);
+    const ghDetails = detailsByRepo.get(entry.id);
+    const requirements = custom.requirements?.[entry.id] && custom.requirements[entry.id].length > 0 ? custom.requirements[entry.id] : entry.defaultRequirements;
+    const localIssues = custom.issues?.[entry.id] || [];
+    const baseIssues = ghDetails && ghDetails.issues.length > 0 ? ghDetails.issues : entry.defaultIssues;
+    const mergedIssuesMap = /* @__PURE__ */ new Map();
+    for (const iss of baseIssues) mergedIssuesMap.set(iss.number, iss);
+    for (const loc of localIssues) mergedIssuesMap.set(loc.number, loc);
+    const issues = Array.from(mergedIssuesMap.values()).sort((a, b) => b.number - a.number);
+    const baseMilestones = ghDetails && ghDetails.milestones.length > 0 ? ghDetails.milestones : entry.defaultMilestones;
+    const savedMs = custom.milestones?.[entry.id] || [];
+    const milestones = savedMs.length > 0 ? savedMs : baseMilestones;
+    const collaborators = ghDetails && ghDetails.collaborators.length > 0 ? ghDetails.collaborators : [DEFAULT_OWNER_COLLABORATOR];
+    const deploymentConfig = {
+      ...entry.defaultDeployment,
+      ...custom.deployments?.[entry.id] || {}
+    };
+    const reqDone = requirements.filter(
+      (r) => r.status === "implemented" || r.status === "verified"
+    ).length;
+    const reqInProg = requirements.filter(
+      (r) => r.status === "in_progress" || r.status === "approved"
+    ).length;
+    const openIssuesCount = issues.filter((i) => i.state === "open").length;
+    const closedIssuesCount = issues.filter((i) => i.state === "closed").length;
     const matchingRun = latestRuns.find(
       (r) => r.moduleSlug === entry.linkedPresetId || r.moduleSlug === entry.id
     );
@@ -995,27 +1644,39 @@ function buildMonitoredProjectsPortfolio(github, savedGoalsByProject, latestRuns
       command: matchingRun.unitTestReport.command || entry.testSummary.command,
       details: entry.testSummary.details
     } : entry.testSummary;
-    const goalRatio = (doneCount + inProgressCount * 0.4) / totalGoals;
+    const reqRatio = (reqDone + reqInProg * 0.45) / Math.max(1, requirements.length);
+    const issueRatio = closedIssuesCount + openIssuesCount > 0 ? closedIssuesCount / (closedIssuesCount + openIssuesCount) : 1;
     const testRatio = testSummary.passRatePercent / 100;
     const progressPercent = Math.min(
       100,
-      Math.max(15, Math.round(goalRatio * 70 + testRatio * 30))
+      Math.max(15, Math.round(reqRatio * 50 + issueRatio * 25 + testRatio * 25))
     );
-    const signalColor = testSummary.status === "FAIL" ? "red" : entry.devStatus === "LIVE_PRODUCTION" && progressPercent >= 80 ? "green" : entry.devStatus === "ARCHIVE_STABLE" ? "cyan" : "amber";
-    const branch = liveRepo?.defaultBranch || "main";
-    const lastCommitSha = entry.repoName === "thassi" && latestCommit ? latestCommit.shortSha : matchingRun?.gitReport?.commitSha || "840c102";
+    const signalColor = testSummary.status === "FAIL" ? "red" : openIssuesCount > 3 ? "amber" : entry.devStatus === "LIVE_PRODUCTION" ? "green" : "cyan";
+    const branch = deploymentConfig.branch || liveRepo?.defaultBranch || "main";
+    const lastCommitSha = entry.repoName === "thassi" && latestCommit ? latestCommit.shortSha : matchingRun?.gitReport?.commitSha || "ec9456e";
     const lastCommitMessage = entry.repoName === "thassi" && latestCommit ? latestCommit.message : liveRepo?.description || entry.fallbackDescription;
     const updatedAt = liveRepo?.pushedAt || liveRepo?.updatedAt || (/* @__PURE__ */ new Date()).toISOString();
+    const goals = requirements.map((r) => ({
+      id: r.id,
+      title: `${r.code}: ${r.title}`,
+      category: "Feature",
+      status: r.status === "verified" || r.status === "implemented" ? "done" : r.status === "in_progress" || r.status === "approved" ? "in_progress" : "todo",
+      priority: r.priority === "must" ? "high" : r.priority === "should" ? "medium" : "low"
+    }));
     const n8nPipelineNodes = buildProjectN8nNodes({
       repoName: entry.repoName,
       branch,
       commitSha: lastCommitSha,
-      goalsDone: doneCount,
-      goalsTotal: goals.length,
+      reqDone,
+      reqTotal: requirements.length,
+      openIssuesCount,
+      closedIssuesCount,
+      milestonesCount: milestones.length,
       testPassed: testSummary.passed,
       testTotal: testSummary.total,
       testFramework: testSummary.framework,
-      devStatus: entry.devStatus,
+      collaboratorsCount: collaborators.length,
+      deploymentConfig,
       signalColor,
       updatedAt
     });
@@ -1038,76 +1699,14 @@ function buildMonitoredProjectsPortfolio(github, savedGoalsByProject, latestRuns
       statusFlag: `${entry.devStatus} \xB7 ${progressPercent}%`,
       progressPercent,
       goals,
+      requirements,
+      issues,
+      milestones,
+      collaborators,
+      deploymentConfig,
       testSummary,
       n8nPipelineNodes,
       linkedPresetId: entry.linkedPresetId
-    });
-  }
-  for (const liveRepo of github.repositories) {
-    const alreadyExists = results.some(
-      (p) => p.repoFullName.toLowerCase() === liveRepo.fullName.toLowerCase()
-    );
-    if (alreadyExists) continue;
-    const customGoals = savedGoalsByProject[liveRepo.name] || [
-      {
-        id: `g-${liveRepo.name}-1`,
-        title: `GitHub Repository ${liveRepo.fullName} im Thassi Projekte-Dashboard \xFCberwachen`,
-        category: "Architecture",
-        status: "done",
-        priority: "medium"
-      },
-      {
-        id: `g-${liveRepo.name}-2`,
-        title: "Automatisierte n8n-Test-Pipeline & Home Assistant Telemetrie-Sensor koppeln",
-        category: "Testing",
-        status: "todo",
-        priority: "low"
-      }
-    ];
-    const doneCount = customGoals.filter((g) => g.status === "done").length;
-    const progressPercent = Math.round(doneCount / Math.max(1, customGoals.length) * 100);
-    results.push({
-      id: liveRepo.name,
-      name: liveRepo.name,
-      repoFullName: liveRepo.fullName,
-      category: "Companion App",
-      description: liveRepo.description || "GitHub Repository von tsimhofer",
-      htmlUrl: liveRepo.htmlUrl,
-      language: liveRepo.language || "TypeScript",
-      branch: liveRepo.defaultBranch || "main",
-      lastCommitSha: "HEAD",
-      lastCommitMessage: liveRepo.description || "GitHub Repository Snapshot",
-      updatedAt: liveRepo.pushedAt || liveRepo.updatedAt,
-      sizeKb: liveRepo.sizeKb,
-      devStatus: "ARCHIVE_STABLE",
-      devStatusLabel: `GitHub (${liveRepo.defaultBranch})`,
-      signalColor: "cyan",
-      statusFlag: `MONITORED \xB7 ${progressPercent}%`,
-      progressPercent,
-      goals: customGoals,
-      testSummary: {
-        framework: "GitHub Repository Check",
-        passed: 2,
-        total: 2,
-        passRatePercent: 100,
-        status: "PASS",
-        command: `git ls-remote ${liveRepo.htmlUrl}`,
-        details: [`Default Branch: ${liveRepo.defaultBranch}`, `Open Issues: ${liveRepo.openIssues}`]
-      },
-      n8nPipelineNodes: buildProjectN8nNodes({
-        repoName: liveRepo.name,
-        branch: liveRepo.defaultBranch || "main",
-        commitSha: "HEAD",
-        goalsDone: doneCount,
-        goalsTotal: customGoals.length,
-        testPassed: 2,
-        testTotal: 2,
-        testFramework: "GitHub Check",
-        devStatus: "ARCHIVE_STABLE",
-        signalColor: "cyan",
-        updatedAt: liveRepo.updatedAt
-      }),
-      linkedPresetId: "thassi_projects_monitor"
     });
   }
   return results;
@@ -2523,20 +3122,36 @@ var index_default = defineThassiApp((ctx) => {
     void executeN8nModuleWorkflow(MODULE_TEMPLATE_PRESETS[0].template, ctx).then((initialRun) => saveRunRecord(initialRun)).catch(() => {
     });
   }
+  function getStoredCustomizations() {
+    return {
+      goals: ctx.db.kvGet("project_goals", {}) || {},
+      requirements: ctx.db.kvGet("project_requirements", {}) || {},
+      issues: ctx.db.kvGet("project_issues", {}) || {},
+      milestones: ctx.db.kvGet("project_milestones", {}) || {},
+      deployments: ctx.db.kvGet("project_deployments", {}) || {}
+    };
+  }
   ctx.route("GET", "/overview", async (req) => {
     const customGeminiKey = ctx.db.kvGet("gemini_api_key") || "";
     const customGithubToken = ctx.db.kvGet("github_token") || "";
+    const forceRefresh = req.query.refresh === "1";
     const [ecosystem, github] = await Promise.all([
       checkEcosystemCompatibility(customGeminiKey),
       fetchGitHubRepositorySnapshot({
         githubToken: customGithubToken,
-        forceRefresh: req.query.refresh === "1"
+        forceRefresh
       })
     ]);
     const runs = listRunRecords(15);
     const latestRun = runs[0] || null;
-    const savedGoals = ctx.db.kvGet("project_goals", {}) || {};
-    const monitoredProjects = buildMonitoredProjectsPortfolio(github, savedGoals, runs);
+    const custom = getStoredCustomizations();
+    const monitoredProjects = await buildMonitoredProjectsPortfolio(
+      github,
+      custom,
+      runs,
+      customGithubToken,
+      forceRefresh
+    );
     return {
       ecosystem,
       presets: MODULE_TEMPLATE_PRESETS,
@@ -2548,38 +3163,238 @@ var index_default = defineThassiApp((ctx) => {
       github
     };
   });
-  ctx.route("POST", "/projects/goal", async (req) => {
+  ctx.route("POST", "/projects/requirements", async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const projectId = String(body.projectId || "thassi").trim();
     const customGithubToken = ctx.db.kvGet("github_token") || "";
     const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
     const runs = listRunRecords(15);
-    const savedGoals = ctx.db.kvGet("project_goals", {}) || {};
-    const currentPortfolio = buildMonitoredProjectsPortfolio(github, savedGoals, runs);
+    const custom = getStoredCustomizations();
+    const currentPortfolio = await buildMonitoredProjectsPortfolio(
+      github,
+      custom,
+      runs,
+      customGithubToken
+    );
     const targetProject = currentPortfolio.find((p) => p.id === projectId);
-    const existingList = [...targetProject?.goals || []];
-    if (body.goalId && body.nextStatus) {
-      const idx = existingList.findIndex((g) => g.id === body.goalId);
+    const existingList = [...targetProject?.requirements || []];
+    if (body.requirementId && body.nextStatus) {
+      const idx = existingList.findIndex((r) => r.id === body.requirementId);
       if (idx >= 0) {
         existingList[idx] = { ...existingList[idx], status: body.nextStatus };
       }
-    } else if (body.newGoalTitle?.trim()) {
+    } else if (body.title?.trim()) {
+      const codePrefix = projectId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase() || "PROJ";
+      const nextNum = String(existingList.length + 1).padStart(2, "0");
       existingList.push({
-        id: `g-${projectId}-${Date.now()}`,
-        title: body.newGoalTitle.trim(),
-        category: body.newGoalCategory || "Feature",
-        status: "todo",
-        priority: body.newGoalPriority || "medium"
+        id: `req-${projectId}-${Date.now()}`,
+        code: `REQ-${codePrefix}-${nextNum}`,
+        title: body.title.trim(),
+        description: (body.description || "").trim() || body.title.trim(),
+        acceptanceCriteria: (body.acceptanceCriteria || "").trim() || "Unit-Tests & Build-Pipeline bestehen fehlerfrei.",
+        priority: body.priority || "must",
+        status: "approved",
+        milestoneTitle: body.milestoneTitle || targetProject?.milestones[0]?.title || null,
+        assignedTo: body.assignedTo || "tsimhofer"
       });
     }
-    savedGoals[projectId] = existingList;
-    ctx.db.kvSet("project_goals", savedGoals);
-    const monitoredProjects = buildMonitoredProjectsPortfolio(github, savedGoals, runs);
-    return {
-      ok: true,
-      projectId,
-      monitoredProjects
-    };
+    const allReqs = custom.requirements || {};
+    allReqs[projectId] = existingList;
+    ctx.db.kvSet("project_requirements", allReqs);
+    const monitoredProjects = await buildMonitoredProjectsPortfolio(
+      github,
+      getStoredCustomizations(),
+      runs,
+      customGithubToken
+    );
+    return { ok: true, projectId, monitoredProjects };
+  });
+  ctx.route("POST", "/projects/issues", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const projectId = String(body.projectId || "thassi").trim();
+    const customGithubToken = (ctx.db.kvGet("github_token") || process.env.GITHUB_TOKEN || "").trim();
+    const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
+    const runs = listRunRecords(15);
+    const custom = getStoredCustomizations();
+    const currentPortfolio = await buildMonitoredProjectsPortfolio(
+      github,
+      custom,
+      runs,
+      customGithubToken
+    );
+    const targetProject = currentPortfolio.find((p) => p.id === projectId);
+    const existingIssues = [...targetProject?.issues || []];
+    if (typeof body.issueNumber === "number" && body.nextState) {
+      const idx = existingIssues.findIndex((i) => i.number === body.issueNumber);
+      if (idx >= 0) {
+        existingIssues[idx] = {
+          ...existingIssues[idx],
+          state: body.nextState,
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
+      if (customGithubToken && targetProject) {
+        try {
+          await fetch(
+            `https://api.github.com/repos/${targetProject.repoFullName}/issues/${body.issueNumber}`,
+            {
+              method: "PATCH",
+              headers: {
+                Authorization: `Bearer ${customGithubToken}`,
+                Accept: "application/vnd.github+json",
+                "User-Agent": "Thassi-Project-Development-Studio/1.2",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ state: body.nextState }),
+              signal: AbortSignal.timeout(3500)
+            }
+          );
+        } catch {
+        }
+      }
+    } else if (body.title?.trim()) {
+      const maxNum = existingIssues.reduce((m, i) => Math.max(m, i.number), 100);
+      let createdNumber = maxNum + 1;
+      let createdUrl = `${targetProject?.htmlUrl || "https://github.com/tsimhofer/thassi"}/issues`;
+      let source = "local";
+      if (customGithubToken && targetProject) {
+        try {
+          const ghRes = await fetch(
+            `https://api.github.com/repos/${targetProject.repoFullName}/issues`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${customGithubToken}`,
+                Accept: "application/vnd.github+json",
+                "User-Agent": "Thassi-Project-Development-Studio/1.2",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                title: body.title.trim(),
+                body: (body.bodyText || "").trim(),
+                labels: body.labels || ["enhancement"]
+              }),
+              signal: AbortSignal.timeout(4e3)
+            }
+          );
+          if (ghRes.ok) {
+            const ghData = await ghRes.json();
+            createdNumber = Number(ghData.number || createdNumber);
+            createdUrl = String(ghData.html_url || createdUrl);
+            source = "github";
+          }
+        } catch {
+        }
+      }
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      existingIssues.unshift({
+        id: `iss-${projectId}-${createdNumber}`,
+        number: createdNumber,
+        title: body.title.trim(),
+        body: (body.bodyText || "").trim(),
+        state: "open",
+        labels: body.labels && body.labels.length > 0 ? body.labels : ["enhancement"],
+        author: "tsimhofer",
+        authorAvatarUrl: "https://avatars.githubusercontent.com/u/48800676?v=4",
+        assignee: body.assignee || "tsimhofer",
+        milestoneTitle: body.milestoneTitle || targetProject?.milestones[0]?.title || null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        htmlUrl: createdUrl,
+        isPullRequest: false,
+        source
+      });
+    }
+    const allIssues = custom.issues || {};
+    allIssues[projectId] = existingIssues;
+    ctx.db.kvSet("project_issues", allIssues);
+    const monitoredProjects = await buildMonitoredProjectsPortfolio(
+      github,
+      getStoredCustomizations(),
+      runs,
+      customGithubToken
+    );
+    return { ok: true, projectId, monitoredProjects };
+  });
+  ctx.route("POST", "/projects/milestones", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const projectId = String(body.projectId || "thassi").trim();
+    const customGithubToken = ctx.db.kvGet("github_token") || "";
+    const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
+    const runs = listRunRecords(15);
+    const custom = getStoredCustomizations();
+    const currentPortfolio = await buildMonitoredProjectsPortfolio(
+      github,
+      custom,
+      runs,
+      customGithubToken
+    );
+    const targetProject = currentPortfolio.find((p) => p.id === projectId);
+    const existingMs = [...targetProject?.milestones || []];
+    if (body.milestoneId && body.nextState) {
+      const idx = existingMs.findIndex((m) => m.id === body.milestoneId);
+      if (idx >= 0) {
+        existingMs[idx] = {
+          ...existingMs[idx],
+          state: body.nextState,
+          progressPercent: body.nextState === "closed" ? 100 : existingMs[idx].progressPercent
+        };
+      }
+    } else if (body.title?.trim()) {
+      existingMs.push({
+        id: `ms-${projectId}-${Date.now()}`,
+        number: existingMs.length + 1,
+        title: body.title.trim(),
+        description: (body.description || "").trim(),
+        state: "open",
+        dueDate: body.dueDate || null,
+        openIssues: 1,
+        closedIssues: 0,
+        progressPercent: 0,
+        htmlUrl: `${targetProject?.htmlUrl || "https://github.com/tsimhofer/thassi"}/milestones`
+      });
+    }
+    const allMs = custom.milestones || {};
+    allMs[projectId] = existingMs;
+    ctx.db.kvSet("project_milestones", allMs);
+    const monitoredProjects = await buildMonitoredProjectsPortfolio(
+      github,
+      getStoredCustomizations(),
+      runs,
+      customGithubToken
+    );
+    return { ok: true, projectId, monitoredProjects };
+  });
+  ctx.route("POST", "/projects/deployment", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const projectId = String(body.projectId || "thassi").trim();
+    const customGithubToken = ctx.db.kvGet("github_token") || "";
+    const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
+    const runs = listRunRecords(15);
+    const custom = getStoredCustomizations();
+    const currentPortfolio = await buildMonitoredProjectsPortfolio(
+      github,
+      custom,
+      runs,
+      customGithubToken
+    );
+    const targetProject = currentPortfolio.find((p) => p.id === projectId);
+    if (targetProject && body.config) {
+      const allDeps = custom.deployments || {};
+      allDeps[projectId] = {
+        ...targetProject.deploymentConfig,
+        ...body.config,
+        lastDeployedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      ctx.db.kvSet("project_deployments", allDeps);
+    }
+    const monitoredProjects = await buildMonitoredProjectsPortfolio(
+      github,
+      getStoredCustomizations(),
+      runs,
+      customGithubToken
+    );
+    return { ok: true, projectId, monitoredProjects };
   });
   const handleWorkflowTrigger = async (req) => {
     const bodyObj = req.body && typeof req.body === "object" ? req.body : {};

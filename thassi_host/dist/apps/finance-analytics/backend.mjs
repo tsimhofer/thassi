@@ -220,7 +220,10 @@ function getHassSidebarStylerScript() {
         const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
         const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');
         if (huiRoot && huiRoot.shadowRoot) {
-          ensureStyleTag(huiRoot.shadowRoot, 'thassi-lovelace-fullbleed', LOVELACE_FULLBLEED_CSS);
+          const oldFullbleed = huiRoot.shadowRoot.getElementById
+            ? huiRoot.shadowRoot.getElementById('thassi-lovelace-fullbleed')
+            : huiRoot.shadowRoot.querySelector('#thassi-lovelace-fullbleed');
+          if (oldFullbleed) oldFullbleed.remove();
         }
       } catch (_err) {
         // Cross-origin fallback (when opened directly on :8099 outside Home Assistant)
@@ -262,14 +265,19 @@ function syncHassFrontendFiles() {
 <html>
 <head>
   <meta charset="utf-8" />
-  <style>html,body{margin:0;padding:0;background:#040711;overflow:hidden;}</style>
+  <style>html,body{margin:0;padding:0;background:#040711;overflow:hidden;width:100%;height:100%;}iframe{width:100%;height:100%;border:0;display:block;}</style>
 </head>
 <body>
+  <iframe id="thassi-fallback-frame" title="Thassi Horizon"></iframe>
   <script>${stylerJs}
   try {
+    var f = document.getElementById('thassi-fallback-frame');
+    if (f) {
+      f.src = window.location.protocol + '//' + (window.location.hostname || '192.168.188.92') + ':8099/';
+    }
     if (window.top && window.top.location.pathname.startsWith('/lovelace')) {
-      window.top.history.replaceState(null, '', '/44ec3c40_thassi_host');
-      window.top.dispatchEvent(new CustomEvent('location-changed'));
+      window.top.history.pushState(null, '', '/44ec3c40_thassi_host');
+      window.top.dispatchEvent(new CustomEvent('location-changed', { bubbles: true, composed: true }));
     }
   } catch (e) {}
   </script>
