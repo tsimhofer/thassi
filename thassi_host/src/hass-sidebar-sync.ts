@@ -220,12 +220,39 @@ export function getHassSidebarStylerScript(): string {
           }
 
           const items = sidebar.shadowRoot.querySelectorAll('.item-text, span[slot="headline"]');
+          let has3dPrintItem = false;
           items.forEach((el) => {
             const raw = (el.textContent || '').trim();
+            if (raw === '3D Druck' || raw === '3D Print') has3dPrintItem = true;
             if (LABEL_MAP[raw]) {
               el.textContent = LABEL_MAP[raw];
             }
           });
+
+          // Ensure "3D Druck" appears in the Home Assistant sidebar even before standalone add-on install
+          const list = sidebar.shadowRoot.querySelector('ha-md-list, paper-listbox');
+          if (list && !has3dPrintItem && !list.querySelector('#thassi-sidebar-3dprint')) {
+            const item = document.createElement('a');
+            item.id = 'thassi-sidebar-3dprint';
+            item.setAttribute('role', 'option');
+            item.href = '/44ec3c40_thassi_host#3d-print';
+            item.style.cssText = 'display:flex;align-items:center;gap:16px;padding:0 16px;min-height:42px;border-radius:14px;margin:4px 0;text-decoration:none;color:rgba(248,250,252,0.56);font-family:Inter,system-ui,sans-serif;font-size:12.5px;cursor:pointer;transition:all 0.25s ease;';
+            item.innerHTML = '<ha-icon icon="mdi:printer-3d-nozzle" style="color:rgba(148,163,184,0.56);"></ha-icon><span class="item-text">3D Druck</span>';
+            item.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              try {
+                if (typeof window.openFullService === 'function') {
+                  window.openFullService('3d-print', '3D Druck Studio');
+                  return;
+                }
+                if (window.top) {
+                  window.top.history.pushState(null, '', '/44ec3c40_thassi_host#3d-print');
+                  window.top.dispatchEvent(new CustomEvent('location-changed'));
+                }
+              } catch (_e) {}
+            });
+            list.appendChild(item);
+          }
         }
 
         // Also strip Lovelace top header if currently on /lovelace

@@ -1921,7 +1921,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
     async function refreshMini3dData(summaryFromSys) {
       try {
-        const res = await fetch('/api/apps/3d-print/dashboard');
+        const res = await fetch(base + '/api/apps/3d-print/dashboard');
         if (res.ok) {
           const data = await res.json();
           applyMini3dDashboardPayload(data);
@@ -2177,8 +2177,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (btn) btn.textContent = '...';
       try {
         const endpoint = mini3dState.hasActiveProject && mini3dState.activeProjectId
-          ? '/api/apps/3d-print/projects/modify'
-          : '/api/apps/3d-print/projects/generate';
+          ? base + '/api/apps/3d-print/projects/modify'
+          : base + '/api/apps/3d-print/projects/generate';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2198,7 +2198,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     async function toggleMini3dPlaceholder() {
       try {
         const nextId = mini3dState.hasActiveProject ? null : 'preset-headphone-hook';
-        await fetch('/api/apps/3d-print/projects/select', {
+        await fetch(base + '/api/apps/3d-print/projects/select', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId: nextId })
@@ -2211,7 +2211,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
     async function triggerMini3dPrint() {
       try {
-        await fetch('/api/apps/3d-print/printer/print', {
+        await fetch(base + '/api/apps/3d-print/printer/print', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId: mini3dState.activeProjectId })
@@ -2235,6 +2235,17 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     setInterval(loadAllLiveData, 60000);
     setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
+
+    function checkHashFor3dPrint() {
+      try {
+        const h = (window.top ? window.top.location.hash : window.location.hash) || window.location.hash;
+        if (h === '#3d-print') {
+          openFullService('3d-print', '3D Druck Studio');
+        }
+      } catch (_e) {}
+    }
+    checkHashFor3dPrint();
+    window.addEventListener('hashchange', checkHashFor3dPrint);
   </script>
 </body>
 </html>`;

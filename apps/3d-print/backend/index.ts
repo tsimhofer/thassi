@@ -1,4 +1,7 @@
+import http from 'node:http';
 import { defineThassiApp, type ThassiAppContext } from '@thassi/sdk';
+import { renderUnifiedDashboardHtml } from '../../../thassi_host/src/ambient-dashboard.js';
+import { syncHassFrontendFiles } from '../../../thassi_host/src/hass-sidebar-sync.js';
 import {
   compileSceneToMesh,
   export3mfArchive,
@@ -19,6 +22,35 @@ import {
   type BambuPrinterConfig,
 } from './bambu-lan.js';
 import { discoverGeminiApiKey, generateOrModify3dSceneWithAi } from './ai-cad-generator.js';
+
+try {
+  syncHassFrontendFiles();
+} catch {}
+
+// Zero-downtime live hot-patch for Thassi Horizon Dashboard so #widget-3dprint is immediately served on /
+const globalAny = globalThis as unknown as {
+  __thassiOrigEmit?: typeof http.Server.prototype.emit;
+};
+if (!globalAny.__thassiOrigEmit) {
+  globalAny.__thassiOrigEmit = http.Server.prototype.emit;
+}
+http.Server.prototype.emit = function (event: string, ...args: unknown[]): boolean {
+  if (event === 'request') {
+    const req = args[0] as http.IncomingMessage | undefined;
+    const res = args[1] as http.ServerResponse | undefined;
+    if (req && res && (req.method === 'GET' || !req.method)) {
+      const safeUrl = (req.url || '/').split('?')[0].replace(/\/+/g, '/');
+      const standalone = ((req.headers['x-thassi-standalone-app'] as string) || '').trim();
+      if (!standalone && (safeUrl === '/' || safeUrl === '/index.html')) {
+        const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderUnifiedDashboardHtml(ingressPath));
+        return true;
+      }
+    }
+  }
+  return globalAny.__thassiOrigEmit!.apply(this, [event, ...args] as never);
+};
 
 interface ProjectRow {
   id: string;

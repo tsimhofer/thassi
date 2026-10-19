@@ -921,12 +921,39 @@ function getHassSidebarStylerScript() {
           }
 
           const items = sidebar.shadowRoot.querySelectorAll('.item-text, span[slot="headline"]');
+          let has3dPrintItem = false;
           items.forEach((el) => {
             const raw = (el.textContent || '').trim();
+            if (raw === '3D Druck' || raw === '3D Print') has3dPrintItem = true;
             if (LABEL_MAP[raw]) {
               el.textContent = LABEL_MAP[raw];
             }
           });
+
+          // Ensure "3D Druck" appears in the Home Assistant sidebar even before standalone add-on install
+          const list = sidebar.shadowRoot.querySelector('ha-md-list, paper-listbox');
+          if (list && !has3dPrintItem && !list.querySelector('#thassi-sidebar-3dprint')) {
+            const item = document.createElement('a');
+            item.id = 'thassi-sidebar-3dprint';
+            item.setAttribute('role', 'option');
+            item.href = '/44ec3c40_thassi_host#3d-print';
+            item.style.cssText = 'display:flex;align-items:center;gap:16px;padding:0 16px;min-height:42px;border-radius:14px;margin:4px 0;text-decoration:none;color:rgba(248,250,252,0.56);font-family:Inter,system-ui,sans-serif;font-size:12.5px;cursor:pointer;transition:all 0.25s ease;';
+            item.innerHTML = '<ha-icon icon="mdi:printer-3d-nozzle" style="color:rgba(148,163,184,0.56);"></ha-icon><span class="item-text">3D Druck</span>';
+            item.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              try {
+                if (typeof window.openFullService === 'function') {
+                  window.openFullService('3d-print', '3D Druck Studio');
+                  return;
+                }
+                if (window.top) {
+                  window.top.history.pushState(null, '', '/44ec3c40_thassi_host#3d-print');
+                  window.top.dispatchEvent(new CustomEvent('location-changed'));
+                }
+              } catch (_e) {}
+            });
+            list.appendChild(item);
+          }
         }
 
         // Also strip Lovelace top header if currently on /lovelace
@@ -2912,7 +2939,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
     async function refreshMini3dData(summaryFromSys) {
       try {
-        const res = await fetch('/api/apps/3d-print/dashboard');
+        const res = await fetch(base + '/api/apps/3d-print/dashboard');
         if (res.ok) {
           const data = await res.json();
           applyMini3dDashboardPayload(data);
@@ -3168,8 +3195,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (btn) btn.textContent = '...';
       try {
         const endpoint = mini3dState.hasActiveProject && mini3dState.activeProjectId
-          ? '/api/apps/3d-print/projects/modify'
-          : '/api/apps/3d-print/projects/generate';
+          ? base + '/api/apps/3d-print/projects/modify'
+          : base + '/api/apps/3d-print/projects/generate';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3189,7 +3216,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     async function toggleMini3dPlaceholder() {
       try {
         const nextId = mini3dState.hasActiveProject ? null : 'preset-headphone-hook';
-        await fetch('/api/apps/3d-print/projects/select', {
+        await fetch(base + '/api/apps/3d-print/projects/select', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId: nextId })
@@ -3202,7 +3229,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
     async function triggerMini3dPrint() {
       try {
-        await fetch('/api/apps/3d-print/printer/print', {
+        await fetch(base + '/api/apps/3d-print/printer/print', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId: mini3dState.activeProjectId })
@@ -3226,6 +3253,17 @@ function renderUnifiedDashboardHtml(ingressPath) {
     setInterval(loadAllLiveData, 60000);
     setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
+
+    function checkHashFor3dPrint() {
+      try {
+        const h = (window.top ? window.top.location.hash : window.location.hash) || window.location.hash;
+        if (h === '#3d-print') {
+          openFullService('3d-print', '3D Druck Studio');
+        }
+      } catch (_e) {}
+    }
+    checkHashFor3dPrint();
+    window.addEventListener('hashchange', checkHashFor3dPrint);
   </script>
 </body>
 </html>`;
