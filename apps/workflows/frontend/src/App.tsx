@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { getHostBaseUrl } from '@thassi/sdk/client';
 import {
   NodePaletteTemplate,
   SavedWorkflow,
@@ -10,7 +11,7 @@ import {
   IntegrationCategory,
 } from '../../shared/types.js';
 
-const API_BASE = `${window.location.pathname.replace(/\/$/, '')}/api`;
+const API_BASE = `${getHostBaseUrl()}/api/apps/workflows`;
 
 const NODE_WIDTH = 228;
 const NODE_HEIGHT = 96;

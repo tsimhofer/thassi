@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { getHostBaseUrl } from '@thassi/sdk/client';
 import {
   ModuleTemplateForm,
   MODULE_TEMPLATE_PRESETS,
@@ -12,7 +13,7 @@ import {
   N8nWorkflowNodeState,
 } from '../../shared/workflow-types';
 
-const API_BASE = `${window.location.pathname.replace(/\/$/, '')}/api`;
+const API_BASE = `${getHostBaseUrl()}/api/apps/project-workflow`;
 
 type ProjectTab = 'requirements' | 'issues' | 'milestones' | 'testing' | 'deployment';
 
@@ -510,7 +511,7 @@ export default function App() {
             {/* Right Actions */}
             <div className="flex items-center gap-2.5">
               <a
-                href="/apps/workflows/"
+                href={`${getHostBaseUrl()}/apps/workflows/`}
                 className="px-3 py-2 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5 transition-all"
               >
                 <span>🔗 Workflows Editor</span>
