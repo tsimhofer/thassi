@@ -106457,17 +106457,17 @@ var index_default = defineThassiApp((ctx) => {
   ctx.scheduleJob({
     id: "cyclic_camera_sampler",
     name: "Zyklische Kamera-Abtastung (Lokales COCO-SSD)",
-    intervalSeconds: 180,
-    handler: async (jobCtx) => {
+    intervalMinutes: 3,
+    handler: async () => {
       const cfg = getConfig();
       if (!cfg.cyclicEnabled) return;
-      const enabledCams = jobCtx.db.query(
+      const enabledCams = ctx.db.query(
         "SELECT * FROM camera_sources WHERE enabled = 1 ORDER BY id ASC"
       );
       for (const cam of enabledCams) {
-        await sampleSingleCamera(cam.id, jobCtx);
+        await sampleSingleCamera(cam.id, ctx);
       }
-      await updateSharedSummaryAndHaSensors(jobCtx);
+      await updateSharedSummaryAndHaSensors(ctx);
     }
   });
   ctx.route("GET", "/dashboard", async (_req, appCtx) => {

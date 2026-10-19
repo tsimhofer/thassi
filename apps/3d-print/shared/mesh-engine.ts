@@ -7,7 +7,11 @@ export type PrimitiveType =
   | 'gear'
   | 'twisted_vase'
   | 'bracket'
-  | 'hex_organizer';
+  | 'hex_organizer'
+  | 'apple'
+  | 'lathe'
+  | 'heart'
+  | 'star';
 
 export interface PrimitiveNode {
   id: string;
@@ -657,6 +661,230 @@ function generateHexOrganizerTriangles(params: Record<string, number>): Array<[V
   return tris;
 }
 
+function generateAppleTriangles(params: Record<string, number>): Array<[Vec3, Vec3, Vec3]> {
+  const radius = Math.max(8, params.radius ?? 34);
+  const height = Math.max(12, params.height ?? 58);
+  const lobeCount = Math.max(0, Math.min(12, Math.round(params.lobeCount ?? 5)));
+  const lobeAmp = Math.max(0, Math.min(radius * 0.18, params.lobeAmplitude ?? radius * 0.042));
+  const topIndent = Math.max(2, Math.min(height * 0.35, params.topIndent ?? height * 0.21));
+  const bottomIndent = Math.max(1, Math.min(height * 0.22, params.bottomIndent ?? height * 0.09));
+  const lonSegs = Math.min(64, Math.max(16, Math.round(params.segments ?? 36)));
+
+  // 13 profile rings [rFactor, zMm, lobeWeight] from bottom calyx center (ring 0) to top stem cavity center (ring 12)
+  const profile: Array<[number, number, number]> = [
+    [0.0, bottomIndent, 0.0],
+    [0.18, bottomIndent * 0.35, 0.1],
+    [0.35, 0.0, 0.25], // Printable resting rim at Z = 0
+    [0.58, height * 0.06, 0.5],
+    [0.79, height * 0.18, 0.75],
+    [0.95, height * 0.36, 0.95],
+    [1.03, height * 0.56, 1.0], // Widest upper-middle apple cheek
+    [0.98, height * 0.74, 0.92],
+    [0.83, height * 0.90, 0.7],
+    [0.56, height, 0.4], // Top shoulder crest at Z = height
+    [0.32, height - topIndent * 0.38, 0.2],
+    [0.14, height - topIndent * 0.82, 0.05],
+    [0.0, height - topIndent, 0.0], // Center of top stem cavity
+  ];
+
+  const tris: Array<[Vec3, Vec3, Vec3]> = [];
+  const rings = profile.length;
+
+  const ringPt = (ri: number, li: number): Vec3 => {
+    const [rFrac, zVal, lobeW] = profile[ri];
+    if (rFrac <= 1e-5) {
+      return { x: 0, y: 0, z: zVal };
+    }
+    const phi = (li / lonSegs) * Math.PI * 2;
+    const lobe = lobeCount > 0 ? lobeAmp * lobeW * Math.cos(lobeCount * phi) : 0;
+    const r = Math.max(0.2, radius * rFrac + lobe);
+    return {
+      x: r * Math.cos(phi),
+      y: r * Math.sin(phi),
+      z: zVal,
+    };
+  };
+
+  for (let ri = 0; ri < rings - 1; ri++) {
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      const p00 = ringPt(ri, li);
+      const p10 = ringPt(ri, ln);
+      const p11 = ringPt(ri + 1, ln);
+      const p01 = ringPt(ri + 1, li);
+
+      if (profile[ri][0] <= 1e-5) {
+        tris.push([p00, p11, p01]);
+      } else if (profile[ri + 1][0] <= 1e-5) {
+        tris.push([p00, p10, p11]);
+      } else {
+        pushQuad(tris, p00, p10, p11, p01);
+      }
+    }
+  }
+
+  return tris;
+}
+
+function generateLatheTriangles(params: Record<string, number>): Array<[Vec3, Vec3, Vec3]> {
+  const height = Math.max(10, params.height ?? 65);
+  const rBottom = Math.max(2, params.rBottom ?? params.radiusBottom ?? 22);
+  const rLower = Math.max(2, params.rLower ?? params.rBelly ?? rBottom * 1.25);
+  const rMid = Math.max(2, params.rMid ?? rLower * 0.95);
+  const rUpper = Math.max(2, params.rUpper ?? params.rShoulder ?? rMid * 0.85);
+  const rNeck = Math.max(1.5, params.rNeck ?? rUpper * 0.65);
+  const rTop = Math.max(1.5, params.rTop ?? params.radiusTop ?? rNeck);
+  const topIndent = Math.max(0, Math.min(height * 0.85, params.topIndent ?? 0));
+  const bottomIndent = Math.max(0, Math.min(height * 0.25, params.bottomIndent ?? 0));
+  const wall = Math.max(0, Math.min(Math.min(rBottom, rTop) - 0.8, params.wallThickness ?? 0));
+  const lobeCount = Math.max(0, Math.min(24, Math.round(params.lobeCount ?? 0)));
+  const lobeAmp = Math.max(0, Math.min(10, params.lobeAmplitude ?? 0));
+  const lonSegs = Math.min(64, Math.max(12, Math.round(params.segments ?? 36)));
+
+  // Control stations along Z from 0 to height
+  const ctrl: Array<[number, number]> = [
+    [rBottom, 0],
+    [rLower, height * 0.22],
+    [rMid, height * 0.48],
+    [rUpper, height * 0.74],
+    [rNeck, height * 0.90],
+    [rTop, height],
+  ];
+
+  const zSteps = 20;
+  const sampleOuterR = (t: number): number => {
+    const scaled = t * (ctrl.length - 1);
+    const idx = Math.min(ctrl.length - 2, Math.floor(scaled));
+    const frac = scaled - idx;
+    const smooth = 0.5 - 0.5 * Math.cos(frac * Math.PI);
+    return ctrl[idx][0] + (ctrl[idx + 1][0] - ctrl[idx][0]) * smooth;
+  };
+
+  const tris: Array<[Vec3, Vec3, Vec3]> = [];
+
+  const getOuter = (zi: number, li: number): Vec3 => {
+    const t = zi / zSteps;
+    const z = t * height;
+    const phi = (li / lonSegs) * Math.PI * 2;
+    const baseR = sampleOuterR(t);
+    const lobe = lobeCount > 0 ? lobeAmp * Math.sin(t * Math.PI) * Math.cos(lobeCount * phi) : 0;
+    const r = Math.max(1, baseR + lobe);
+    return { x: r * Math.cos(phi), y: r * Math.sin(phi), z };
+  };
+
+  for (let zi = 0; zi < zSteps; zi++) {
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      pushQuad(tris, getOuter(zi, li), getOuter(zi, ln), getOuter(zi + 1, ln), getOuter(zi + 1, li));
+    }
+  }
+
+  // Bottom cap (with optional bottomIndent)
+  const bCenter = { x: 0, y: 0, z: bottomIndent };
+  for (let li = 0; li < lonSegs; li++) {
+    const ln = (li + 1) % lonSegs;
+    tris.push([bCenter, getOuter(0, ln), getOuter(0, li)]);
+  }
+
+  // Top cap or hollow interior cavity
+  if (wall > 0.8) {
+    const floorZ = Math.max(2, Math.min(height * 0.25, wall * 1.5));
+    const getInner = (zi: number, li: number): Vec3 => {
+      const t = zi / zSteps;
+      const z = floorZ + t * (height - floorZ);
+      const phi = (li / lonSegs) * Math.PI * 2;
+      const r = Math.max(0.8, sampleOuterR(t) - wall);
+      return { x: r * Math.cos(phi), y: r * Math.sin(phi), z };
+    };
+    for (let zi = 0; zi < zSteps; zi++) {
+      for (let li = 0; li < lonSegs; li++) {
+        const ln = (li + 1) % lonSegs;
+        pushQuad(tris, getInner(zi, ln), getInner(zi, li), getInner(zi + 1, li), getInner(zi + 1, ln));
+      }
+    }
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      pushQuad(tris, getOuter(zSteps, li), getOuter(zSteps, ln), getInner(zSteps, ln), getInner(zSteps, li));
+      tris.push([{ x: 0, y: 0, z: floorZ }, getInner(0, li), getInner(0, ln)]);
+    }
+  } else {
+    const tCenter = { x: 0, y: 0, z: height - topIndent };
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      tris.push([tCenter, getOuter(zSteps, li), getOuter(zSteps, ln)]);
+    }
+  }
+
+  return tris;
+}
+
+function generateHeartTriangles(params: Record<string, number>): Array<[Vec3, Vec3, Vec3]> {
+  const width = Math.max(12, params.width ?? 60);
+  const depth = Math.max(12, params.depth ?? 56);
+  const height = Math.max(4, params.height ?? 22);
+  const crown = Math.max(0, Math.min(height * 0.4, params.bevel ?? 4));
+  const segs = 48;
+
+  const scaleX = width / 32;
+  const scaleY = depth / 30;
+  const ring: Array<[number, number]> = [];
+  for (let i = 0; i < segs; i++) {
+    const t = (i / segs) * Math.PI * 2;
+    const hx = 16 * Math.pow(Math.sin(t), 3) * scaleX;
+    const hy = (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) * scaleY;
+    ring.push([hx, hy]);
+  }
+
+  const tris: Array<[Vec3, Vec3, Vec3]> = [];
+  const wallH = Math.max(2, height - crown);
+  for (let i = 0; i < segs; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % segs];
+    pushQuad(
+      tris,
+      { x: x0, y: y0, z: 0 },
+      { x: x1, y: y1, z: 0 },
+      { x: x1, y: y1, z: wallH },
+      { x: x0, y: y0, z: wallH }
+    );
+    tris.push([{ x: 0, y: 0, z: 0 }, { x: x1, y: y1, z: 0 }, { x: x0, y: y0, z: 0 }]);
+    tris.push([{ x: 0, y: 0, z: height }, { x: x0, y: y0, z: wallH }, { x: x1, y: y1, z: wallH }]);
+  }
+  return tris;
+}
+
+function generateStarTriangles(params: Record<string, number>): Array<[Vec3, Vec3, Vec3]> {
+  const points = Math.max(3, Math.min(16, Math.round(params.points ?? 5)));
+  const outerR = Math.max(10, params.outerRadius ?? params.radius ?? 36);
+  const innerR = Math.max(4, Math.min(outerR * 0.85, params.innerRadius ?? outerR * 0.44));
+  const height = Math.max(4, params.height ?? 18);
+  const baseH = Math.max(2, height * 0.55);
+
+  const totalVerts = points * 2;
+  const ring: Array<[number, number]> = [];
+  for (let i = 0; i < totalVerts; i++) {
+    const a = (i / totalVerts) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? outerR : innerR;
+    ring.push([r * Math.cos(a), r * Math.sin(a)]);
+  }
+
+  const tris: Array<[Vec3, Vec3, Vec3]> = [];
+  for (let i = 0; i < totalVerts; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % totalVerts];
+    pushQuad(
+      tris,
+      { x: x0, y: y0, z: 0 },
+      { x: x1, y: y1, z: 0 },
+      { x: x1, y: y1, z: baseH },
+      { x: x0, y: y0, z: baseH }
+    );
+    tris.push([{ x: 0, y: 0, z: 0 }, { x: x1, y: y1, z: 0 }, { x: x0, y: y0, z: 0 }]);
+    tris.push([{ x: 0, y: 0, z: height }, { x: x0, y: y0, z: baseH }, { x: x1, y: y1, z: baseH }]);
+  }
+  return tris;
+}
+
 export function generatePrimitiveRawTriangles(node: PrimitiveNode): Array<[Vec3, Vec3, Vec3]> {
   switch (node.type) {
     case 'box':
@@ -677,6 +905,14 @@ export function generatePrimitiveRawTriangles(node: PrimitiveNode): Array<[Vec3,
       return generateBracketTriangles(node.params);
     case 'hex_organizer':
       return generateHexOrganizerTriangles(node.params);
+    case 'apple':
+      return generateAppleTriangles(node.params);
+    case 'lathe':
+      return generateLatheTriangles(node.params);
+    case 'heart':
+      return generateHeartTriangles(node.params);
+    case 'star':
+      return generateStarTriangles(node.params);
     default:
       return generateBoxTriangles(node.params);
   }
@@ -1161,7 +1397,7 @@ export function exportPrintableGcode(mesh: CompiledMesh, scene: SceneSpec): stri
 }
 
 export const PRESET_TEMPLATES: Record<string, () => SceneSpec> = {
-  desk_headphone_stand: () => ({
+  desk_headphone_stand: (): SceneSpec => ({
     projectId: 'preset-headphone-hook',
     title: 'Schreibtisch-Kopfhörerhalter (Bambu P1S)',
     description: 'Verstärkter Tischkanten-Klemmhalter mit Kabelführung und rutschfester Frontlippe.',
@@ -1204,7 +1440,7 @@ export const PRESET_TEMPLATES: Record<string, () => SceneSpec> = {
     ],
   }),
 
-  precision_planetary_gear: () => ({
+  precision_planetary_gear: (): SceneSpec => ({
     projectId: 'preset-gear-24t',
     title: 'Präzisions-Stirnrad Z24 mit Nabe',
     description: 'Mechanisches Stirnzahnrad (24 Zähne, Ø64mm) mit verstärkter Mittelbohrung für 8mm Welle.',
@@ -1247,7 +1483,7 @@ export const PRESET_TEMPLATES: Record<string, () => SceneSpec> = {
     ],
   }),
 
-  twisted_rib_vase: () => ({
+  twisted_rib_vase: (): SceneSpec => ({
     projectId: 'preset-twisted-vase',
     title: 'Spiral-Designvase (Bambu Silk)',
     description: 'Skulpturale Vase mit 14 harmonischen Längsrippen und 110° Torsion.',
@@ -1287,7 +1523,7 @@ export const PRESET_TEMPLATES: Record<string, () => SceneSpec> = {
     ],
   }),
 
-  smart_home_organizer: () => ({
+  smart_home_organizer: (): SceneSpec => ({
     projectId: 'preset-hex-organizer',
     title: 'Schreibtisch & Smart-Sensor Organizer (6 Fächer)',
     description: 'Modularer Aufbewahrungs-Tray für Werkzeuge, SD-Karten, USB-Sticks und Shelly Sensoren.',
@@ -1313,6 +1549,73 @@ export const PRESET_TEMPLATES: Record<string, () => SceneSpec> = {
         id: 'init-org',
         prompt: 'Erstelle einen Schreibtisch-Organizer mit 3x2 Fächern',
         summary: '6-Kammer Organizer (88×58×38mm, 2.4mm Wandstärke) generiert.',
+        engine: 'Antigravity Parametric CAD',
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  }),
+
+  organic_apple_sculpture: (): SceneSpec => ({
+    projectId: 'preset-organic-apple',
+    title: '3D-Apfel mit Stiel & Blatt (Organisches Modell)',
+    description: 'Naturgetreuer 3D-Apfel mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gewölbter Kontur, Stiel und Blatt.',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    buildPlateMm: [256, 256, 256],
+    printProfile: {
+      ...DEFAULT_PRINT_PROFILE,
+      printerModel: 'Bambu Lab X1-Carbon 0.4 nozzle',
+      filamentColor: '#e11d48',
+      infillPercent: 18,
+    },
+    nodes: [
+      {
+        id: 'node-apple-body',
+        name: 'Apfel-Fruchtkörper (mit Stielgrube)',
+        type: 'apple',
+        operation: 'union',
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        color: '#e11d48',
+        params: {
+          radius: 34,
+          height: 58,
+          lobeCount: 5,
+          lobeAmplitude: 1.4,
+          topIndent: 12,
+          bottomIndent: 5,
+          segments: 36,
+        },
+      },
+      {
+        id: 'node-apple-stem',
+        name: 'Apfelstiel (Oben)',
+        type: 'cylinder',
+        operation: 'union',
+        position: [1.5, 0, 44],
+        rotation: [0, 14, 0],
+        scale: [1, 1, 1],
+        color: '#854d0e',
+        params: { radiusBottom: 2.2, radiusTop: 3.2, innerRadius: 0, height: 22, segments: 20 },
+      },
+      {
+        id: 'node-apple-leaf',
+        name: 'Apfelblatt',
+        type: 'sphere',
+        operation: 'union',
+        position: [14, 2, 57],
+        rotation: [18, -28, 15],
+        scale: [1.85, 0.78, 0.24],
+        color: '#16a34a',
+        params: { radius: 9.5, domeOnly: 0 },
+      },
+    ],
+    promptHistory: [
+      {
+        id: 'init-apple',
+        prompt: 'Apfel',
+        summary: 'Organischer 3D-Apfel (Ø70×66mm) mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gewölbtem Fruchtkörper, geneigtem Stiel und Blatt generiert.',
         engine: 'Antigravity Parametric CAD',
         timestamp: new Date().toISOString(),
       },

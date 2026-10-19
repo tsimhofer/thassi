@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tsimhofer/thassi/templates/ha-module-template/module-template.schema.json",
+  "title": "Thassi Home Assistant Modul-Template",
+  "description": "Generische Formularvorgabe für Zielsetzung, Dependencies, Test-Workflow und Deployment-Strategie eines n8n-generierten Home Assistant Python-Moduls.",
+  "type": "object",
+  "required": ["objectives", "dependencies", "testWorkflow", "deploymentStrategy"],
+  "properties": {
+    "objectives": {
+      "type": "object",
+      "description": "1. Zielsetzung des Home Assistant Moduls",
+      "required": ["slug", "name", "domain", "description", "targetEntities", "pollingIntervalSeconds"],
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Eindeutiger technischer Bezeichner (z. B. shelly_energy_guard)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Anzeigename des Moduls in Home Assistant"
+        },
+        "domain": {
+          "type": "string",
+          "enum": ["sensor", "binary_sensor", "switch", "climate", "automation", "service"],
+          "default": "sensor"
+        },
+        "description": {
+          "type": "string",
+          "description": "Fachliche Zielsetzung und Berechnungslogik für die Gemini Code-Generierung"
+        },
+        "targetEntities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Quell- oder Ziel-Entitäten in Home Assistant (z. B. sensor.shellyplugsg3_e4b063e4bfd8_power)"
+        },
+        "unitOfMeasurement": {
+          "type": "string",
+          "default": "W"
+        },
+        "icon": {
+          "type": "string",
+          "default": "mdi:flash-alert-outline"
+        },
+        "pollingIntervalSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 86400,
+          "default": 60
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "2. Technische Abhängigkeiten (Python, Pip, Home Assistant Integrationen, APIs)",
+      "required": ["pythonVersion", "pipPackages", "haIntegrations", "requiredEnvVars"],
+      "properties": {
+        "pythonVersion": {
+          "type": "string",
+          "default": ">=3.12"
+        },
+        "pipPackages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "haIntegrations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["http", "sensor", "mqtt"]
+        },
+        "requiredEnvVars": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["HA_URL", "HA_TOKEN", "GEMINI_API_KEY"]
+        }
+      }
+    },
+    "testWorkflow": {
+      "type": "object",
+      "description": "3. Qualitätssicherung & automatisierter Python Unit-Test-Workflow",
+      "required": ["framework", "astSyntaxCheck", "verifyErrorHandling", "requiredTestCases", "minPassRatePercent"],
+      "properties": {
+        "framework": {
+          "type": "string",
+          "enum": ["unittest", "pytest"],
+          "default": "unittest"
+        },
+        "astSyntaxCheck": {
+          "type": "boolean",
+          "default": true
+        },
+        "verifyErrorHandling": {
+          "type": "boolean",
+          "default": true
+        },
+        "requiredTestCases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "test_module_initialization",
+            "test_sensor_state_calculation",
+            "test_api_error_and_timeout_handling",
+            "test_ha_entity_payload_contract"
+          ]
+        },
+        "minPassRatePercent": {
+          "type": "integer",
+          "minimum": 80,
+          "maximum": 100,
+          "default": 100
+        }
+      }
+    },
+    "deploymentStrategy": {
+      "type": "object",
+      "description": "4. Versionsverwaltung & Bereitstellungs-Strategie nach Home Assistant",
+      "required": ["transport", "hassHost", "targetPath", "gitBranch", "autoCommitPush", "publishHaSensor"],
+      "properties": {
+        "transport": {
+          "type": "string",
+          "enum": ["samba_and_bridge", "samba", "ssh", "ha_rest_bridge"],
+          "default": "samba_and_bridge"
+        },
+        "hassHost": {
+          "type": "string",
+          "default": "192.168.188.92"
+        },
+        "sambaShare": {
+          "type": "string",
+          "default": "\\\\192.168.188.92\\config"
+        },
+        "sshPort": {
+          "type": "integer",
+          "default": 22
+        },
+        "targetPath": {
+          "type": "string",
+          "default": "/config/custom_components/{slug}"
+        },
+        "gitBranch": {
+          "type": "string",
+          "default": "main"
+        },
+        "autoCommitPush": {
+          "type": "boolean",
+          "default": true
+        },
+        "rollbackOnTestFailure": {
+          "type": "boolean",
+          "default": true
+        },
+        "publishHaSensor": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  }
+}

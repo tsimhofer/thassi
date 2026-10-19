@@ -3,6 +3,7 @@ import net from 'node:net';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import jpeg from 'jpeg-js';
+// @ts-expect-error pngjs ships without bundled .d.ts
 import { PNG } from 'pngjs';
 import { defineThassiApp, type ThassiAppContext } from '@thassi/sdk';
 
@@ -855,17 +856,17 @@ export default defineThassiApp((ctx) => {
   ctx.scheduleJob({
     id: 'cyclic_camera_sampler',
     name: 'Zyklische Kamera-Abtastung (Lokales COCO-SSD)',
-    intervalSeconds: 180,
-    handler: async (jobCtx) => {
+    intervalMinutes: 3,
+    handler: async () => {
       const cfg = getConfig();
       if (!cfg.cyclicEnabled) return;
-      const enabledCams = jobCtx.db.query<CameraSourceRow>(
+      const enabledCams = ctx.db.query<CameraSourceRow>(
         'SELECT * FROM camera_sources WHERE enabled = 1 ORDER BY id ASC'
       );
       for (const cam of enabledCams) {
-        await sampleSingleCamera(cam.id, jobCtx);
+        await sampleSingleCamera(cam.id, ctx);
       }
-      await updateSharedSummaryAndHaSensors(jobCtx);
+      await updateSharedSummaryAndHaSensors(ctx);
     },
   });
 

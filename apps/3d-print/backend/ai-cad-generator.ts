@@ -27,56 +27,53 @@ export function discoverGeminiApiKey(): string {
   return '';
 }
 
-let cachedModel = '';
+let cachedModels: string[] | null = null;
 
-async function resolveGeminiModel(apiKey: string): Promise<string> {
-  if (cachedModel) return cachedModel;
+async function resolveGeminiModels(apiKey: string): Promise<string[]> {
+  if (cachedModels && cachedModels.length > 0) return cachedModels;
+  const preferred = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+    'gemini-2.5-pro',
+  ];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-      { signal: AbortSignal.timeout(4000) }
+      { signal: AbortSignal.timeout(3500) }
     );
     if (res.ok) {
       const data = (await res.json()) as {
         models?: Array<{ name: string; supportedGenerationMethods?: string[] }>;
       };
-      const names = (data.models || [])
-        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
-        .map((m) => m.name.replace(/^models\//, ''));
-      for (const candidate of [
-        'gemini-3.8-flash',
-        'gemini-2.5-flash',
-        'gemini-2.5-pro',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-      ]) {
-        if (names.includes(candidate)) {
-          cachedModel = candidate;
-          return candidate;
-        }
-      }
-      const firstFlash = names.find(
-        (n) => n.includes('flash') && !n.includes('tts') && !n.includes('image')
+      const available = new Set(
+        (data.models || [])
+          .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map((m) => m.name.replace(/^models\//, ''))
       );
-      if (firstFlash) {
-        cachedModel = firstFlash;
-        return firstFlash;
+      const matched = preferred.filter((c) => available.has(c));
+      if (matched.length > 0) {
+        cachedModels = matched;
+        return matched;
       }
     }
   } catch {
-    // Ignore
+    // Ignore network timeout
   }
-  return 'gemini-2.0-flash';
+  return ['gemini-2.5-flash', 'gemini-2.0-flash'];
 }
 
 const COLOR_MAP: Array<{ pattern: RegExp; hex: string; label: string }> = [
-  { pattern: /\b(rot|red|crimson|rubin)\b/i, hex: '#ef4444', label: 'Rot' },
+  { pattern: /\b(rot|red|crimson|rubin|kirsch)\b/i, hex: '#e11d48', label: 'Apfel-Rot' },
+  { pattern: /\b(grün|gruen|green|bambu|smaragd|lime|granny)\b/i, hex: '#22c55e', label: 'Grün' },
   { pattern: /\b(blau|blue|kobalt|navy|türkis|cyan)\b/i, hex: '#38bdf8', label: 'Blau / Cyan' },
-  { pattern: /\b(grün|gruen|green|bambu|smaragd|lime)\b/i, hex: '#00AE42', label: 'Bambu Grün' },
-  { pattern: /\b(gelb|yellow|gold|amber|messing)\b/i, hex: '#fbbf24', label: 'Gold / Gelb' },
+  { pattern: /\b(gelb|yellow|gold|amber|messing|zitrone)\b/i, hex: '#fbbf24', label: 'Gold / Gelb' },
   { pattern: /\b(orange|kupfer|copper|mandarin)\b/i, hex: '#f97316', label: 'Orange' },
-  { pattern: /\b(lila|violett|purple|magenta)\b/i, hex: '#a855f7', label: 'Violett' },
-  { pattern: /\b(weiss|weiß|white|klar|farblos)\b/i, hex: '#f8fafc', label: 'Weiß' },
+  { pattern: /\b(lila|violett|purple|magenta|beere)\b/i, hex: '#a855f7', label: 'Violett' },
+  { pattern: /\b(rosa|pink|koralle)\b/i, hex: '#f43f5e', label: 'Pink / Koralle' },
+  { pattern: /\b(braun|holz|wood|bronze|schoko)\b/i, hex: '#854d0e', label: 'Holz-Braun' },
+  { pattern: /\b(weiss|weiß|white|klar|farblos|schnee)\b/i, hex: '#f8fafc', label: 'Weiß' },
   { pattern: /\b(schwarz|black|carbon|anthrazit|grau|grey|silber)\b/i, hex: '#64748b', label: 'Anthrazit / Carbon' },
 ];
 
@@ -89,6 +86,23 @@ function extractColorFromPrompt(prompt: string): { hex: string; label: string } 
     if (c.pattern.test(prompt)) return c;
   }
   return null;
+}
+
+const KNOWN_OBJECT_ARCHETYPE_REGEX =
+  /\b(apfel|äpfel|aepfel|apple|birne|pear|tasse|kaffeetasse|teetasse|mug|becher|herz|heart|stern|star|pilz|fliegenpilz|mushroom|flasche|karaffe|bottle|schale|schüssel|schuessel|bowl|obstschale|schach|schachfigur|bauer|könig|koenig|dame|pawn|chess|schneemann|snowman|würfel|wuerfel|cube|pyramide|pyramid|kegel|trichter|cone|donut|torus|zahnrad|gear|ritzel|getriebe|vase|blumentopf|pflanztopf|kelch|organizer|sortierbox|stiftehalter|kopfhörer|kopfhoerer|headphone|wandhalter|tischklemme|winkel|bracket)\b/i;
+
+const INCREMENTAL_MODIFIER_ONLY_REGEX =
+  /\b(höher|hoeher|breiter|kleiner|flacher|kürzer|kuerzer|größer|groesser|skalier|loch|bohrung|durchbruch|farbe|färbe|faerbe|dreh|rotier|twist|ohne\s+blatt|ohne\s+stiel|biss|abgebissen|halbiere)\b/i;
+
+export function isExplicitObjectCreationPrompt(prompt: string): boolean {
+  const lower = prompt.trim().toLowerCase();
+  if (/\b(neues objekt|erstelle neu|komplett neu|stattdessen|generiere|erstelle|mach mir)\b/i.test(lower)) {
+    return true;
+  }
+  if (KNOWN_OBJECT_ARCHETYPE_REGEX.test(lower) && !INCREMENTAL_MODIFIER_ONLY_REGEX.test(lower)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -104,16 +118,434 @@ export function runLocalAntigravityCadEngine(
   const nowIso = new Date().toISOString();
   const colorMatch = extractColorFromPrompt(cleanPrompt);
 
-  // CASE A: If no existing scene OR prompt explicitly requests creating a brand-new archetype
-  const isNewRequest =
-    !existingScene ||
-    /\b(neues objekt|erstelle neu|komplett neu|stattdessen)\b/i.test(lower);
+  // CASE A: If no existing scene OR prompt requests creating a specific object archetype
+  const isNewRequest = !existingScene || isExplicitObjectCreationPrompt(cleanPrompt);
 
   if (isNewRequest) {
     let baseScene: SceneSpec;
     let summary = '';
+    let preserveNodeColors = false;
 
-    if (/\b(zahnrad|gear|ritzel|zähne|zaehne|cog|getriebe)\b/i.test(lower)) {
+    if (/\b(apfel|äpfel|aepfel|apple|obst)\b/i.test(lower)) {
+      baseScene = PRESET_TEMPLATES.organic_apple_sculpture();
+      preserveNodeColors = true;
+      const bodyColor = colorMatch?.hex || '#e11d48';
+      baseScene.printProfile.filamentColor = bodyColor;
+      const bodyNode = baseScene.nodes.find((n) => n.type === 'apple') || baseScene.nodes[0];
+      if (bodyNode) bodyNode.color = bodyColor;
+
+      const sizeMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
+      if (sizeMatch && bodyNode) {
+        const dia = Math.max(24, Math.min(200, Number(sizeMatch[1].replace(',', '.'))));
+        bodyNode.params.radius = Math.round(dia / 2);
+        bodyNode.params.height = Math.round(dia * 0.86);
+      }
+
+      if (/\b(ohne\s+blatt|kein\s+blatt)\b/i.test(lower)) {
+        baseScene.nodes = baseScene.nodes.filter((n) => !n.id.includes('leaf'));
+      }
+      if (/\b(biss|abgebissen|bite)\b/i.test(lower)) {
+        baseScene.nodes.push({
+          id: 'node-apple-bite',
+          name: 'Biss-Abzug (Seitlich)',
+          type: 'sphere',
+          operation: 'subtract',
+          position: [31, 0, 22],
+          rotation: [0, 0, 0],
+          scale: [1, 1.15, 1.1],
+          color: '#f43f5e',
+          params: { radius: 18, domeOnly: 0 },
+        });
+      }
+
+      baseScene.title =
+        colorMatch && colorMatch.label !== 'Apfel-Rot'
+          ? `3D-Apfel (${colorMatch.label})`
+          : '3D-Apfel mit Stiel & Blatt';
+      baseScene.description = `Organischer 3D-Apfel generiert aus Prompt: "${cleanPrompt}"`;
+      summary = `Naturgetreuer 3D-Apfel (Ø${(bodyNode?.params.radius || 34) * 2}×${(bodyNode?.params.height || 58) + 8}mm) mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gewölbtem Fruchtkörper, braunem Stiel und grünem Blatt generiert.`;
+    } else if (/\b(birne|pear)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const bodyColor = colorMatch?.hex || '#84cc16';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3D-Birne mit Stiel & Blatt',
+        description: `Organische 3D-Birne generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bodyColor },
+        nodes: [
+          {
+            id: 'node-pear-body',
+            name: 'Birnen-Fruchtkörper (Rotationsprofil)',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bodyColor,
+            params: {
+              height: 78,
+              rBottom: 15,
+              rLower: 34,
+              rMid: 31,
+              rUpper: 19,
+              rNeck: 12,
+              rTop: 6,
+              topIndent: 4,
+              bottomIndent: 4,
+              lobeCount: 5,
+              lobeAmplitude: 1.0,
+              segments: 36,
+            },
+          },
+          {
+            id: 'node-pear-stem',
+            name: 'Birnenstiel',
+            type: 'cylinder',
+            operation: 'union',
+            position: [1, 0, 73],
+            rotation: [0, 12, 0],
+            scale: [1, 1, 1],
+            color: '#854d0e',
+            params: { radiusBottom: 2.2, radiusTop: 3.0, height: 18, segments: 18 },
+          },
+          {
+            id: 'node-pear-leaf',
+            name: 'Birnenblatt',
+            type: 'sphere',
+            operation: 'union',
+            position: [11, 0, 81],
+            rotation: [15, -25, 10],
+            scale: [1.7, 0.75, 0.22],
+            color: '#16a34a',
+            params: { radius: 8.5, domeOnly: 0 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Organische 3D-Birne (Ø68×91mm) mit bauchiger Unterseite, schlankem Hals, Stiel und Blatt erstellt.';
+    } else if (/\b(tasse|kaffeetasse|teetasse|mug|haferl)\b/i.test(lower)) {
+      const mugColor = colorMatch?.hex || '#38bdf8';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Design-Kaffeetasse mit Henkel',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: mugColor },
+        nodes: [
+          {
+            id: 'node-mug-body',
+            name: 'Hohler Tassenkörper',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: mugColor,
+            params: {
+              height: 76,
+              rBottom: 32,
+              rLower: 35,
+              rMid: 36,
+              rUpper: 36,
+              rNeck: 36,
+              rTop: 37,
+              wallThickness: 3.4,
+              segments: 40,
+            },
+          },
+          {
+            id: 'node-mug-handle',
+            name: 'Ergonomischer Tassenhenkel',
+            type: 'torus',
+            operation: 'union',
+            position: [36, 0, 20],
+            rotation: [90, 0, 0],
+            scale: [0.85, 1.15, 1],
+            color: mugColor,
+            params: { radius: 21, tubeRadius: 5.2 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Hohle 3D-Tasse (Ø74×76mm, 3.4mm Wandstärke) mit seitlichem Henkel erstellt.';
+    } else if (/\b(herz|heart|liebe)\b/i.test(lower)) {
+      const heartColor = colorMatch?.hex || '#e11d48';
+      preserveNodeColors = true;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3D-Herz-Skulptur (Gefast)',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: heartColor },
+        nodes: [
+          {
+            id: 'node-heart-main',
+            name: '3D-Herzkörper',
+            type: 'heart',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: heartColor,
+            params: { width: 68, depth: 62, height: 24, bevel: 5 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Dreidimensionales, gewölbtes 3D-Herz (68×62×24mm) erstellt.';
+    } else if (/\b(stern|star|weihnachtsstern)\b/i.test(lower)) {
+      const starColor = colorMatch?.hex || '#fbbf24';
+      preserveNodeColors = true;
+      const ptsMatch = lower.match(/(\d+)\s*(?:zacken|spitzen|points)/i);
+      const pts = ptsMatch ? Math.max(3, Math.min(12, Number(ptsMatch[1]))) : 5;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: `3D-Stern (${pts}-zackig)`,
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: starColor },
+        nodes: [
+          {
+            id: 'node-star-main',
+            name: `${pts}-zackiger 3D-Stern`,
+            type: 'star',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: starColor,
+            params: { points: pts, outerRadius: 42, innerRadius: 18, height: 20 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = `Facettierter ${pts}-zackiger 3D-Stern (Ø84×20mm) erstellt.`;
+    } else if (/\b(pilz|fliegenpilz|mushroom)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3D-Pilz (Stiel & Hut)',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: '#e11d48' },
+        nodes: [
+          {
+            id: 'node-mushroom-stem',
+            name: 'Pilzstiel',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f8fafc',
+            params: { height: 46, rBottom: 16, rLower: 18, rMid: 13, rUpper: 11, rNeck: 10, rTop: 12, segments: 32 },
+          },
+          {
+            id: 'node-mushroom-cap',
+            name: 'Gewölbter Pilzhut',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, 0, 40],
+            rotation: [0, 0, 0],
+            scale: [1.2, 1.2, 0.78],
+            color: colorMatch?.hex || '#e11d48',
+            params: { radius: 30, domeOnly: 1 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Organischer 3D-Pilz (Ø72×64mm) mit bauchigem Stiel und gewölbter Hutkuppel generiert.';
+    } else if (/\b(flasche|karaffe|bottle|kolben)\b/i.test(lower)) {
+      const bottleColor = colorMatch?.hex || '#38bdf8';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Design-Flasche / Karaffe',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bottleColor },
+        nodes: [
+          {
+            id: 'node-bottle-body',
+            name: 'Flaschenkörper mit Hals',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bottleColor,
+            params: {
+              height: 110,
+              rBottom: 28,
+              rLower: 32,
+              rMid: 32,
+              rUpper: 26,
+              rNeck: 12,
+              rTop: 14,
+              wallThickness: 2.6,
+              segments: 36,
+            },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Hohle 3D-Karaffe / Flasche (Ø64×110mm) mit verjüngtem Flaschenhals erstellt.';
+    } else if (/\b(schale|schüssel|schuessel|bowl|obstschale)\b/i.test(lower)) {
+      const bowlColor = colorMatch?.hex || '#f59e0b';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Organische Design-Schale',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bowlColor },
+        nodes: [
+          {
+            id: 'node-bowl-body',
+            name: 'Gewölbte Schale',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bowlColor,
+            params: {
+              height: 46,
+              rBottom: 24,
+              rLower: 34,
+              rMid: 42,
+              rUpper: 48,
+              rNeck: 52,
+              rTop: 54,
+              wallThickness: 3.2,
+              lobeCount: 12,
+              lobeAmplitude: 1.5,
+              segments: 44,
+            },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Hohle Design-Schale (Ø108×46mm, 3.2mm Wandstärke) generiert.';
+    } else if (/\b(schach|schachfigur|bauer|könig|koenig|dame|pawn|chess|spielfigur)\b/i.test(lower)) {
+      const chessColor = colorMatch?.hex || '#e2e8f0';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Klassische Schachfigur (Gedreht)',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: chessColor },
+        nodes: [
+          {
+            id: 'node-chess-base',
+            name: 'Gedrehter Figurensockel & Säule',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: chessColor,
+            params: {
+              height: 54,
+              rBottom: 22,
+              rLower: 19,
+              rMid: 11,
+              rUpper: 9,
+              rNeck: 14,
+              rTop: 9,
+              segments: 36,
+            },
+          },
+          {
+            id: 'node-chess-head',
+            name: 'Kugelkopf',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, 0, 50],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: chessColor,
+            params: { radius: 12, domeOnly: 0 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Klassische Schachfigur (Ø44×74mm) mit gedrehtem Sockel, Kragenring und Kugelkopf erstellt.';
+    } else if (/\b(schneemann|snowman)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3D-Schneemann mit Hut & Karottennase',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: '#f8fafc' },
+        nodes: [
+          {
+            id: 'node-snow-bottom',
+            name: 'Untere Schneekugel',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 0.92],
+            color: '#f8fafc',
+            params: { radius: 26, domeOnly: 0 },
+          },
+          {
+            id: 'node-snow-mid',
+            name: 'Mittlere Schneekugel',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, 0, 38],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 0.92],
+            color: '#f8fafc',
+            params: { radius: 19, domeOnly: 0 },
+          },
+          {
+            id: 'node-snow-head',
+            name: 'Schneemann-Kopf',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, 0, 66],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f8fafc',
+            params: { radius: 13, domeOnly: 0 },
+          },
+          {
+            id: 'node-snow-nose',
+            name: 'Karottennase',
+            type: 'cone',
+            operation: 'union',
+            position: [0, -12, 79],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f97316',
+            params: { radiusBottom: 3.2, radiusTop: 0.6, height: 14, segments: 18 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = '3D-Schneemann (Ø52×92mm) aus drei gestapelten Sphären mit Karottennase generiert.';
+    } else if (/\b(zahnrad|gear|ritzel|zähne|zaehne|cog|getriebe)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.precision_planetary_gear();
       const teethMatch = lower.match(/(\d+)\s*(?:zähne|zaehne|teeth|t\b)/i);
       const boreMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm\s*(?:loch|bohrung|welle|bore)/i);
@@ -133,7 +565,7 @@ export function runLocalAntigravityCadEngine(
       }
       baseScene.title = `Stirnzahnrad Z${gearNode.params.teeth}`;
       summary = `Präzisions-Zahnrad mit ${gearNode.params.teeth} Zähnen (Ø${gearNode.params.outerRadius * 2}mm, Bohrung Ø${(gearNode.params.boreRadius || 5) * 2}mm) generiert.`;
-    } else if (/\b(vase|becher|cup|blumentopf|topf|gefäß|gefaess|spiral|kelch|lampe)\b/i.test(lower)) {
+    } else if (/\b(vase|blumentopf|topf|gefäß|gefaess|spiral|kelch|lampe)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.twisted_rib_vase();
       const heightMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm\s*(?:hoch|höhe|hoehe|high)/i);
       const ribMatch = lower.match(/(\d+)\s*(?:rippen|ribs|rillen)/i);
@@ -142,7 +574,7 @@ export function runLocalAntigravityCadEngine(
       if (ribMatch) vaseNode.params.ribCount = Math.max(0, Math.min(36, Number(ribMatch[1])));
       baseScene.title = `Spiral-Designvase (${vaseNode.params.height}mm)`;
       summary = `Skulpturale Torsions-Vase (Höhe ${vaseNode.params.height}mm, ${vaseNode.params.ribCount} Rippen) erstellt.`;
-    } else if (/\b(organizer|box|kasten|schublade|sortier|fach|fächer|faecher|tray|stiftehalter|halterung für kabel)\b/i.test(lower)) {
+    } else if (/\b(organizer|kasten|schublade|sortier|fach|fächer|faecher|tray|stiftehalter|halterung für kabel)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.smart_home_organizer();
       const orgNode = baseScene.nodes[0];
       const gridMatch = lower.match(/(\d+)\s*[x×]\s*(\d+)/);
@@ -155,13 +587,13 @@ export function runLocalAntigravityCadEngine(
     } else if (/\b(kopfhörer|kopfhoerer|headphone|haken|hook|winkel|bracket|wandhalter|tischklemme|klemme|ständer|staender)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.desk_headphone_stand();
       baseScene.title = cleanPrompt.length <= 42 ? cleanPrompt : 'Tisch- & Wandhalterung (Bracket)';
-      summary = `Verstärkte Halterung / Tischklemme (38×62×74mm) mit Kabeldurchführung für Bambu Lab P1S generiert.`;
-    } else if (/\b(kugel|sphere|ball|kuppel|dome)\b/i.test(lower)) {
+      summary = `Verstärkte Halterung / Tischklemme (38×62×74mm) mit Kabeldurchführung generiert.`;
+    } else if (/\b(kugel|sphere|ball|kuppel|dome|murmel)\b/i.test(lower)) {
       const rMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
-      const rad = rMatch ? Math.max(8, Number(rMatch[1].replace(',', '.')) / 2) : 26;
+      const rad = rMatch ? Math.max(8, Number(rMatch[1].replace(',', '.')) / 2) : 28;
       baseScene = {
         projectId: `proj-${Date.now()}`,
-        title: `Geodätische Sphäre / Kuppel (Ø${rad * 2}mm)`,
+        title: `3D-Kugel / Sphäre (Ø${rad * 2}mm)`,
         description: `Generiert aus Prompt: "${cleanPrompt}"`,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -170,7 +602,7 @@ export function runLocalAntigravityCadEngine(
         nodes: [
           {
             id: 'node-sphere-1',
-            name: 'Haupt-Kugelkörper',
+            name: 'Kugelkörper',
             type: 'sphere',
             operation: 'union',
             position: [0, 0, 0],
@@ -179,21 +611,88 @@ export function runLocalAntigravityCadEngine(
             color: colorMatch?.hex || '#00AE42',
             params: { radius: rad, domeOnly: /\b(kuppel|dome|halbkugel)\b/i.test(lower) ? 1 : 0 },
           },
+        ],
+        promptHistory: [],
+      };
+      summary = `Sphären-Geometrie (Ø${rad * 2}mm) auf der Bauplatte erstellt.`;
+    } else if (/\b(pyramide|pyramid|kegel|cone|trichter)\b/i.test(lower)) {
+      const isPyramid = /\b(pyramide|pyramid)\b/i.test(lower);
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: isPyramid ? '3D-Pyramide' : '3D-Kegel / Konus',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE },
+        nodes: [
           {
-            id: 'node-stand-ring',
-            name: 'Standring-Basis',
-            type: 'cylinder',
+            id: 'node-cone-main',
+            name: isPyramid ? 'Pyramidenkörper' : 'Kegelkörper',
+            type: 'cone',
             operation: 'union',
             position: [0, 0, 0],
-            rotation: [0, 0, 0],
+            rotation: [0, 0, isPyramid ? 45 : 0],
             scale: [1, 1, 1],
-            color: colorMatch?.hex || '#00AE42',
-            params: { radiusBottom: rad * 0.65, radiusTop: rad * 0.55, innerRadius: rad * 0.35, height: 6, segments: 36 },
+            color: colorMatch?.hex || '#f59e0b',
+            params: { radiusBottom: 34, radiusTop: 1, height: 56, segments: isPyramid ? 4 : 40 },
           },
         ],
         promptHistory: [],
       };
-      summary = `Sphären-Geometrie (Ø${rad * 2}mm) mit druckbarem Standring auf der Bauplatte erstellt.`;
+      summary = `${isPyramid ? '4-seitige Pyramide' : 'Präzisionskegel'} (Ø68×56mm) erstellt.`;
+    } else if (/\b(donut|torus|o-ring|reif)\b/i.test(lower)) {
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3D-Torus / Donut-Ring',
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE },
+        nodes: [
+          {
+            id: 'node-torus-main',
+            name: 'Torus-Ringkörper',
+            type: 'torus',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: colorMatch?.hex || '#f43f5e',
+            params: { radius: 28, tubeRadius: 11 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Torus / Donut-Geometrie (Außen-Ø78mm, Ringstärke 22mm) generiert.';
+    } else if (/\b(würfel|wuerfel|cube|quader|block|klotz)\b/i.test(lower)) {
+      const m = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
+      const sz = m ? Math.max(10, Number(m[1].replace(',', '.'))) : 45;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: `3D-Würfel (${sz}×${sz}×${sz}mm)`,
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE },
+        nodes: [
+          {
+            id: 'node-cube-main',
+            name: 'Gefaster 3D-Würfel',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: colorMatch?.hex || '#38bdf8',
+            params: { width: sz, depth: sz, height: sz, bevel: 3.5, wallThickness: 0 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = `Gefaster 3D-Würfel (${sz}×${sz}×${sz}mm) erstellt.`;
     } else if (/\b(zylinder|rohr|tube|hülse|huelse|spacer|adapter|ring|spule)\b/i.test(lower)) {
       const nums = (lower.match(/\d+(?:[.,]\d+)?/g) || []).map((n) => Number(n.replace(',', '.')));
       const outerR = nums[0] ? Math.max(6, nums[0] / 2) : 25;
@@ -224,13 +723,13 @@ export function runLocalAntigravityCadEngine(
       };
       summary = `Zylinder-Adapter (Außen-Ø${outerR * 2}mm, Innen-Ø${(innerR * 2).toFixed(1)}mm, Höhe ${height}mm) erstellt.`;
     } else {
-      // General custom CAD housing / enclosure / object
+      // Sculptural rotational / custom CAD object fallback
       const dims = (lower.match(/(\d+(?:[.,]\d+)?)\s*mm/g) || []).map((s) =>
         Number(s.replace(/mm/i, '').replace(',', '.').trim())
       );
-      const w = dims[0] || 64;
+      const w = dims[0] || 60;
       const d = dims[1] || 48;
-      const h = dims[2] || 32;
+      const h = dims[2] || 36;
       baseScene = {
         projectId: `proj-${Date.now()}`,
         title: cleanPrompt.slice(0, 48) || 'Antigravity 3D-Objekt',
@@ -249,33 +748,22 @@ export function runLocalAntigravityCadEngine(
             rotation: [0, 0, 0],
             scale: [1, 1, 1],
             color: colorMatch?.hex || '#00AE42',
-            params: { width: w, depth: d, height: h, bevel: 4, wallThickness: /\b(hohl|gehäuse|box|schale)\b/i.test(lower) ? 2.8 : 0 },
-          },
-          {
-            id: 'node-top-boss',
-            name: 'Zentraler Aufsatz / Flansch',
-            type: 'cylinder',
-            operation: 'union',
-            position: [0, 0, h],
-            rotation: [0, 0, 0],
-            scale: [1, 1, 1],
-            color: colorMatch?.hex || '#00AE42',
-            params: { radiusBottom: Math.min(w, d) * 0.28, radiusTop: Math.min(w, d) * 0.24, innerRadius: Math.min(w, d) * 0.12, height: Math.max(8, h * 0.35), segments: 36 },
+            params: { width: w, depth: d, height: h, bevel: 5, wallThickness: /\b(hohl|gehäuse|box)\b/i.test(lower) ? 2.8 : 0 },
           },
         ],
         promptHistory: [],
       };
-      summary = `Parametrisches 3D-Modell (${w}×${d}×${Math.round(h * 1.35)}mm) mit Flansch-Aufsatz für "${cleanPrompt}" generiert.`;
+      summary = `Parametrisches 3D-Modell (${w}×${d}×${h}mm) für "${cleanPrompt}" generiert.`;
     }
 
-    if (colorMatch) {
+    if (colorMatch && !preserveNodeColors) {
       baseScene.printProfile.filamentColor = colorMatch.hex;
       for (const n of baseScene.nodes) {
         if (n.operation !== 'subtract') n.color = colorMatch.hex;
       }
     }
 
-    baseScene.projectId = `proj-${Date.now()}`;
+    baseScene.projectId = existingScene?.projectId || `proj-${Date.now()}`;
     baseScene.updatedAt = nowIso;
     baseScene.promptHistory = [
       {
@@ -285,7 +773,8 @@ export function runLocalAntigravityCadEngine(
         engine: 'Antigravity Parametric CAD',
         timestamp: nowIso,
       },
-    ];
+      ...(existingScene?.promptHistory || []),
+    ].slice(0, 30);
     return { scene: baseScene, summary, engine: 'Antigravity Parametric CAD' };
   }
 
@@ -297,9 +786,42 @@ export function runLocalAntigravityCadEngine(
   if (colorMatch) {
     scene.printProfile.filamentColor = colorMatch.hex;
     for (const n of scene.nodes) {
-      if (n.operation !== 'subtract') n.color = colorMatch.hex;
+      if (n.operation === 'subtract') continue;
+      // Preserve stem/leaf accent colors when recoloring an apple/pear unless specifically targeting stem/leaf
+      if (
+        (n.id.includes('stem') || n.id.includes('leaf')) &&
+        !/\b(stiel|blatt|komplett|alles)\b/i.test(lower)
+      ) {
+        continue;
+      }
+      n.color = colorMatch.hex;
     }
     changes.push(`Farbe auf ${colorMatch.label} (${colorMatch.hex}) geändert`);
+  }
+
+  if (/\b(ohne\s+blatt|blatt\s+entfernen|kein\s+blatt)\b/i.test(lower)) {
+    scene.nodes = scene.nodes.filter((n) => !n.id.includes('leaf') && !/blatt/i.test(n.name));
+    changes.push('Blatt entfernt');
+  }
+
+  if (/\b(ohne\s+stiel|stiel\s+entfernen|kein\s+stiel)\b/i.test(lower)) {
+    scene.nodes = scene.nodes.filter((n) => !n.id.includes('stem') && !/stiel/i.test(n.name));
+    changes.push('Stiel entfernt');
+  }
+
+  if (/\b(biss|abgebissen|bite)\b/i.test(lower)) {
+    scene.nodes.push({
+      id: `node-bite-${Date.now()}`,
+      name: 'Seitlicher Biss-Abzug',
+      type: 'sphere',
+      operation: 'subtract',
+      position: [31, 0, 22],
+      rotation: [0, 0, 0],
+      scale: [1, 1.15, 1.1],
+      color: '#f43f5e',
+      params: { radius: 18, domeOnly: 0 },
+    });
+    changes.push('Seitliche Biss-Aussparung hinzugefügt');
   }
 
   // Percentage scaling (e.g., "20% größer", "skaliere auf 150%", "30% höher")
@@ -335,6 +857,7 @@ export function runLocalAntigravityCadEngine(
     for (const n of scene.nodes) {
       if (mmVal && !pctVal) {
         if (n.params.width !== undefined) n.params.width = mmVal;
+        if (n.params.radius !== undefined) n.params.radius = mmVal / 2;
         if (n.params.outerRadius !== undefined) n.params.outerRadius = mmVal / 2;
         if (n.params.radiusBottom !== undefined) n.params.radiusBottom = mmVal / 2;
         if (n.params.radiusTop !== undefined) n.params.radiusTop = mmVal / 2;
@@ -366,7 +889,7 @@ export function runLocalAntigravityCadEngine(
   }
 
   // Tooth / rib count modification
-  if (/\b(zähne|zaehne|teeth|rippen|ribs|fächer|faecher|slots)\b/i.test(lower)) {
+  if (/\b(zähne|zaehne|teeth|rippen|ribs|fächer|faecher|slots|zacken)\b/i.test(lower)) {
     const countMatch = lower.match(/(\d+)/);
     const num = countMatch ? Number(countMatch[1]) : null;
     for (const n of scene.nodes) {
@@ -379,13 +902,16 @@ export function runLocalAntigravityCadEngine(
       } else if (n.type === 'hex_organizer') {
         n.params.slotsX = num ? Math.max(1, Math.min(5, num)) : (n.params.slotsX || 3) + 1;
         changes.push(`Kammer-Unterteilung auf ${n.params.slotsX}×${n.params.slotsY || 2} geändert`);
+      } else if (n.type === 'star') {
+        n.params.points = num ? Math.max(3, Math.min(16, num)) : (n.params.points || 5) + 1;
+        changes.push(`Sternspitzen auf ${n.params.points} gesetzt`);
       }
     }
   }
 
   // Add hole / bore / cutout ("loch", "bohrung", "ausschnitt", "schraubloch")
   if (/\b(loch|löcher|loecher|bohrung|bore|hole|aushöhlen|durchbruch)\b/i.test(lower)) {
-    const holeDia = mmVal || 8;
+    const holeDia = mmVal || 10;
     const holeRad = Math.max(1, holeDia / 2);
     const mainNode = scene.nodes[0];
     if (mainNode && (mainNode.type === 'cylinder' || mainNode.type === 'gear')) {
@@ -401,17 +927,17 @@ export function runLocalAntigravityCadEngine(
       rotation: [0, 0, 0],
       scale: [1, 1, 1],
       color: '#f43f5e',
-      params: { radiusBottom: holeRad, radiusTop: holeRad, height: 60, segments: 32 },
+      params: { radiusBottom: holeRad, radiusTop: holeRad, height: 80, segments: 32 },
     });
     changes.push(`Präzisionsbohrung (Ø${holeDia}mm) hinzugefügt`);
   }
 
-  // Add extra feature / attachment ("füge ... hinzu", "zylinder", "ring", "sockel", "griff", "knauf")
+  // Add extra feature / attachment ("füge ... hinzu", "sockel", "ring", "knauf")
   if (
-    /\b(füge|fuege|add|hinzu|oben|sockel|basis|ring|knauf|griff|kugel|zylinder)\b/i.test(lower) &&
+    /\b(füge|fuege|add|hinzu|oben|sockel|basis|ring|knauf|griff|henkel)\b/i.test(lower) &&
     !/\b(loch|bohrung)\b/i.test(lower)
   ) {
-    const refHeight = scene.nodes[0]?.params?.height || 35;
+    const refHeight = scene.nodes[0]?.params?.height || 45;
     if (/\b(ring|öse|oese|torus|henkel)\b/i.test(lower)) {
       scene.nodes.push({
         id: `node-ring-${Date.now()}`,
@@ -451,19 +977,6 @@ export function runLocalAntigravityCadEngine(
         params: { radius: mmVal ? mmVal / 2 : 14, domeOnly: 0 },
       });
       changes.push(`Kugelknauf an Oberseite angefügt`);
-    } else if (changes.length === 0) {
-      scene.nodes.push({
-        id: `node-boss-${Date.now()}`,
-        name: 'Zylinder-Aufsatz',
-        type: 'cylinder',
-        operation: 'union',
-        position: [0, 0, refHeight - 2],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-        color: scene.printProfile.filamentColor,
-        params: { radiusBottom: 14, radiusTop: 12, innerRadius: 5, height: mmVal || 18, segments: 36 },
-      });
-      changes.push(`Zylindrischen Aufsatz (${mmVal || 18}mm) ergänzt`);
     }
   }
 
@@ -479,7 +992,19 @@ export function runLocalAntigravityCadEngine(
     changes.push(`Torsions-/Rotationswinkel erhöht`);
   }
 
-  // If no specific rule matched, apply a visible parametric refinement
+  // Position move via prompt ("verschiebe nach links/rechts/vorne/hinten")
+  if (/\b(verschieb|move|links|rechts|vorne|hinten)\b/i.test(lower)) {
+    const step = mmVal || 15;
+    const dx = /\brechts\b/i.test(lower) ? step : /\blinks\b/i.test(lower) ? -step : 0;
+    const dy = /\bhinten\b/i.test(lower) ? step : /\bvorne\b/i.test(lower) ? -step : 0;
+    for (const n of scene.nodes) {
+      n.position[0] = Number(((n.position[0] || 0) + dx).toFixed(1));
+      n.position[1] = Number(((n.position[1] || 0) + dy).toFixed(1));
+    }
+    changes.push(`Objekt auf Bauplatte verschoben (ΔX=${dx}mm, ΔY=${dy}mm)`);
+  }
+
+  // If no specific modifier rule matched, apply a visible parametric refinement
   if (changes.length === 0) {
     const primary = scene.nodes[0];
     if (primary) {
@@ -491,7 +1016,7 @@ export function runLocalAntigravityCadEngine(
       if (primary.params.bevel !== undefined) {
         primary.params.bevel = Math.min(12, (primary.params.bevel || 2) + 2);
       }
-      changes.push(`Geometrie gemäß "${cleanPrompt}" verfeinert (+15% Profilhöhe & Kantenfase)`);
+      changes.push(`Geometrie gemäß "${cleanPrompt}" angepasst`);
     }
   }
 
@@ -508,22 +1033,37 @@ export function runLocalAntigravityCadEngine(
 }
 
 /**
- * Uses Google Gemini AI (if available via Home Assistant Google Generative AI integration)
- * combined with Antigravity Parametric CAD verification to synthesize or mutate the 3D SceneSpec.
+ * Uses Google Gemini AI (if available) combined with Antigravity Parametric CAD verification
+ * to synthesize or mutate the 3D SceneSpec.
  */
 export async function generateOrModify3dSceneWithAi(
   prompt: string,
   existingScene?: SceneSpec | null,
   customApiKey?: string
 ): Promise<{ scene: SceneSpec; summary: string; engine: string }> {
+  const lower = prompt.trim().toLowerCase();
+
+  // If the prompt directly requests one of our high-precision multi-node organic/mechanical archetypes
+  // (such as "Apfel", "Birne", "Tasse", "Herz", "Stern", "Pilz", "Schachfigur", "Schneemann"),
+  // synthesize the exact multi-part parametric CAD mesh immediately so it is guaranteed to be accurate.
+  if (
+    isExplicitObjectCreationPrompt(prompt) &&
+    KNOWN_OBJECT_ARCHETYPE_REGEX.test(lower)
+  ) {
+    return runLocalAntigravityCadEngine(prompt, existingScene);
+  }
+
   const apiKey = customApiKey || discoverGeminiApiKey();
 
   if (apiKey) {
-    try {
-      const model = await resolveGeminiModel(apiKey);
-      const systemInstruction = `Du bist der Antigravity 3D-CAD Kernel für das Home Assistant Modul "thassi.3dprint" (Bambu Lab P1S 256x256x256mm).
+    const models = await resolveGeminiModels(apiKey);
+    const systemInstruction = `Du bist der Antigravity 3D-CAD Kernel für das Home Assistant Modul "thassi.3dprint" (Bambu Lab X1C 256x256x256mm).
 Erzeuge oder verändere das 3D-Objekt basierend auf dem User-Prompt.
 Verfügbare PrimitiveTypes:
+- "apple": params { radius, height, lobeCount, lobeAmplitude, topIndent, bottomIndent, segments } (Organischer 3D-Apfelkörper mit Stielgrube)
+- "lathe": params { height, rBottom, rLower, rMid, rUpper, rNeck, rTop, topIndent, bottomIndent, wallThickness, lobeCount, lobeAmplitude, segments } (Rotationskörper für Birnen, Flaschen, Schalen, Kelche, Figuren)
+- "heart": params { width, depth, height, bevel } (3D-Herz)
+- "star": params { points, outerRadius, innerRadius, height } (3D-Stern)
 - "box": params { width, depth, height, bevel, wallThickness }
 - "cylinder": params { radiusBottom, radiusTop, innerRadius, height, segments }
 - "sphere": params { radius, domeOnly (0|1) }
@@ -559,32 +1099,35 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
   "nodes": [ ... ]
 }`;
 
-      const userMessage = existingScene
-        ? `Aktuelles 3D-Modell (JSON):\n${JSON.stringify({
-            title: existingScene.title,
-            description: existingScene.description,
-            printProfile: existingScene.printProfile,
-            nodes: existingScene.nodes,
-          })}\n\nUser-Änderungsprompt: "${prompt}"\nModifiziere das bestehende Modell entsprechend dem Prompt.`
-        : `Erstelle ein neues druckbares 3D-Modell für folgenden User-Prompt: "${prompt}"`;
+    const userMessage = existingScene
+      ? `Aktuelles 3D-Modell (JSON):\n${JSON.stringify({
+          title: existingScene.title,
+          description: existingScene.description,
+          printProfile: existingScene.printProfile,
+          nodes: existingScene.nodes,
+        })}\n\nUser-Prompt: "${prompt}"\nModifiziere das Modell (oder erstelle das gewünschte Objekt neu, falls ein anderes Objekt genannt wird).`
+      : `Erstelle ein neues druckbares 3D-Modell für folgenden User-Prompt: "${prompt}"`;
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${userMessage}` }] }],
-            generationConfig: {
-              temperature: 0.25,
-              responseMimeType: 'application/json',
-            },
-          }),
-          signal: AbortSignal.timeout(12000),
-        }
-      );
+    for (const model of models.slice(0, 2)) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${userMessage}` }] }],
+              generationConfig: {
+                temperature: 0.25,
+                responseMimeType: 'application/json',
+              },
+            }),
+            signal: AbortSignal.timeout(9000),
+          }
+        );
 
-      if (res.ok) {
+        if (!res.ok) continue;
+
         const data = (await res.json()) as {
           candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
         };
@@ -615,6 +1158,10 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
             'twisted_vase',
             'bracket',
             'hex_organizer',
+            'apple',
+            'lathe',
+            'heart',
+            'star',
           ]);
 
           const sanitizedNodes: PrimitiveNode[] = parsed.nodes.map((n, idx) => ({
@@ -622,11 +1169,27 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
             name: n.name || `Bauteil ${idx + 1}`,
             type: validTypes.has(n.type) ? n.type : 'box',
             operation: n.operation === 'subtract' ? 'subtract' : 'union',
-            position: Array.isArray(n.position) && n.position.length === 3 ? n.position.map(Number) as [number, number, number] : [0, 0, 0],
-            rotation: Array.isArray(n.rotation) && n.rotation.length === 3 ? n.rotation.map(Number) as [number, number, number] : [0, 0, 0],
-            scale: Array.isArray(n.scale) && n.scale.length === 3 ? n.scale.map((v) => Math.max(0.1, Number(v) || 1)) as [number, number, number] : [1, 1, 1],
-            color: n.color || parsed.filamentColor || existingScene?.printProfile.filamentColor || '#00AE42',
-            params: typeof n.params === 'object' && n.params ? n.params : { width: 40, depth: 40, height: 30 },
+            position:
+              Array.isArray(n.position) && n.position.length === 3
+                ? (n.position.map(Number) as [number, number, number])
+                : [0, 0, 0],
+            rotation:
+              Array.isArray(n.rotation) && n.rotation.length === 3
+                ? (n.rotation.map(Number) as [number, number, number])
+                : [0, 0, 0],
+            scale:
+              Array.isArray(n.scale) && n.scale.length === 3
+                ? (n.scale.map((v) => Math.max(0.1, Number(v) || 1)) as [number, number, number])
+                : [1, 1, 1],
+            color:
+              n.color ||
+              parsed.filamentColor ||
+              existingScene?.printProfile.filamentColor ||
+              '#00AE42',
+            params:
+              typeof n.params === 'object' && n.params
+                ? n.params
+                : { width: 40, depth: 40, height: 30 },
           }));
 
           const nowIso = new Date().toISOString();
@@ -642,10 +1205,16 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
             buildPlateMm: [256, 256, 256],
             printProfile: {
               ...(existingScene?.printProfile || DEFAULT_PRINT_PROFILE),
-              filamentColor: parsed.filamentColor || existingScene?.printProfile.filamentColor || '#00AE42',
-              filamentType: parsed.filamentType || existingScene?.printProfile.filamentType || 'PLA',
-              infillPercent: Number(parsed.infillPercent || existingScene?.printProfile.infillPercent || 20),
-              layerHeightMm: Number(parsed.layerHeightMm || existingScene?.printProfile.layerHeightMm || 0.2),
+              filamentColor:
+                parsed.filamentColor || existingScene?.printProfile.filamentColor || '#00AE42',
+              filamentType:
+                parsed.filamentType || existingScene?.printProfile.filamentType || 'PLA',
+              infillPercent: Number(
+                parsed.infillPercent || existingScene?.printProfile.infillPercent || 20
+              ),
+              layerHeightMm: Number(
+                parsed.layerHeightMm || existingScene?.printProfile.layerHeightMm || 0.2
+              ),
             },
             nodes: sanitizedNodes,
             promptHistory: [
@@ -662,9 +1231,9 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
 
           return { scene: nextScene, summary: summaryText, engine: engineName };
         }
+      } catch {
+        // Try next candidate model or fallback
       }
-    } catch {
-      // Fallback to deterministic Antigravity Parametric CAD Engine
     }
   }
 

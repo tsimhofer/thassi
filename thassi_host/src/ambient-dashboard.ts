@@ -7,7 +7,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Thassi Horizon</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
@@ -17,6 +17,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       --text-muted: rgba(248, 250, 252, 0.45);
       --accent: #38bdf8;
       --sun-glow: #fbbf24;
+      --nav-safe-left: 0px;
+      --devices-dock-height: 44px;
       --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     * { box-sizing: border-box; user-select: none; }
@@ -25,7 +27,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       margin: 0;
       padding: 0;
       width: 100vw;
-      height: 100vh;
+      height: 100dvh;
       overflow: hidden;
       background: #040711;
       color: var(--text);
@@ -33,10 +35,119 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       -webkit-font-smoothing: antialiased;
     }
 
-    /* 1. DYNAMIC DAYTIME SKY & CELESTIAL SUN STAGE */
+    /* TOOLBAR / LEFT NAVBAR HIDDEN ALTOGETHER PER USER REQUEST */
+    #left-ambient-navbar,
+    #mobile-nav-toggle,
+    #mobile-nav-backdrop {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+    }
+
+    /* DIRECT SPECIAL-VIEW NAVIGATION BUTTONS IN HORIZON DASHBOARD */
+    .w-nav-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(248, 250, 252, 0.78);
+      border-radius: 7px;
+      padding: 1px 6px;
+      font-family: var(--font-sans);
+      font-size: 9.5px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.18s ease;
+      line-height: 1.3;
+    }
+    .w-nav-btn:hover {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #ffffff;
+    }
+    .horizon-view-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(248, 250, 252, 0.78);
+      border-radius: 8px;
+      padding: 3px 9px;
+      font-family: var(--font-sans);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+    .horizon-view-btn:hover {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #ffffff;
+    }
+    .cal-filter-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    #horizon-cal-filter-popover {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 0;
+      width: 310px;
+      max-height: 340px;
+      background: rgba(11, 17, 32, 0.96);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.72);
+      z-index: 95;
+      pointer-events: auto;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #horizon-cal-filter-popover.open {
+      display: flex;
+    }
+    .cal-filter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow-y: auto;
+      max-height: 210px;
+      padding-right: 2px;
+    }
+    .cal-filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      cursor: pointer;
+      font-size: 11.5px;
+      color: #e2e8f0;
+      user-select: none;
+    }
+    .cal-filter-row:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+
+    /* 1. DYNAMIC DAYTIME SKY, WEATHER FX & ABSTRACT CELESTIAL HORIZON STAGE */
     #sky-stage {
       position: fixed;
       inset: 0;
+      width: 100vw;
+      height: 100dvh;
       z-index: 1;
       pointer-events: none;
       transition: background 1.2s cubic-bezier(0.22, 1, 0.36, 1);
@@ -58,117 +169,188 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       100% { opacity: 0.95; transform: scale(1.2); }
     }
 
+    /* Subtle Background Weather Effects */
+    #weather-fx-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+      overflow: hidden;
+    }
+    #weather-cloud-veil-1,
+    #weather-cloud-veil-2 {
+      position: absolute;
+      left: -20%;
+      right: -20%;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0;
+      transition: opacity 1.8s ease;
+    }
+    #weather-cloud-veil-1 {
+      top: 4vh;
+      height: 32vh;
+      background: radial-gradient(ellipse at 38% 50%, rgba(148, 163, 184, 0.22), rgba(100, 116, 139, 0.08) 55%, transparent 78%);
+      animation: cloudDriftSlow 46s ease-in-out infinite alternate;
+    }
+    #weather-cloud-veil-2 {
+      top: 18vh;
+      height: 36vh;
+      background: radial-gradient(ellipse at 66% 50%, rgba(203, 213, 225, 0.16), rgba(71, 85, 105, 0.08) 60%, transparent 80%);
+      animation: cloudDriftSlow 62s ease-in-out infinite alternate-reverse;
+    }
+    @keyframes cloudDriftSlow {
+      0% { transform: translate3d(-4%, 0, 0) scale(1); }
+      100% { transform: translate3d(4%, 1.5%, 0) scale(1.06); }
+    }
+    #weather-fx-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
     /* Atmospheric horizon mist & glow */
     #horizon-glow {
       position: absolute;
       left: -10%;
       right: -10%;
-      bottom: 18vh;
-      height: 38vh;
-      filter: blur(55px);
-      opacity: 0.75;
+      bottom: 22vh;
+      height: 36vh;
+      filter: blur(58px);
+      opacity: 0.72;
       transition: background 1.2s ease, opacity 1.2s ease;
     }
 
-    /* Delicate Solar Arc SVG Path */
+    /* Abstract Horizon & Celestial Trajectory SVG */
     #solar-arc-svg {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       overflow: visible;
+      z-index: 3;
     }
 
-    /* The Rising & Setting Sun */
+    /* Abstract Sun Sculpture (Concentric Geometric Rings + Singularity Annulus) */
     #sun-assembly {
       position: absolute;
       width: 0;
       height: 0;
+      z-index: 4;
       transform: translate3d(0, 0, 0);
-      transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease;
+      transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease, transform 0.8s ease;
       will-change: left, top;
     }
-    .sun-core {
+    .abstract-sun-bloom {
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      left: -110px;
+      top: -110px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(254, 240, 138, 0.36) 0%, rgba(251, 191, 36, 0.16) 42%, rgba(249, 115, 22, 0.05) 68%, transparent 100%);
+      filter: blur(28px);
+      animation: abstractPulse 7s ease-in-out infinite alternate;
+    }
+    .abstract-sun-outer-ring {
+      position: absolute;
+      width: 104px;
+      height: 104px;
+      left: -52px;
+      top: -52px;
+      animation: rotateOrbital 72s linear infinite;
+    }
+    .abstract-sun-mid-ring {
+      position: absolute;
+      width: 56px;
+      height: 56px;
+      left: -28px;
+      top: -28px;
+      border-radius: 50%;
+      border: 1px solid rgba(254, 240, 138, 0.42);
+      background: radial-gradient(circle, rgba(254, 240, 138, 0.12) 0%, rgba(251, 191, 36, 0.03) 70%, transparent 100%);
+      box-shadow: 0 0 32px rgba(251, 191, 36, 0.22);
+    }
+    .abstract-sun-annulus {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      left: -11px;
+      top: -11px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255, 255, 255, 0.92);
+      background: rgba(254, 240, 138, 0.18);
+      box-shadow:
+        0 0 20px rgba(251, 191, 36, 0.8),
+        inset 0 0 8px rgba(254, 240, 138, 0.65);
+    }
+    .abstract-sun-singularity {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      left: -2px;
+      top: -2px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 0 10px #ffffff;
+    }
+    @keyframes abstractPulse {
+      0% { transform: scale(0.94); opacity: 0.78; }
+      100% { transform: scale(1.08); opacity: 1; }
+    }
+    @keyframes rotateOrbital {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Abstract Lunar Sculpture (Geometric Eclipse Crescent & Orbital Ring) */
+    #moon-assembly {
+      position: absolute;
+      width: 0;
+      height: 0;
+      z-index: 4;
+      transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
+    }
+    .abstract-moon-bloom {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      left: -75px;
+      top: -75px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.24) 0%, rgba(129, 140, 248, 0.1) 48%, transparent 74%);
+      filter: blur(22px);
+    }
+    .abstract-moon-svg {
       position: absolute;
       width: 84px;
       height: 84px;
       left: -42px;
       top: -42px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #ffffff 0%, #fef08a 38%, #fbbf24 72%, rgba(245, 158, 11, 0) 100%);
-      box-shadow:
-        0 0 60px 20px rgba(251, 191, 36, 0.65),
-        0 0 140px 55px rgba(249, 115, 22, 0.42),
-        0 0 260px 110px rgba(234, 88, 12, 0.24);
-      animation: sunPulse 6s ease-in-out infinite alternate;
-    }
-    .sun-corona {
-      position: absolute;
-      width: 240px;
-      height: 240px;
-      left: -120px;
-      top: -120px;
-      border-radius: 50%;
-      background: conic-gradient(
-        from 0deg,
-        transparent 0deg,
-        rgba(254, 240, 138, 0.16) 20deg,
-        transparent 45deg,
-        rgba(251, 191, 36, 0.12) 90deg,
-        transparent 130deg,
-        rgba(254, 240, 138, 0.18) 180deg,
-        transparent 220deg,
-        rgba(251, 191, 36, 0.14) 275deg,
-        transparent 320deg,
-        rgba(254, 240, 138, 0.15) 350deg,
-        transparent 360deg
-      );
-      filter: blur(8px);
-      animation: rotateCorona 60s linear infinite;
-    }
-    @keyframes sunPulse {
-      0% { transform: scale(0.96); }
-      100% { transform: scale(1.05); }
-    }
-    @keyframes rotateCorona {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      overflow: visible;
     }
 
-    /* Nocturnal Moon (when sun is below horizon) */
-    #moon-assembly {
-      position: absolute;
-      width: 0;
-      height: 0;
-      transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
-    }
-    .moon-core {
-      position: absolute;
-      width: 46px;
-      height: 46px;
-      left: -23px;
-      top: -23px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #f8fafc 0%, #cbd5e1 65%, #64748b 100%);
-      box-shadow: 0 0 45px 12px rgba(186, 230, 253, 0.32), 0 0 110px 35px rgba(56, 189, 248, 0.14);
-    }
-
-    /* 2. MONUMENTAL DATE & TIME TYPOGRAPHY */
+    /* 2. LEFT-ALIGNED MONUMENTAL DATE, TIME & SIMPLIFIED WEATHER FORECAST */
     #hero-clock-region {
       position: fixed;
-      top: 5.5vh;
-      left: 4.2vw;
+      top: 3.2vh;
+      left: 24px;
+      margin-left: 0;
+      text-align: left;
       z-index: 15;
       pointer-events: none;
     }
     .clock-row {
       display: flex;
       align-items: baseline;
+      justify-content: flex-start;
       gap: 10px;
       line-height: 0.92;
     }
     #hero-time {
-      font-size: clamp(5rem, 10.2vw, 9.4rem);
+      font-size: clamp(4.0rem, 7.6vw, 7.4rem);
       font-weight: 200;
       letter-spacing: -0.045em;
       font-variant-numeric: tabular-nums;
@@ -176,69 +358,147 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       text-shadow: 0 12px 45px rgba(0, 0, 0, 0.35);
     }
     #hero-seconds {
-      font-size: clamp(1.4rem, 2.6vw, 2.4rem);
+      font-size: clamp(1.2rem, 2.0vw, 1.9rem);
       font-weight: 300;
       color: rgba(255, 255, 255, 0.56);
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
     }
     #hero-date {
-      margin-top: 10px;
-      font-size: clamp(1.15rem, 1.9vw, 1.75rem);
+      margin-top: 6px;
+      font-size: clamp(1.0rem, 1.45vw, 1.38rem);
       font-weight: 300;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
       color: rgba(255, 255, 255, 0.84);
       text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
     #solar-telemetry {
-      margin-top: 6px;
-      font-size: 11.5px;
-      font-weight: 400;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.45);
+      display: none;
     }
 
-    /* 5. TOP-RIGHT BORDERLESS EXPANDABLE SERVICE WIDGETS */
+    /* Simplified Minimal Weather Component (St. Veit / Gölsen) */
+    #hero-weather-strip {
+      margin-top: 10px;
+      pointer-events: auto;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 5px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+    }
+    .mw-current-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .mw-main-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mw-icon-wrap {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #38bdf8;
+    }
+    .mw-temp-now {
+      font-size: 18px;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    }
+    .mw-cond-text {
+      font-size: 12px;
+      color: rgba(248, 250, 252, 0.72);
+      font-weight: 400;
+    }
+    .mw-hi-lo {
+      font-size: 11.5px;
+      color: rgba(248, 250, 252, 0.48);
+      font-variant-numeric: tabular-nums;
+    }
+    .mw-day-slots {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .mw-slot {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: rgba(248, 250, 252, 0.56);
+      font-variant-numeric: tabular-nums;
+    }
+    .mw-slot.is-current-slot {
+      color: #38bdf8;
+      font-weight: 500;
+    }
+    .mw-slot-hr {
+      font-size: 10px;
+      opacity: 0.72;
+    }
+    .mw-slot-ico {
+      width: 13px;
+      height: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .mw-slot-temp {
+      font-size: 11px;
+      color: rgba(248, 250, 252, 0.88);
+    }
+
+    /* 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS (health, meals, finances, notes) */
     #top-right-widgets {
       position: fixed;
-      top: 5.5vh;
-      right: 4.2vw;
+      top: 3.5vh;
+      right: 28px;
       z-index: 30;
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 22px;
-      max-height: 60vh;
+      gap: 16px;
+      max-height: 62vh;
     }
     .ambient-widget {
       text-align: right;
       cursor: pointer;
-      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), background 0.35s ease, padding 0.35s ease, backdrop-filter 0.35s ease;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease, padding 0.3s ease;
       border: none;
       background: transparent;
-      padding: 4px 0;
-      border-radius: 20px;
-      max-width: 390px;
+      padding: 2px 0;
+      border-radius: 18px;
+      max-width: 360px;
     }
     .ambient-widget:hover:not(.expanded) {
-      transform: translateX(-6px);
+      transform: translateX(-4px);
     }
     .ambient-widget.expanded {
       cursor: default;
-      padding: 18px 22px;
-      background: rgba(6, 10, 22, 0.56);
+      padding: 16px 20px;
+      background: rgba(6, 10, 22, 0.62);
       backdrop-filter: blur(28px) saturate(140%);
       -webkit-backdrop-filter: blur(28px) saturate(140%);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
       transform: translateX(-4px);
-      width: 340px;
+      width: 330px;
     }
     .w-header {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 3px;
+      gap: 4px;
       cursor: pointer;
     }
     .w-label-row {
@@ -249,7 +509,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       font-weight: 600;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.48);
+      color: rgba(255, 255, 255, 0.52);
     }
     .w-dot {
       width: 6px;
@@ -259,24 +519,84 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       box-shadow: 0 0 10px var(--accent);
     }
     .w-primary {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 300;
       letter-spacing: -0.01em;
       color: #ffffff;
       text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
       display: flex;
       align-items: baseline;
-      gap: 10px;
+      gap: 8px;
       justify-content: flex-end;
     }
     .w-primary strong {
       font-weight: 500;
     }
+    /* Hide verbose sub-lines in minimal preview cards */
     .w-sub {
-      font-size: 11.5px;
-      color: rgba(255, 255, 255, 0.52);
-      font-weight: 400;
+      display: none;
     }
+
+    /* a) Health Minimal Preview: Heart Icon with HR inside + Progress Circle with Step Count inside */
+    .health-minimal-badges {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 2px;
+    }
+    .hm-badge {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hm-badge svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+    }
+    .hm-badge-val {
+      position: relative;
+      z-index: 2;
+      font-size: 10.5px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #ffffff;
+      letter-spacing: -0.03em;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+      line-height: 1;
+    }
+    .hm-heart-val {
+      padding-bottom: 2px;
+    }
+
+    /* b) Finances Minimal Preview: In hidden mode ONLY show eye toggle next to title */
+    #widget-finances.finances-is-hidden:not(.expanded) #compact-finances {
+      display: none !important;
+    }
+    .finances-eye-icon-btn {
+      background: transparent;
+      border: none;
+      color: rgba(248, 250, 252, 0.75);
+      padding: 0 2px;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s ease, transform 0.2s ease;
+    }
+    .finances-eye-icon-btn:hover {
+      color: #38bdf8;
+      transform: scale(1.1);
+    }
+
     .w-expand-body {
       max-height: 0;
       opacity: 0;
@@ -356,24 +676,21 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .note-del:hover { color: #f87171; }
 
-    /* 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER */
+    /* 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER (TRANSPARENT FOR FULL-BLEED HORIZON) */
     #timeline-dock {
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 46px;
-      height: 31vh;
-      min-height: 220px;
+      bottom: var(--devices-dock-height, 44px);
+      height: 28vh;
+      min-height: 195px;
       z-index: 20;
-      background: linear-gradient(
-        to top,
-        rgba(3, 6, 15, 0.88) 0%,
-        rgba(5, 10, 24, 0.58) 55%,
-        rgba(5, 10, 24, 0.0) 100%
-      );
+      background: transparent;
       display: flex;
       flex-direction: column;
       justify-content: flex-end;
+      transition: bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
     }
 
     /* Whisper-quiet minimal controls right above the timeline */
@@ -381,19 +698,20 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 4.2vw 6px 4.2vw;
+      padding: 0 28px 6px 24px;
       font-size: 11px;
       letter-spacing: 0.08em;
+      pointer-events: auto;
     }
     .tl-controls {
       display: flex;
       align-items: center;
       gap: 14px;
-      opacity: 0.42;
+      opacity: 0.55;
       transition: opacity 0.25s ease;
     }
     .tl-controls:hover {
-      opacity: 0.95;
+      opacity: 0.98;
     }
     .tl-pill {
       background: none;
@@ -419,17 +737,18 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     #timeline-viewport {
       position: relative;
       width: 100vw;
-      height: calc(31vh - 28px);
-      min-height: 192px;
+      height: calc(28vh - 28px);
+      min-height: 168px;
       overflow: hidden;
       cursor: grab;
+      pointer-events: auto;
     }
     #timeline-viewport:active { cursor: grabbing; }
 
-    /* Fixed "NOW" Marker at 22% from left */
+    /* Fixed "NOW" Marker at 25% from left */
     #fixed-now-marker {
       position: absolute;
-      left: 22vw;
+      left: 25vw;
       top: 6px;
       bottom: 0;
       width: 1.5px;
@@ -516,12 +835,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       font-size: 10px;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
-      color: rgba(255, 255, 255, 0.38);
+      color: rgba(255, 255, 255, 0.42);
       white-space: nowrap;
     }
     .tl-tick.day-start .tl-tick-mark {
-      height: 180px;
-      margin-top: -142px;
+      height: 165px;
+      margin-top: -127px;
       background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.38));
     }
     .tl-tick.day-start .tl-tick-label {
@@ -535,10 +854,10 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE */
     .tl-event-rect {
       position: absolute;
-      height: 44px;
+      height: 42px;
       border-radius: 10px;
-      padding: 6px 12px;
-      background: rgba(12, 19, 36, 0.62);
+      padding: 5px 12px;
+      background: rgba(12, 19, 36, 0.56);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-left: 2.5px solid var(--ev-color, #38bdf8);
@@ -585,7 +904,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     #quick-event-modal {
       position: fixed;
       bottom: 35vh;
-      right: 4.2vw;
+      right: 28px;
       z-index: 40;
       background: rgba(6, 10, 22, 0.78);
       backdrop-filter: blur(28px);
@@ -619,138 +938,331 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       border: none;
     }
 
-    /* 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR BELOW TIMELINE */
-    #room-dock-bar {
+    /* 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS */
+    #devices-dock {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
-      height: 46px;
-      z-index: 28;
-      background: rgba(3, 6, 15, 0.92);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      z-index: 32;
+      background: transparent !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Subtle hairline separator between Timeline and StatusBar */
+    #timeline-devices-separator {
+      position: relative;
+      height: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 0 28px 0 24px;
+      pointer-events: auto;
+    }
+    #timeline-devices-separator::before {
+      content: "";
+      position: absolute;
+      left: 24px;
+      right: 28px;
+      top: 50%;
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.14) 0%,
+        rgba(56, 189, 248, 0.28) 35%,
+        rgba(255, 255, 255, 0.12) 75%,
+        rgba(255, 255, 255, 0.06) 100%
+      );
+      pointer-events: none;
+    }
+    .td-sep-badge {
+      position: relative;
+      z-index: 2;
+      background: transparent;
+      padding: 0 6px 0 0;
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(248, 250, 252, 0.45);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .td-sep-unpin-btn {
+      background: none;
+      border: none;
+      color: #38bdf8;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+    .td-sep-unpin-btn:hover {
+      text-decoration: underline;
+    }
+
+    /* Pinned Room Groups Tray (Expands upwards above the tabview when rooms are pinned) */
+    #pinned-rooms-tray {
+      display: none;
+      padding: 6px 28px 8px 24px;
+      gap: 12px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      align-items: stretch;
+    }
+    #pinned-rooms-tray.has-pinned {
+      display: flex;
+    }
+    .pinned-room-card {
+      min-width: 265px;
+      max-width: 330px;
+      flex: 0 0 auto;
+      background: rgba(6, 10, 22, 0.64);
+      backdrop-filter: blur(24px) saturate(140%);
+      -webkit-backdrop-filter: blur(24px) saturate(140%);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: 16px;
+      padding: 10px 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      animation: pinCardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes pinCardIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .prc-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 4.2vw;
       gap: 8px;
-      overflow-x: auto;
-      scrollbar-width: none;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
-    #room-dock-bar::-webkit-scrollbar { display: none; }
+    .prc-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .prc-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+    .prc-meta {
+      font-size: 10px;
+      color: rgba(248, 250, 252, 0.48);
+      font-variant-numeric: tabular-nums;
+    }
+    .prc-unpin {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+      border-radius: 99px;
+      padding: 2px 8px;
+      font-size: 9px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s ease;
+    }
+    .prc-unpin:hover {
+      background: rgba(248, 113, 113, 0.18);
+      border-color: rgba(248, 113, 113, 0.4);
+      color: #fca5a5;
+    }
+    .prc-dev-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 155px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    /* Minimalistic TabView Bar + Right-Aligned 3D Print & Vision Previews */
+    #room-dock-bar {
+      position: relative;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px 4px 24px;
+      gap: 16px;
+      background: transparent;
+    }
 
     .room-dock-group {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 14px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      flex: 1;
+      min-width: 0;
     }
+    .room-dock-group::-webkit-scrollbar { display: none; }
+
+    /* Minimalistic Tab item */
     .room-pill {
+      position: relative;
       background: transparent;
       border: none;
-      border-radius: 99px;
-      padding: 6px 13px;
-      color: rgba(248, 250, 252, 0.56);
+      border-bottom: 1.5px solid transparent;
+      border-radius: 0;
+      padding: 6px 2px;
+      color: rgba(248, 250, 252, 0.52);
       font-family: var(--font-sans);
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 400;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.04em;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.22s ease, background 0.22s ease, transform 0.2s ease;
+      transition: color 0.2s ease, border-color 0.2s ease;
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
     }
     .room-pill:hover {
-      color: rgba(248, 250, 252, 0.92);
-      background: rgba(255, 255, 255, 0.045);
+      color: rgba(248, 250, 252, 0.95);
+      border-bottom-color: rgba(255, 255, 255, 0.28);
     }
-    .room-pill.active-flyout {
+    .room-pill.pinned-tab {
       color: #ffffff;
-      background: rgba(56, 189, 248, 0.13);
+      font-weight: 500;
+      border-bottom-color: #38bdf8;
     }
     .room-pill.has-on {
       color: rgba(248, 250, 252, 0.88);
     }
+    .room-pin-ico {
+      display: none;
+    }
     .room-dot {
-      width: 5.5px;
-      height: 5.5px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.22);
+      background: rgba(255, 255, 255, 0.24);
       transition: background 0.25s ease, box-shadow 0.25s ease;
     }
     .room-pill.has-on .room-dot {
       background: #fbbf24;
-      box-shadow: 0 0 9px rgba(251, 191, 36, 0.85);
+      box-shadow: 0 0 8px rgba(251, 191, 36, 0.85);
     }
     .room-pill.has-motion .room-dot {
       background: #4ade80;
-      box-shadow: 0 0 9px rgba(74, 222, 128, 0.85);
+      box-shadow: 0 0 8px rgba(74, 222, 128, 0.85);
     }
     .room-meta {
-      font-size: 10px;
-      color: rgba(248, 250, 252, 0.36);
+      font-size: 9.5px;
+      color: rgba(248, 250, 252, 0.38);
       font-variant-numeric: tabular-nums;
     }
     .room-pill.has-on .room-meta {
-      color: rgba(251, 191, 36, 0.78);
+      color: rgba(251, 191, 36, 0.82);
     }
 
-    /* Upward Glassmorphic Room Flyout */
-    #room-flyout {
-      position: fixed;
-      bottom: 54px;
-      left: 4.2vw;
-      z-index: 45;
-      width: 340px;
-      max-width: 92vw;
-      background: rgba(6, 10, 22, 0.78);
-      backdrop-filter: blur(32px) saturate(150%);
-      -webkit-backdrop-filter: blur(32px) saturate(150%);
-      border-radius: 22px;
-      padding: 18px 20px;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
-      display: none;
-      flex-direction: column;
-      gap: 12px;
-      animation: flyoutRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    @keyframes flyoutRise {
-      from { opacity: 0; transform: translateY(10px) scale(0.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .rf-header {
+    /* Right-Aligned StatusBar Previews (3D Print & Vision — NOT inside tabs, expand upwards) */
+    #statusbar-right-previews {
       display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding-bottom: 4px;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 20px;
+      flex-shrink: 0;
+      position: relative;
     }
-    .rf-title {
-      font-size: 13px;
-      font-weight: 600;
+    .sb-preview-item {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .sb-preview-trigger {
+      background: transparent;
+      border: none;
+      padding: 4px 0;
+      color: rgba(248, 250, 252, 0.78);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.2s ease, opacity 0.2s ease;
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+    }
+    .sb-preview-trigger:hover,
+    .sb-preview-item.expanded .sb-preview-trigger {
       color: #ffffff;
     }
-    .rf-subtitle {
-      font-size: 11px;
-      color: rgba(248, 250, 252, 0.48);
+    .sb-preview-meta {
+      font-size: 10.5px;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      text-transform: none;
+      color: rgba(248, 250, 252, 0.54);
       font-variant-numeric: tabular-nums;
     }
-    .rf-dev-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 44vh;
-      overflow-y: auto;
+    .sb-mini-bar {
+      width: 34px;
+      height: 3.5px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.14);
+      overflow: hidden;
     }
+
+    /* Upward Flyout Panel for StatusBar Previews (3D Print & Vision) */
+    .sb-upward-flyout {
+      position: absolute;
+      bottom: calc(100% + 14px);
+      right: 0;
+      width: 340px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(6, 10, 22, 0.76);
+      backdrop-filter: blur(28px) saturate(140%);
+      -webkit-backdrop-filter: blur(28px) saturate(140%);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      box-shadow: 0 20px 55px rgba(0, 0, 0, 0.6);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(10px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 0.24s ease, transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.24s;
+      z-index: 50;
+      text-align: left;
+    }
+    .sb-preview-item.expanded .sb-upward-flyout {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    /* Device Row Controls inside Pinned Room Cards & Vision Flyout */
     .rf-dev-row {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      padding: 9px 12px;
-      border-radius: 13px;
+      gap: 5px;
+      padding: 6px 10px;
+      border-radius: 10px;
       background: rgba(255, 255, 255, 0.035);
       transition: background 0.2s ease;
     }
@@ -761,10 +1273,10 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
     .rf-dev-label {
-      font-size: 12.5px;
+      font-size: 11.5px;
       font-weight: 400;
       color: rgba(248, 250, 252, 0.88);
     }
@@ -775,18 +1287,18 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     .rf-dev-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
     .rf-power-badge {
-      font-size: 10.5px;
+      font-size: 10px;
       color: rgba(248, 250, 252, 0.45);
       font-variant-numeric: tabular-nums;
     }
     .rf-toggle-btn {
       border: none;
       border-radius: 99px;
-      padding: 4px 12px;
-      font-size: 11px;
+      padding: 3px 10px;
+      font-size: 10px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -796,7 +1308,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     .rf-toggle-btn.on {
       background: #fbbf24;
       color: #040711;
-      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+      box-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
     }
     .rf-slider-row {
       display: flex;
@@ -812,15 +1324,15 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .rf-effect-pills {
       display: flex;
-      gap: 5px;
+      gap: 4px;
       flex-wrap: wrap;
       padding-top: 2px;
     }
     .rf-fx-pill {
       border: none;
       border-radius: 99px;
-      padding: 2px 8px;
-      font-size: 10px;
+      padding: 2px 7px;
+      font-size: 9.5px;
       background: rgba(255, 255, 255, 0.06);
       color: rgba(255, 255, 255, 0.6);
       cursor: pointer;
@@ -829,27 +1341,415 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       background: #a855f7;
       color: #fff;
     }
+    .w-3d-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .w-3d-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ============================================================================
+       7. RESPONSIVE & MOBILE-COMPATIBLE LAYOUT (TABLET, LANDSCAPE & SMARTPHONE)
+       ============================================================================ */
+    @media (max-width: 1180px) and (min-width: 901px) {
+      :root {
+        --nav-safe-left: 0px;
+      }
+      #hero-time {
+        font-size: clamp(3.5rem, 6.2vw, 5.8rem);
+      }
+      #hero-weather-strip {
+        max-width: min(390px, 44vw);
+      }
+      #top-right-widgets {
+        right: 2.5vw;
+        gap: 12px;
+      }
+      .ambient-widget.expanded {
+        width: 310px;
+      }
+    }
+
+    @media (max-height: 540px) and (orientation: landscape) {
+      :root {
+        --nav-safe-left: 0px;
+      }
+      html, body {
+        width: 100vw;
+        height: 100dvh;
+        overflow: hidden;
+      }
+      #sky-stage {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100dvh;
+      }
+      #hero-clock-region {
+        top: 12px;
+        left: 18px;
+        margin-left: 0;
+      }
+      #hero-time {
+        font-size: clamp(2.4rem, 6vw, 3.6rem);
+      }
+      #timeline-dock {
+        height: 155px;
+        background: transparent !important;
+      }
+      #timeline-viewport {
+        height: 120px;
+      }
+    }
+
+    @media (max-width: 900px) {
+      :root {
+        --nav-safe-left: 0px;
+        --devices-dock-height: 52px;
+      }
+      html, body {
+        width: 100%;
+        height: auto;
+        min-height: 100dvh;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: calc(var(--devices-dock-height, 52px) + env(safe-area-inset-bottom, 10px) + 18px);
+      }
+      #sky-stage {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100dvh;
+      }
+
+      /* Scale celestial sculptures slightly on mobile screens */
+      #sun-assembly,
+      #moon-assembly {
+        transform: scale(0.82);
+      }
+
+      /* Left-aligned Clock & Simplified Weather at top of mobile view */
+      #hero-clock-region {
+        position: relative;
+        top: auto;
+        left: auto;
+        margin-left: 0;
+        width: 100%;
+        padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 6px 16px;
+        text-align: left;
+        z-index: 15;
+        pointer-events: auto;
+      }
+      #hero-time {
+        font-size: clamp(3.1rem, 13vw, 4.6rem);
+      }
+      #hero-seconds {
+        font-size: clamp(1.1rem, 4vw, 1.5rem);
+      }
+      #hero-date {
+        margin-top: 4px;
+        font-size: clamp(0.95rem, 3.6vw, 1.2rem);
+      }
+      #solar-telemetry {
+        font-size: 10px;
+        line-height: 1.4;
+      }
+      #hero-weather-strip {
+        display: flex;
+        width: 100%;
+        max-width: 100%;
+        margin-top: 8px;
+        padding: 0;
+        background: transparent;
+        border: none;
+      }
+      .mw-current-row {
+        flex-wrap: wrap;
+        gap: 8px 10px;
+      }
+      .mw-day-slots {
+        gap: 10px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+      .mw-day-slots::-webkit-scrollbar {
+        display: none;
+      }
+
+      /* Responsive Grid for Top-Right Service Preview Widgets on Mobile */
+      #top-right-widgets {
+        position: relative;
+        top: auto;
+        right: auto;
+        width: 100%;
+        max-height: none;
+        padding: 8px 16px 10px 16px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        align-items: stretch;
+        z-index: 25;
+      }
+      .ambient-widget {
+        text-align: left;
+        width: 100%;
+        max-width: 100%;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(6, 11, 24, 0.28);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .ambient-widget:hover:not(.expanded) {
+        transform: none;
+      }
+      .ambient-widget.expanded {
+        grid-column: 1 / -1;
+        width: 100%;
+        max-width: 100%;
+        padding: 15px 16px;
+        background: rgba(6, 10, 22, 0.86);
+        border: 1px solid rgba(56, 189, 248, 0.28);
+        transform: none;
+      }
+      .ambient-widget.expanded .w-expand-body {
+        max-height: 460px;
+      }
+      #widget-finances .w-expand-body {
+        min-width: 0 !important;
+        width: 100%;
+      }
+      .w-header {
+        align-items: flex-start;
+        width: 100%;
+      }
+      .w-label-row {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+      }
+      .health-minimal-badges {
+        justify-content: flex-start;
+      }
+      .w-primary {
+        justify-content: flex-start;
+        font-size: 14px;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+        text-align: left;
+      }
+
+      /* Mobile Timeline Section (Transparent to show Horizon background) */
+      #timeline-dock {
+        position: relative;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        width: 100%;
+        height: 205px;
+        min-height: 195px;
+        margin-top: 4px;
+        background: transparent !important;
+      }
+      #timeline-toolbar {
+        padding: 4px 16px 8px 16px;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .tl-controls {
+        opacity: 0.92;
+        gap: 6px;
+      }
+      .tl-pill {
+        padding: 4px 8px;
+        font-size: 10.5px;
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .tl-pill.active {
+        background: rgba(56, 189, 248, 0.2);
+        color: #38bdf8;
+      }
+      #timeline-viewport {
+        width: 100%;
+        height: 165px;
+        min-height: 160px;
+        touch-action: pan-y;
+      }
+
+      /* Mobile Transparent Bottom StatusBar + Pinnable Room Tabs */
+      #devices-dock {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        padding-bottom: env(safe-area-inset-bottom, 4px);
+        background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        box-shadow: none !important;
+      }
+      #timeline-devices-separator {
+        padding: 0 12px;
+        height: 16px;
+      }
+      #timeline-devices-separator::before {
+        left: 12px;
+        right: 12px;
+      }
+      #pinned-rooms-tray {
+        padding: 6px 12px 8px 12px;
+        gap: 10px;
+        max-height: 44vh;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x mandatory;
+      }
+      .pinned-room-card {
+        min-width: min(285px, 84vw);
+        max-width: 86vw;
+        scroll-snap-align: center;
+      }
+      .prc-dev-grid {
+        max-height: 26vh;
+        -webkit-overflow-scrolling: touch;
+      }
+      #room-dock-bar {
+        height: 36px;
+        padding: 0 12px;
+        gap: 6px;
+      }
+      .room-pill {
+        padding: 4px 8px;
+        font-size: 10.5px;
+        flex-shrink: 0;
+      }
+      .sb-upward-flyout {
+        right: 0;
+        width: min(330px, 92vw);
+      }
+
+      /* Mobile Modals & Overlays */
+      #quick-event-modal {
+        left: 12px;
+        right: 12px;
+        bottom: calc(var(--devices-dock-height, 52px) + 12px);
+        width: auto;
+        max-width: 420px;
+        margin: 0 auto;
+      }
+      #full-app-overlay {
+        height: 100dvh;
+      }
+      #full-app-bar {
+        padding: calc(env(safe-area-inset-top, 0px)) 14px 0 14px;
+        min-height: 46px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      #hero-clock-region {
+        padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 4px 12px;
+      }
+      #top-right-widgets {
+        padding: 6px 12px 8px 12px;
+        gap: 8px;
+      }
+      .ambient-widget {
+        padding: 9px 11px;
+      }
+      .w-stat-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 10px;
+      }
+      .mw-temp-now {
+        font-size: 18px;
+      }
+      #quick-import-flyout-modal > div {
+        width: 100vw !important;
+        height: 100dvh !important;
+      }
+    }
   </style>
 </head>
 <body>
-  <!-- 1. LIVING DAYTIME SKY & CELESTIAL SUN -->
+  <!-- TOOLBAR HIDDEN ALTOGETHER PER USER REQUEST (KEPT FOR DOM ID COMPATIBILITY ONLY) -->
+  <nav id="left-ambient-navbar" aria-hidden="true" style="display:none !important;">
+    <button class="lnav-item active" id="lnav-horizon" onclick="closeFullService()"></button>
+    <button class="lnav-item" id="lnav-google-calendar" onclick="openFullService('google-calendar', 'Calendar')"></button>
+    <button class="lnav-item" id="lnav-google-health" onclick="openFullService('google-health', 'Health')"></button>
+    <button class="lnav-item" id="lnav-finance-analytics" onclick="openFullService('finance-analytics', 'thassi.finances')"></button>
+    <button class="lnav-item" id="lnav-meal-planner" onclick="openFullService('meal-planner', 'Meals')"></button>
+    <button class="lnav-item" id="lnav-smart-canvas" onclick="openFullService('smart-canvas', 'Smart Home')"></button>
+    <button class="lnav-item" id="lnav-camera-vision" onclick="openFullService('camera-vision', 'Camera Vision')"></button>
+    <button class="lnav-item" id="lnav-3d-print" onclick="openFullService('3d-print', '3D Druck Studio')"></button>
+  </nav>
+
+  <!-- 1. LIVING SKY, SUBTLE WEATHER EFFECTS & ABSTRACT CELESTIAL HORIZON -->
   <div id="sky-stage">
     <div id="starfield"></div>
+    <div id="weather-fx-layer">
+      <div id="weather-cloud-veil-1"></div>
+      <div id="weather-cloud-veil-2"></div>
+      <canvas id="weather-fx-canvas"></canvas>
+    </div>
     <div id="horizon-glow"></div>
     <svg id="solar-arc-svg" preserveAspectRatio="none">
-      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4 6" />
-      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="1.4" />
+      <!-- Abstract Horizon Datum Line & Zenith Tick Marks -->
+      <line id="horizon-datum-line" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.09)" stroke-width="1" stroke-dasharray="2 8" />
+      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="3 7" />
+      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.16)" stroke-width="1.2" />
+      <path id="solar-progressed-path" fill="none" stroke="rgba(254,240,138,0.48)" stroke-width="1.8" />
+      <line id="celestial-elevation-chord" x1="0" y1="0" x2="0" y2="0" stroke="rgba(254,240,138,0.22)" stroke-width="1" stroke-dasharray="2 4" />
+      <circle id="horizon-node-dot" cx="0" cy="0" r="2.5" fill="rgba(56,189,248,0.65)" />
     </svg>
+
+    <!-- Abstract Lunar Geometry -->
     <div id="moon-assembly">
-      <div class="moon-core"></div>
+      <div class="abstract-moon-bloom"></div>
+      <svg class="abstract-moon-svg" viewBox="-42 -42 84 84">
+        <circle cx="0" cy="0" r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.8" stroke-dasharray="2 5" />
+        <circle cx="0" cy="0" r="21" fill="none" stroke="rgba(56,189,248,0.28)" stroke-width="1" />
+        <path d="M -4,-13 A 13,13 0 1,0 10,9 A 10.5,10.5 0 1,1 -4,-13 Z" fill="rgba(226,232,240,0.88)" />
+        <circle cx="-11" cy="-11" r="1.5" fill="#38bdf8" opacity="0.85" />
+      </svg>
     </div>
+
+    <!-- Abstract Solar Geometry (Concentric Astrolabe Rings + Singularity Annulus) -->
     <div id="sun-assembly">
-      <div class="sun-corona"></div>
-      <div class="sun-core"></div>
+      <div class="abstract-sun-bloom"></div>
+      <svg class="abstract-sun-outer-ring" viewBox="-52 -52 104 104">
+        <circle cx="0" cy="0" r="46" fill="none" stroke="rgba(254,240,138,0.22)" stroke-width="0.9" stroke-dasharray="3 7" />
+        <circle cx="0" cy="0" r="36" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="0.8" />
+        <line x1="-50" y1="0" x2="-39" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+        <line x1="39" y1="0" x2="50" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+        <line x1="0" y1="-50" x2="0" y2="-39" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+        <line x1="0" y1="39" x2="0" y2="50" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+      </svg>
+      <div class="abstract-sun-mid-ring"></div>
+      <div class="abstract-sun-annulus"></div>
+      <div class="abstract-sun-singularity"></div>
     </div>
   </div>
 
-  <!-- 2. LARGE DATE & TIME IN UPPER-LEFT -->
+  <!-- 2. LEFT-ALIGNED DATE, TIME & SIMPLIFIED WEATHER IN UPPER-LEFT -->
   <div id="hero-clock-region">
     <div class="clock-row">
       <div id="hero-time">--:--</div>
@@ -859,19 +1759,51 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     <div id="solar-telemetry">
       <span id="solar-phase-text"></span>
     </div>
+
+    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / GÖLSEN -->
+    <div id="hero-weather-strip" title="St. Veit an der Gölsen">
+      <div class="mw-current-row">
+        <div class="mw-icon-wrap" id="mw-current-icon"></div>
+        <div class="mw-temp-now" id="mw-current-temp">--°</div>
+        <div class="mw-cond-text" id="mw-current-desc">--</div>
+        <div class="mw-hi-lo" id="mw-hi-lo">--° / --°</div>
+      </div>
+      <div class="mw-day-slots" id="mw-day-slots"></div>
+    </div>
   </div>
 
-  <!-- 5. TOP-RIGHT BORDERLESS EXPANDABLE SERVICE WIDGETS: (health), (finances), (notes), (meals) -->
+  <!-- 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS: (1) health, (2) meals, (3) finances, (4) notes -->
   <div id="top-right-widgets">
-    <!-- HEALTH WIDGET -->
+    <!-- 1. HEALTH WIDGET (MINIMAL: HEART ICON WITH HR INSIDE + PROGRESS RING WITH STEP COUNT INSIDE) -->
     <div class="ambient-widget" id="widget-health" onclick="toggleWidget('health', event)">
       <div class="w-header">
         <div class="w-label-row">
           <span>health</span>
           <span class="w-dot" id="dot-health" style="background:#4ade80; box-shadow:0 0 10px #4ade80;"></span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('google-health', 'Health')" title="Open Health View">↗</button>
         </div>
-        <div class="w-primary" id="compact-health">--</div>
-        <div class="w-sub" id="sub-health">Pixel 10 Health Connect</div>
+        <div class="health-minimal-badges">
+          <!-- Heart icon with Heart Rate number inside -->
+          <div class="hm-badge" title="Heart Rate (bpm)">
+            <svg class="hm-heart-svg" viewBox="0 0 24 24">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                    fill="rgba(244, 63, 94, 0.24)"
+                    stroke="#fb7185"
+                    stroke-width="1.35" />
+            </svg>
+            <span class="hm-badge-val" id="health-hr-inside">--</span>
+          </div>
+          <!-- Progress circle with Step Count number inside -->
+          <div class="hm-badge" title="Steps Today">
+            <svg class="hm-ring-svg" viewBox="0 0 44 44">
+              <circle class="hm-ring-bg" cx="22" cy="22" r="18.5"></circle>
+              <circle class="hm-ring-fg" id="health-steps-ring" cx="22" cy="22" r="18.5"></circle>
+            </svg>
+            <span class="hm-badge-val" id="health-steps-inside">--</span>
+          </div>
+        </div>
+        <div class="w-primary" id="compact-health" style="display:none;">--</div>
+        <div class="w-sub" id="sub-health" style="display:none;">Pixel 10 Health Connect</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
         <div class="w-stat-grid">
@@ -886,27 +1818,45 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       </div>
     </div>
 
-    <!-- FINANCES WIDGET (HIDDEN BY DEFAULT, CLICK TO TOGGLE VISIBILITY, CONFIGURABLE ELEMENTS + QUICK IMPORT) -->
-    <div class="ambient-widget" id="widget-finances" onclick="toggleWidget('finances', event)">
+    <!-- 2. MEALS WIDGET (MOVED DIRECTLY BELOW HEALTH) -->
+    <div class="ambient-widget" id="widget-meals" onclick="toggleWidget('meals', event)">
       <div class="w-header">
-        <div class="w-label-row" style="gap:8px;">
-          <span>thassi.finances</span>
-          <button id="finances-eye-btn"
-                  onclick="toggleFinancesVisibility(event)"
-                  title="Klicken, um Finanzdaten ein-/auszublenden"
-                  style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.14); color:#cbd5e1; border-radius:99px; padding:1px 7px; font-size:9.5px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
-            🔒 versteckt
-          </button>
-          <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7;"></span>
+        <div class="w-label-row">
+          <span>meals</span>
+          <span class="w-dot" id="dot-meals" style="background:#fb923c; box-shadow:0 0 10px #fb923c;"></span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('meal-planner', 'Meals')" title="Open Meals View">↗</button>
         </div>
-        <div class="w-primary" id="compact-finances" onclick="handleCompactFinancesClick(event)" title="Klicken zum Ein-/Ausblenden">🔒 •••• €</div>
-        <div class="w-sub" id="sub-finances">Klick auf 🔒 zum Anzeigen · Sparkasse George</div>
+        <div class="w-primary" id="compact-meals">Unplanned</div>
+        <div class="w-sub" id="sub-meals">Today's nutrition</div>
+      </div>
+      <div class="w-expand-body" onclick="event.stopPropagation()">
+        <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
+        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals →</button>
+      </div>
+    </div>
+
+    <!-- 3. FINANCES WIDGET (IN HIDDEN MODE: ONLY SHOW EYE TOGGLE NEXT TO PREVIEW TITLE) -->
+    <div class="ambient-widget finances-is-hidden" id="widget-finances" onclick="toggleWidget('finances', event)">
+      <div class="w-header">
+        <div class="w-label-row" style="gap:6px;">
+          <span>finances</span>
+          <button id="finances-eye-btn"
+                  class="finances-eye-icon-btn"
+                  onclick="toggleFinancesVisibility(event)"
+                  title="Finanzdaten ein-/ausblenden">
+            👁️
+          </button>
+          <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7; display:none;"></span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('finance-analytics', 'thassi.finances')" title="Open Finances View">↗</button>
+        </div>
+        <div class="w-primary" id="compact-finances" onclick="handleCompactFinancesClick(event)" title="Klicken zum Ein-/Ausblenden">•••• €</div>
+        <div class="w-sub" id="sub-finances">Sparkasse George</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()" style="min-width:270px;">
         <div id="finances-preview-dynamic"
-             onclick="toggleFinancesVisibility(event)"
-             title="Klicken, um Zahlen ein-/auszublenden"
-             style="display:flex; flex-direction:column; gap:8px; cursor:pointer; margin-bottom:10px;">
+              onclick="toggleFinancesVisibility(event)"
+              title="Klicken, um Zahlen ein-/auszublenden"
+              style="display:flex; flex-direction:column; gap:8px; cursor:pointer; margin-bottom:10px;">
           <div class="w-stat-grid">
             <div class="w-stat-item"><span class="w-stat-k">Aktueller Kontostand</span><span class="w-stat-v" id="ef-bal" style="color:#38bdf8;">•••• €</span></div>
             <div class="w-stat-item"><span class="w-stat-k">Ausgaben (Tag / Woche)</span><span class="w-stat-v" id="ef-exp" style="color:#f87171;">•••• €</span></div>
@@ -921,7 +1871,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       </div>
     </div>
 
-    <!-- NOTES WIDGET -->
+    <!-- 4. NOTES WIDGET (LAST POSITION AMONG TOP-RIGHT PREVIEWS) -->
     <div class="ambient-widget" id="widget-notes" onclick="toggleWidget('notes', event)">
       <div class="w-header">
         <div class="w-label-row">
@@ -938,63 +1888,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         <div id="notes-list" style="max-height:160px; overflow-y:auto;"></div>
       </div>
     </div>
-
-    <!-- MEALS WIDGET -->
-    <div class="ambient-widget" id="widget-meals" onclick="toggleWidget('meals', event)">
-      <div class="w-header">
-        <div class="w-label-row">
-          <span>meals</span>
-          <span class="w-dot" id="dot-meals" style="background:#fb923c; box-shadow:0 0 10px #fb923c;"></span>
-        </div>
-        <div class="w-primary" id="compact-meals">Unplanned</div>
-        <div class="w-sub" id="sub-meals">Today's nutrition</div>
-      </div>
-      <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
-        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals →</button>
-      </div>
-    </div>
-
-    <!-- 3D DRUCK MINI-PREVIEW WIDGET (MINIATURE 3D OBJECT + PROGRESS BAR + PLACEHOLDER) -->
-    <div class="ambient-widget" id="widget-3dprint" onclick="toggleWidget('3dprint', event)">
-      <div class="w-header">
-        <div class="w-label-row">
-          <span>3d druck · bambulab</span>
-          <span class="w-dot" id="dot-3dprint" style="background:#00AE42; box-shadow:0 0 10px #00AE42;"></span>
-        </div>
-        <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:2px;">
-          <div style="position:relative; width:82px; height:64px; border-radius:12px; background:rgba(4,7,17,0.72); border:1px solid rgba(56,189,248,0.22); overflow:hidden; flex-shrink:0;"
-               title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)"
-               onclick="event.stopPropagation()">
-            <canvas id="mini-3d-canvas" width="164" height="128" style="width:82px; height:64px; display:block; cursor:grab; touch-action:none;"></canvas>
-          </div>
-          <div style="display:flex; flex-direction:column; align-items:flex-end; min-width:145px;">
-            <div class="w-primary" id="compact-3dprint" style="font-size:15.5px;">Kein Projekt aktiv</div>
-            <div class="w-sub" id="sub-3dprint">Platzhalter · 0% Leerlauf</div>
-            <div style="width:100%; height:5px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-top:6px;">
-              <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00AE42, #38bdf8); transition:width 0.35s ease;"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div class="w-stat-grid" style="margin-bottom:10px;">
-          <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer" style="color:#00AE42;">0% (0/0)</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Maße / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Düse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24°C / 24°C</span></div>
-        </div>
-        <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:10px;">
-          <input id="mini-3d-prompt" class="minimal-input" placeholder="Prompt: 3D-Objekt ändern oder neu erstellen…" />
-          <button type="submit" id="mini-3d-prompt-btn" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 12px; font-weight:700; font-size:11.5px; cursor:pointer; white-space:nowrap;">KI</button>
-        </form>
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-          <button class="w-action-link" style="color:#fbbf24; margin:0;" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
-          <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">🖨️ Druck starten</button>
-          <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor →</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- QUICK IMPORT ONLINE-BANKING POPUP FLYOUT -->
@@ -1006,7 +1899,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       <div style="padding:16px 20px; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
         <div>
           <div style="font-size:15px; font-weight:700; color:#f8fafc;">⚡ Quick Import — Online-Banking Flyout</div>
-          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Sparkasse George Auto-Login, Cookie-Tresor & automatischer Datei-Import</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Sparkasse George Auto-Login, Cookie-Tresor &amp; automatischer Datei-Import</div>
         </div>
         <button onclick="closeQuickImportFlyout()" style="background:#1e293b; border:1px solid #334155; color:#cbd5e1; border-radius:8px; padding:5px 10px; cursor:pointer; font-size:12px;">✕</button>
       </div>
@@ -1017,7 +1910,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         </button>
         <button onclick="triggerDashboardQuickImportSample()"
                 style="padding:8px 13px; border-radius:9px; border:1px solid rgba(16,185,129,0.45); background:rgba(16,185,129,0.15); color:#34d399; font-size:12px; font-weight:700; cursor:pointer;">
-          ⚡ George Export herunterladen & Auto-Import
+          ⚡ George Export herunterladen &amp; Auto-Import
         </button>
         <button onclick="triggerDashboardDownloadsScan()"
                 style="padding:8px 12px; border-radius:9px; border:1px solid #334155; background:#1e293b; color:#e2e8f0; font-size:11.5px; font-weight:600; cursor:pointer;">
@@ -1057,6 +1950,29 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <div id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
+        <button class="horizon-view-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar View">◷ Calendar ↗</button>
+        <div class="cal-filter-wrap" onclick="event.stopPropagation()">
+          <button class="horizon-view-btn" id="btn-horizon-cal-filter" onclick="toggleCalendarFilterPopover(event)" title="Configure which calendars appear in Horizon">
+            ⚙️ <span id="cal-filter-btn-label">Calendars</span>
+          </button>
+          <div id="horizon-cal-filter-popover">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">
+              <div>
+                <div style="font-size:12px; font-weight:700; color:#f8fafc;">🌅 Horizon Calendars</div>
+                <div id="cal-filter-oauth-badge" style="font-size:10px; color:#94a3b8; margin-top:2px;">Checking Google OAuth...</div>
+              </div>
+              <div style="display:flex; gap:4px;">
+                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(true)">All</button>
+                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(false)">None</button>
+              </div>
+            </div>
+            <div class="cal-filter-list" id="horizon-cal-filter-list"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="syncGoogleCalendarsFromDash()">🔄 Sync Google OAuth</button>
+              <button class="w-action-link" style="margin:0; font-size:10.5px; color:#94a3b8;" onclick="openFullService('google-calendar', 'Calendar')">OAuth &amp; Settings ↗</button>
+            </div>
+          </div>
+        </div>
         <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">↺ Return to Now</button>
       </div>
       <div class="tl-controls">
@@ -1084,21 +2000,121 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     </div>
   </div>
 
-  <!-- 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR & UPWARD FLYOUT -->
-  <div id="room-flyout" onclick="event.stopPropagation()"></div>
-  <div id="room-dock-bar">
-    <div class="room-dock-group" id="room-pills-container"></div>
-    <div style="display:flex; align-items:center; gap:6px;">
-      <button class="room-pill" onclick="openFullService('3d-print', '3D Druck Studio')" title="3D Druck Editor & BambuLab Steuerung öffnen">
-        <span class="room-dot" id="print3d-dock-dot" style="background:#00AE42; box-shadow:0 0 8px #00AE42;"></span>
-        <span>3D Druck</span>
-        <span class="room-meta" id="print3d-dock-meta">Bambu P1S</span>
-      </button>
-      <button class="room-pill" onclick="openFullService('camera-vision', 'Camera Vision')" title="Kamera-Objekterkennung & Streams öffnen">
-        <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
-        <span>Vision AI</span>
-        <span class="room-meta" id="vision-dock-meta">Zyklisch</span>
-      </button>
+  <!-- 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS -->
+  <div id="devices-dock">
+    <div id="timeline-devices-separator">
+      <div class="td-sep-badge">
+        <span>Timeline ▾ Rooms &amp; Devices</span>
+        <span id="pinned-rooms-count-label" style="color:#38bdf8; display:none;"></span>
+        <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Alle minimieren</button>
+        <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="pointer-events:auto; margin-left:4px;">⌂ Smart Home ↗</button>
+      </div>
+    </div>
+
+    <!-- Pinned Room Groups Tray (minimized/collapsed by default until user pins a room tab) -->
+    <div id="pinned-rooms-tray"></div>
+
+    <!-- Transparent Minimalistic TabView StatusBar: Left = Room Tabs, Right = 3D Print & Vision Previews (Expanding Upwards) -->
+    <div id="room-dock-bar">
+      <div class="room-dock-group" id="room-pills-container"></div>
+
+      <!-- Right-aligned StatusBar Previews (NOT inside room tabs; expand flyouts upwards) -->
+      <div id="statusbar-right-previews">
+        <!-- 3D PRINT STATUSBAR PREVIEW (UPWARD FLYOUT) -->
+        <div class="sb-preview-item" id="widget-3dprint">
+          <div style="display:inline-flex; align-items:center; gap:2px;">
+            <button class="sb-preview-trigger" onclick="toggleWidget('3dprint', event)" title="3D Druck Vorschau ein-/ausklappen">
+              <span class="room-dot" id="dot-3dprint" style="background:#00AE42; box-shadow:0 0 8px #00AE42;"></span>
+              <span id="print3d-dock-dot" style="display:none;"></span>
+              <span>3D Druck</span>
+              <span class="sb-meta" id="print3d-dock-meta">Bambu P1S</span>
+              <span class="sb-caret">▴</span>
+            </button>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('3d-print', '3D Druck Studio')" title="Open 3D Druck Studio">↗</button>
+          </div>
+          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
+              <span>3d druck · bambulab</span>
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('3d-print', '3D Druck Studio')">Studio ↗</button>
+            </div>
+            <div class="w-3d-row">
+              <div style="position:relative; width:82px; height:64px; border-radius:12px; background:rgba(4,7,17,0.72); border:1px solid rgba(56,189,248,0.22); overflow:hidden; flex-shrink:0;"
+                   title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)">
+                <canvas id="mini-3d-canvas" width="164" height="128" style="width:82px; height:64px; display:block; cursor:grab; touch-action:none;"></canvas>
+              </div>
+              <div class="w-3d-info">
+                <div class="w-primary" id="compact-3dprint" style="font-size:14.5px; justify-content:flex-start;">Kein Projekt aktiv</div>
+                <div class="w-sub" id="sub-3dprint" style="display:block; text-align:left;">Platzhalter · 0% Leerlauf</div>
+                <div style="width:100%; height:5px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-top:6px;">
+                  <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00AE42, #38bdf8); transition:width 0.35s ease;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="w-stat-grid" style="margin-bottom:10px;">
+              <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
+              <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer" style="color:#00AE42;">0% (0/0)</span></div>
+              <div class="w-stat-item"><span class="w-stat-k">Maße / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
+              <div class="w-stat-item"><span class="w-stat-k">Düse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24°C / 24°C</span></div>
+            </div>
+            <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:10px;">
+              <input id="mini-3d-prompt" class="minimal-input" placeholder="Prompt: 3D-Objekt ändern oder neu erstellen…" />
+              <button type="submit" id="mini-3d-prompt-btn" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 12px; font-weight:700; font-size:11.5px; cursor:pointer; white-space:nowrap;">KI</button>
+            </form>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <button class="w-action-link" style="color:#fbbf24; margin:0;" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
+              <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">🖨️ Druck starten</button>
+              <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- VISION STATUSBAR PREVIEW (UPWARD FLYOUT) -->
+        <div class="sb-preview-item" id="widget-vision">
+          <div style="display:inline-flex; align-items:center; gap:2px;">
+            <button class="sb-preview-trigger" onclick="toggleWidget('vision', event)" title="Camera Vision Vorschau ein-/ausklappen">
+              <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
+              <span>Vision</span>
+              <span class="sb-meta" id="vision-dock-meta">Zyklisch</span>
+              <span class="sb-caret">▴</span>
+            </button>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('camera-vision', 'Camera Vision')" title="Open Camera Vision">↗</button>
+          </div>
+          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
+              <span>camera vision · objekterkennung</span>
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('camera-vision', 'Camera Vision')">Streams ↗</button>
+            </div>
+            <div id="vision-flyout-summary" style="font-size:11.5px; color:rgba(248,250,252,0.82); margin-bottom:8px; line-height:1.45;">
+              Zyklischer Snapshot-Scan aktiv
+            </div>
+            <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; max-height:180px; overflow-y:auto;"></div>
+            <button class="w-action-link" style="margin:0;" onclick="openFullService('camera-vision', 'Camera Vision')">Open Camera Vision →</button>
+          </div>
+        </div>
+
+        <!-- N8N PROJEKTE & MODUL-WORKFLOW STATUSBAR PREVIEW (UPWARD FLYOUT) -->
+        <div class="sb-preview-item" id="widget-workflow">
+          <div style="display:inline-flex; align-items:center; gap:2px;">
+            <button class="sb-preview-trigger" onclick="toggleWidget('workflow', event)" title="n8n Modul-Workflow & Projektverwaltung">
+              <span class="room-dot" id="workflow-dock-dot" style="background:#22c55e; box-shadow:0 0 8px #22c55e;"></span>
+              <span>Projekte &amp; n8n</span>
+              <span class="sb-meta" id="workflow-dock-meta">LIVE</span>
+              <span class="sb-caret">▴</span>
+            </button>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('project-workflow', 'Projekte & Modul-Workflow')" title="Open Projekte & n8n Workflow Panel">↗</button>
+          </div>
+          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
+              <span>n8n modul-workflow · gemini &amp; github</span>
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Panel ↗</button>
+            </div>
+            <div style="font-size:11.5px; color:rgba(248,250,252,0.85); margin-bottom:8px; line-height:1.45;">
+              Webhook → Template → Gemini API → Python Unit-Tests (4/4 PASS) → Git → Samba/HA Deploy
+            </div>
+            <button class="w-action-link" style="margin:0;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Projekte &amp; n8n Workflow öffnen →</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1115,24 +2131,40 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <script>
     ${sidebarStylerScript}
 
+    // Detect if running inside Home Assistant parent frame (which already renders transparent ha-sidebar)
+    (function detectHassParentFrame() {
+      try {
+        if (window.top && window.top !== window && window.top.document && window.top.document.querySelector('home-assistant')) {
+          document.body.classList.add('in-hass-frame');
+        }
+      } catch (_e) {}
+    })();
+
+    const ingressRx = new RegExp('^(/api/hassio_ingress/[^/]+)');
+    const trailingSlashRx = new RegExp('/+$');
     const base = (
       window.__THASSI_INGRESS_PATH__ ||
-      ((window.location.pathname || '').match(/^(\/api\/hassio_ingress\/[^/]+)/) || [])[1] ||
+      ((window.location.pathname || '').match(ingressRx) || [])[1] ||
       ''
-    ).replace(/\/+$/, '');
-    const NOW_ANCHOR_RATIO = 0.22;
+    ).replace(trailingSlashRx, '');
+    const NOW_ANCHOR_RATIO = 0.25;
 
     let calendarEvents = [];
+    let allCalendarEvents = [];
+    let horizonCalendars = [];
+    let googleOAuthInfo = null;
     let roomsData = [];
     let visionSummaryData = null;
-    let activeRoomFlyoutId = null;
+    let pinnedRoomIds = new Set();
     let visibleHoursSpan = 24;
     let panOffsetMs = 0;
     let timelineBaseEpochMs = Date.now();
+    let currentWeatherState = null;
 
     // Generate twinkling stars once
     (function initStars() {
       const sf = document.getElementById('starfield');
+      if (!sf) return;
       let html = '';
       for (let i = 0; i < 85; i++) {
         const x = (Math.random() * 100).toFixed(2);
@@ -1144,7 +2176,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       sf.innerHTML = html;
     })();
 
-    // 1. SOLAR POSITION & SKY COLOR ENGINE
+    // 1. ABSTRACT SOLAR / LUNAR POSITION & SKY COLOR ENGINE
     const SUNRISE_HOUR = 6.75; // 06:45
     const SUNSET_HOUR = 18.5;  // 18:30
 
@@ -1152,7 +2184,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 5.2 || h >= 21.2) {
         return {
           sky: 'linear-gradient(180deg, #02040a 0%, #070d1f 48%, #0f172a 78%, #172554 100%)',
-          sidebarBg: 'linear-gradient(180deg, #02040a 0%, #060b1a 55%, #03060f 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(56, 189, 248, 0.18), transparent 70%)',
           stars: 0.9,
           phase: 'Astronomical Night'
@@ -1161,7 +2193,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 6.5) {
         return {
           sky: 'linear-gradient(180deg, #090d1e 0%, #1e1b4b 42%, #6d28d9 74%, #f97316 100%)',
-          sidebarBg: 'linear-gradient(180deg, #070a18 0%, #131130 60%, #060813 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 25% 100%, rgba(251, 146, 60, 0.65), transparent 72%)',
           stars: 0.45,
           phase: 'Dawn Twilight'
@@ -1170,7 +2202,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 8.0) {
         return {
           sky: 'linear-gradient(180deg, #1d4ed8 0%, #3b82f6 42%, #f472b6 75%, #fbbf24 100%)',
-          sidebarBg: 'linear-gradient(180deg, #0c1f5e 0%, #172554 60%, #060b19 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 22% 100%, rgba(253, 224, 71, 0.8), transparent 75%)',
           stars: 0.05,
           phase: 'Golden Sunrise'
@@ -1179,7 +2211,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 16.5) {
         return {
           sky: 'linear-gradient(180deg, #0369a1 0%, #0284c7 45%, #38bdf8 80%, #bae6fd 100%)',
-          sidebarBg: 'linear-gradient(180deg, #042f4e 0%, #073b61 55%, #040917 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(254, 249, 195, 0.45), transparent 75%)',
           stars: 0,
           phase: h < 11.5 ? 'Morning Sky' : h < 14 ? 'Solar Noon' : 'Afternoon Sun'
@@ -1188,7 +2220,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (h < 18.8) {
         return {
           sky: 'linear-gradient(180deg, #1e1b4b 0%, #3730a3 36%, #c2410c 72%, #facc15 100%)',
-          sidebarBg: 'linear-gradient(180deg, #0f0e29 0%, #1e1b4b 58%, #060814 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 78% 100%, rgba(251, 146, 60, 0.85), transparent 75%)',
           stars: 0.15,
           phase: 'Golden Hour'
@@ -1196,7 +2228,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       }
       return {
         sky: 'linear-gradient(180deg, #050814 0%, #1e1b4b 46%, #4c1d95 76%, #9a3412 100%)',
-        sidebarBg: 'linear-gradient(180deg, #040711 0%, #110f2b 58%, #04060f 100%)',
+        sidebarBg: 'transparent',
         glow: 'radial-gradient(ellipse at 82% 100%, rgba(234, 88, 12, 0.45), transparent 70%)',
         stars: 0.65,
         phase: 'Dusk Twilight'
@@ -1204,11 +2236,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
 
     function computeSunPoint(hourFloat, vw, vh) {
-      const horizonY = vh * 0.65;
-      const zenithY = vh * 0.12;
-      const nadirY = vh * 0.82;
+      const isMobile = vw <= 900;
+      const horizonY = vh * (isMobile ? 0.44 : 0.62);
+      const zenithY = vh * (isMobile ? 0.09 : 0.12);
+      const nadirY = vh * (isMobile ? 0.64 : 0.80);
 
-      const x = vw * (0.06 + (hourFloat / 24) * 0.88);
+      const xMargin = isMobile ? 0.04 : 0.08;
+      const x = vw * (xMargin + (hourFloat / 24) * (1 - xMargin * 2));
       const daySpan = SUNSET_HOUR - SUNRISE_HOUR;
       const angle = ((hourFloat - SUNRISE_HOUR) / daySpan) * Math.PI;
       const sinVal = Math.sin(angle);
@@ -1216,12 +2250,23 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         ? horizonY - sinVal * (horizonY - zenithY)
         : horizonY - sinVal * (nadirY - horizonY);
 
-      return { x, y, aboveHorizon: sinVal >= -0.08, elevationPct: Math.round(sinVal * 100) };
+      return { x, y, horizonY, aboveHorizon: sinVal >= -0.06, elevationPct: Math.round(sinVal * 100) };
     }
 
     function renderSolarArcPaths() {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const isMobile = vw <= 900;
+      const horizonY = vh * (isMobile ? 0.44 : 0.62);
+
+      const datumEl = document.getElementById('horizon-datum-line');
+      if (datumEl) {
+        datumEl.setAttribute('x1', (vw * (isMobile ? 0.03 : 0.06)).toFixed(1));
+        datumEl.setAttribute('y1', horizonY.toFixed(1));
+        datumEl.setAttribute('x2', (vw * (isMobile ? 0.97 : 0.94)).toFixed(1));
+        datumEl.setAttribute('y2', horizonY.toFixed(1));
+      }
+
       let fullPath = '';
       let dayPath = '';
       for (let h = 0; h <= 24; h += 0.25) {
@@ -1231,8 +2276,10 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           dayPath += (dayPath === '' ? 'M' : 'L') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ' ';
         }
       }
-      document.getElementById('solar-arc-path').setAttribute('d', fullPath);
-      document.getElementById('solar-day-path').setAttribute('d', dayPath);
+      const arcEl = document.getElementById('solar-arc-path');
+      const dayEl = document.getElementById('solar-day-path');
+      if (arcEl) arcEl.setAttribute('d', fullPath);
+      if (dayEl) dayEl.setAttribute('d', dayPath);
     }
 
     function updateSkyAndSun(now) {
@@ -1249,27 +2296,292 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const isMobile = vw <= 900;
       const sunPt = computeSunPoint(effectiveHour, vw, vh);
 
       const sunEl = document.getElementById('sun-assembly');
       sunEl.style.left = sunPt.x.toFixed(1) + 'px';
       sunEl.style.top = sunPt.y.toFixed(1) + 'px';
-      sunEl.style.opacity = sunPt.aboveHorizon ? '1' : '0.28';
+      sunEl.style.opacity = sunPt.aboveHorizon ? '1' : '0.24';
+      const baseScale = isMobile ? 0.8 : 1;
+      sunEl.style.transform = sunPt.aboveHorizon ? \`scale(\${baseScale})\` : \`scale(\${(baseScale * 0.75).toFixed(2)})\`;
 
       const moonHour = (effectiveHour + 12) % 24;
       const moonPt = computeSunPoint(moonHour, vw, vh);
       const moonEl = document.getElementById('moon-assembly');
       moonEl.style.left = moonPt.x.toFixed(1) + 'px';
       moonEl.style.top = moonPt.y.toFixed(1) + 'px';
-      moonEl.style.opacity = sunPt.aboveHorizon ? '0' : '0.92';
+      moonEl.style.opacity = sunPt.aboveHorizon ? '0.12' : '0.95';
+
+      // Progressed arc & abstract elevation chord to horizon datum
+      const activePt = sunPt.aboveHorizon ? sunPt : moonPt;
+      const chordEl = document.getElementById('celestial-elevation-chord');
+      const nodeEl = document.getElementById('horizon-node-dot');
+      if (chordEl && nodeEl) {
+        chordEl.setAttribute('x1', activePt.x.toFixed(1));
+        chordEl.setAttribute('y1', activePt.y.toFixed(1));
+        chordEl.setAttribute('x2', activePt.x.toFixed(1));
+        chordEl.setAttribute('y2', sunPt.horizonY.toFixed(1));
+        nodeEl.setAttribute('cx', activePt.x.toFixed(1));
+        nodeEl.setAttribute('cy', sunPt.horizonY.toFixed(1));
+      }
+
+      const progEl = document.getElementById('solar-progressed-path');
+      if (progEl) {
+        let progD = '';
+        if (effectiveHour >= SUNRISE_HOUR) {
+          const endH = Math.min(effectiveHour, SUNSET_HOUR);
+          for (let h = SUNRISE_HOUR; h <= endH; h += 0.2) {
+            const p = computeSunPoint(h, vw, vh);
+            progD += (progD === '' ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
+          }
+          const curP = computeSunPoint(endH, vw, vh);
+          progD += (progD === '' ? 'M' : 'L') + curP.x.toFixed(1) + ',' + curP.y.toFixed(1);
+        }
+        progEl.setAttribute('d', progD);
+      }
 
       document.getElementById('solar-phase-text').textContent =
         \`\${palette.phase}  ·  Sunrise 06:45  ·  Sunset 18:30\`;
     }
 
+    // ============================================================================
+    // ST. VEIT / GÖLSEN WEATHER FORECAST & SUBTLE BACKGROUND WEATHER FX
+    // ============================================================================
+    function normalizeWxEffect(raw) {
+      const c = String(raw || '').toLowerCase();
+      if (c.includes('thunder') || c.includes('storm')) return 'thunder';
+      if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) return 'rain';
+      if (c.includes('snow') || c.includes('sleet')) return 'snow';
+      if (c.includes('fog') || c.includes('mist')) return 'fog';
+      if (c.includes('cloud') || c.includes('overcast')) return 'clouds';
+      return 'clear';
+    }
+
+    function getWeatherSvgIcon(rawEffect, size) {
+      const effect = normalizeWxEffect(rawEffect);
+      const s = size || 18;
+      if (effect === 'thunder') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><polyline points="13 11 9 17 15 17 11 23"/></svg>\`;
+      }
+      if (effect === 'rain') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/></svg>\`;
+      }
+      if (effect === 'snow') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#e0f2fe" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="8" y1="20" x2="8.01" y2="20"/><line x1="12" y1="18" x2="12.01" y2="18"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>\`;
+      }
+      if (effect === 'fog') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="10" x2="20" y2="10"/><line x1="6" y1="14" x2="18" y2="14"/><line x1="4" y1="18" x2="20" y2="18"/></svg>\`;
+      }
+      if (effect === 'clouds') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>\`;
+      }
+      return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>\`;
+    }
+
+    function renderWeatherStrip(w) {
+      if (!w || !w.current) return;
+      currentWeatherState = w;
+
+      const cur = w.current;
+      const curEffect = normalizeWxEffect(cur.conditionCode || cur.effect);
+      const curDesc = cur.conditionLabel || cur.descriptionDe || 'Leicht bewölkt';
+      const todaySummary = w.today || w.todaySummary;
+      const slotsList = w.daySlots || w.hourly || w.hourly24 || [];
+
+      const iconEl = document.getElementById('mw-current-icon');
+      const tempEl = document.getElementById('mw-current-temp');
+      const descEl = document.getElementById('mw-current-desc');
+      const hiloEl = document.getElementById('mw-hi-lo');
+      const slotsEl = document.getElementById('mw-day-slots');
+
+      if (iconEl) iconEl.innerHTML = getWeatherSvgIcon(curEffect, 20);
+      if (tempEl) tempEl.textContent = \`\${Math.round(Number(cur.tempC ?? 14))}°\`;
+      if (descEl) descEl.textContent = curDesc;
+      if (hiloEl && todaySummary) {
+        hiloEl.textContent = \`\${Math.round(Number(todaySummary.tempMaxC))}° / \${Math.round(Number(todaySummary.tempMinC))}°\`;
+      }
+
+      // Update subtle cloud veils in background
+      const veil1 = document.getElementById('weather-cloud-veil-1');
+      const veil2 = document.getElementById('weather-cloud-veil-2');
+      if (veil1 && veil2) {
+        const vOpacity = curEffect === 'rain' || curEffect === 'thunder' ? 0.95 : curEffect === 'clouds' || curEffect === 'fog' ? 0.78 : 0.25;
+        veil1.style.opacity = String(vOpacity);
+        veil2.style.opacity = String(vOpacity * 0.85);
+      }
+
+      if (slotsEl && Array.isArray(slotsList)) {
+        const nowHr = new Date().getHours();
+        slotsEl.innerHTML = slotsList.slice(0, 6).map((slot) => {
+          const slotHr = slot.hour != null ? Number(slot.hour) : parseInt((slot.hourLabel || '00:00').slice(0, 2), 10);
+          const isCur = Math.abs(slotHr - nowHr) <= 1;
+          const slotEff = normalizeWxEffect(slot.conditionCode || slot.effect);
+          return \`
+            <div class="mw-slot \${isCur ? 'is-current-slot' : ''}">
+              <span class="mw-slot-hr">\${slot.hourLabel}</span>
+              <span class="mw-slot-ico">\${getWeatherSvgIcon(slotEff, 13)}</span>
+              <span class="mw-slot-temp">\${Math.round(slot.tempC)}°</span>
+            </div>
+          \`;
+        }).join('');
+      }
+    }
+
+    async function loadWeatherData(initialWeather) {
+      if (initialWeather && initialWeather.current) {
+        renderWeatherStrip(initialWeather);
+        return;
+      }
+      try {
+        const res = await fetch(base + '/api/system/weather');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.current) {
+            renderWeatherStrip(data);
+            return;
+          }
+        }
+      } catch (_e) {}
+
+      // Direct fallback for St. Veit an der Gölsen (48.0444°N, 15.6689°E) if backend route is not yet loaded
+      try {
+        const meteoUrl = 'https://api.open-meteo.com/v1/forecast?latitude=48.0444&longitude=15.6689&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FVienna&forecast_days=1';
+        const r = await fetch(meteoUrl);
+        if (r.ok) {
+          const d = await r.json();
+          const c = d.current || {};
+          const wmo = Number(c.weather_code ?? 1);
+          const mapCode = (code) => {
+            if (code === 0) return { conditionCode: 'clear', conditionLabel: 'Klar & Sonnig' };
+            if (code <= 2) return { conditionCode: 'partly_cloudy', conditionLabel: 'Leicht bewölkt' };
+            if (code === 3) return { conditionCode: 'cloudy', conditionLabel: 'Bewölkt' };
+            if (code === 45 || code === 48) return { conditionCode: 'fog', conditionLabel: 'Talnebel' };
+            if (code >= 51 && code <= 67 || (code >= 80 && code <= 82)) return { conditionCode: 'rain', conditionLabel: 'Regen' };
+            if (code >= 71 && code <= 86) return { conditionCode: 'snow', conditionLabel: 'Schneefall' };
+            if (code >= 95) return { conditionCode: 'thunderstorm', conditionLabel: 'Gewitter' };
+            return { conditionCode: 'partly_cloudy', conditionLabel: 'Wechselhaft' };
+          };
+          const cm = mapCode(wmo);
+          const times = (d.hourly && d.hourly.time) || [];
+          const temps = (d.hourly && d.hourly.temperature_2m) || [];
+          const probs = (d.hourly && d.hourly.precipitation_probability) || [];
+          const codes = (d.hourly && d.hourly.weather_code) || [];
+          const targetHrs = [6, 9, 12, 15, 18, 21];
+          const daySlots = [];
+          for (let i = 0; i < times.length; i++) {
+            const hr = new Date(times[i]).getHours();
+            if (targetHrs.includes(hr) && daySlots.length < 6) {
+              const sm = mapCode(Number(codes[i] ?? 1));
+              daySlots.push({
+                hour: hr,
+                hourLabel: String(hr).padStart(2, '0') + ':00',
+                tempC: temps[i] ?? 14,
+                precipProbPct: probs[i] ?? 0,
+                conditionCode: sm.conditionCode,
+                conditionLabel: sm.conditionLabel
+              });
+            }
+          }
+          renderWeatherStrip({
+            provider: 'google-weather-api',
+            current: {
+              tempC: c.temperature_2m ?? 14,
+              feelsLikeC: c.apparent_temperature ?? 13.5,
+              conditionCode: cm.conditionCode,
+              conditionLabel: cm.conditionLabel,
+              humidityPct: c.relative_humidity_2m ?? 64,
+              windKmh: c.wind_speed_10m ?? 9,
+            },
+            today: {
+              tempMaxC: (d.daily && d.daily.temperature_2m_max && d.daily.temperature_2m_max[0]) ?? 17,
+              tempMinC: (d.daily && d.daily.temperature_2m_min && d.daily.temperature_2m_min[0]) ?? 7,
+            },
+            daySlots
+          });
+        }
+      } catch (_err) {}
+    }
+
+    (function initWeatherFxCanvas() {
+      const canvas = document.getElementById('weather-fx-canvas');
+      if (!canvas) return;
+
+      const particles = [];
+      for (let i = 0; i < 65; i++) {
+        particles.push({
+          x: Math.random(),
+          y: Math.random(),
+          len: 10 + Math.random() * 14,
+          speed: 0.002 + Math.random() * 0.004,
+          drift: (Math.random() - 0.5) * 0.001,
+          size: 1 + Math.random() * 2.2,
+          alpha: 0.08 + Math.random() * 0.22,
+        });
+      }
+
+      function resizeWxCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resizeWxCanvas();
+      window.addEventListener('resize', resizeWxCanvas);
+
+      function stepWeatherFx() {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.clearRect(0, 0, w, h);
+
+          const rawCode = currentWeatherState && currentWeatherState.current
+            ? (currentWeatherState.current.conditionCode || currentWeatherState.current.effect)
+            : 'clouds';
+          const eff = normalizeWxEffect(rawCode);
+          for (const p of particles) {
+            if (eff === 'rain' || eff === 'thunder') {
+              p.y += p.speed * 2.8;
+              p.x += 0.0008;
+              if (p.y > 0.72) { p.y = -0.05; p.x = Math.random(); }
+              ctx.strokeStyle = \`rgba(186, 230, 253, \${p.alpha * 0.85})\`;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(p.x * w, p.y * h);
+              ctx.lineTo(p.x * w + 3, p.y * h + p.len);
+              ctx.stroke();
+            } else if (eff === 'snow') {
+              p.y += p.speed * 0.55;
+              p.x += Math.sin(p.y * 18) * 0.0005;
+              if (p.y > 0.72) { p.y = -0.02; p.x = Math.random(); }
+              ctx.fillStyle = \`rgba(241, 245, 249, \${p.alpha})\`;
+              ctx.beginPath();
+              ctx.arc(p.x * w, p.y * h, p.size, 0, Math.PI * 2);
+              ctx.fill();
+            } else {
+              // Subtle atmospheric motes / breeze for clear, clouds, or fog
+              p.x += p.drift * 0.4 + 0.00018;
+              p.y += Math.sin(p.x * 12) * 0.00015;
+              if (p.x > 1.02) p.x = -0.02;
+              if (p.x < -0.02) p.x = 1.02;
+              if (p.y < 0.04 || p.y > 0.65) p.y = 0.1 + Math.random() * 0.5;
+              ctx.fillStyle = eff === 'clear'
+                ? \`rgba(254, 240, 138, \${p.alpha * 0.45})\`
+                : \`rgba(203, 213, 225, \${p.alpha * 0.42})\`;
+              ctx.beginPath();
+              ctx.arc(p.x * w, p.y * h, p.size * 0.75, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+        requestAnimationFrame(stepWeatherFx);
+      }
+      requestAnimationFrame(stepWeatherFx);
+    })();
+
     // 2. LARGE CLOCK & CONTINUOUS LEFTWARD TIMELINE LOOP
     function getPxPerMs() {
-      return window.innerWidth / (visibleHoursSpan * 3600 * 1000);
+      const effectiveWidth = Math.max(window.innerWidth, 720);
+      return effectiveWidth / (visibleHoursSpan * 3600 * 1000);
     }
 
     function tickClockAndTimeline() {
@@ -1340,6 +2652,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         personal: { border: '#fbbf24', glow: 'rgba(251, 191, 36, 0.35)' },
       };
 
+      const calColorMap = {};
+      for (const c of horizonCalendars) {
+        if (c && c.calendar_name && c.color) {
+          calColorMap[c.calendar_name] = c.color;
+        }
+      }
+
       const sorted = [...calendarEvents]
         .map((ev) => {
           const s = new Date(ev.start_time).getTime();
@@ -1367,19 +2686,21 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         }
         laneEndPx[lane] = leftPx + widthPx;
 
-        const bottomPx = 48 + lane * 52;
+        const bottomPx = 46 + lane * 48;
         const pal = catPalette[ev.category] || catPalette.personal;
+        const evBorder = calColorMap[ev.calendar_name] || pal.border;
         const isNow = ev.s <= nowMs && ev.e >= nowMs;
         const isPast = ev.e < nowMs;
 
         const startStr = new Date(ev.s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const endStr = new Date(ev.e).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const dayStr = new Date(ev.s).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+        const safeTitle = String(ev.title || '').split('"').join('&quot;');
 
         eventsHtml += \`
           <div class="tl-event-rect \${isNow ? 'is-now' : ''} \${isPast ? 'is-past' : ''}"
-               style="left:\${leftPx.toFixed(1)}px; width:\${widthPx.toFixed(1)}px; bottom:\${bottomPx}px; --ev-color:\${pal.border}; --ev-glow:\${pal.glow};"
-               title="\${ev.title.replace(/"/g, '&quot;')} (\${dayStr}, \${startStr} – \${endStr}) · \${ev.calendar_name || 'Google Calendar'}">
+               style="left:\${leftPx.toFixed(1)}px; width:\${widthPx.toFixed(1)}px; bottom:\${bottomPx}px; --ev-color:\${evBorder}; --ev-glow:\${pal.glow};"
+               title="\${safeTitle} (\${dayStr}, \${startStr} – \${endStr}) · \${ev.calendar_name || 'Google Calendar'}">
             <div class="tl-ev-title">\${ev.title}</div>
             <div class="tl-ev-meta">\${startStr}–\${endStr} · \${ev.calendar_name || ev.category}</div>
           </div>
@@ -1431,76 +2752,74 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     function toggleWidget(id, ev) {
       if (ev) ev.stopPropagation();
       const target = document.getElementById('widget-' + id);
+      if (!target) return;
       const isAlreadyOpen = target.classList.contains('expanded');
-      document.querySelectorAll('.ambient-widget').forEach((w) => w.classList.remove('expanded'));
+      document.querySelectorAll('.ambient-widget, .sb-preview-item').forEach((w) => w.classList.remove('expanded'));
       if (!isAlreadyOpen) {
         target.classList.add('expanded');
       }
     }
 
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.ambient-widget')) {
-        document.querySelectorAll('.ambient-widget').forEach((w) => w.classList.remove('expanded'));
+      if (!e.target.closest('.ambient-widget') && !e.target.closest('.sb-preview-item')) {
+        document.querySelectorAll('.ambient-widget, .sb-preview-item').forEach((w) => w.classList.remove('expanded'));
       }
-      if (!e.target.closest('#room-flyout') && !e.target.closest('.room-pill')) {
-        closeRoomFlyout();
+      if (!e.target.closest('.cal-filter-wrap')) {
+        const pop = document.getElementById('horizon-cal-filter-popover');
+        if (pop) pop.classList.remove('open');
       }
     });
 
-    function closeRoomFlyout() {
-      activeRoomFlyoutId = null;
-      const flyout = document.getElementById('room-flyout');
-      if (flyout) flyout.style.display = 'none';
-      document.querySelectorAll('.room-pill').forEach((p) => p.classList.remove('active-flyout'));
+    // ============================================================================
+    // 6. MINIMIZED-BY-DEFAULT ROOM TABS & PINNABLE ROOM GROUPS BELOW SEPARATOR
+    // ============================================================================
+    function syncDevicesDockHeight() {
+      const dock = document.getElementById('devices-dock');
+      if (!dock) return;
+      const h = dock.getBoundingClientRect().height || 44;
+      document.documentElement.style.setProperty('--devices-dock-height', Math.round(h) + 'px');
     }
 
-    function openRoomFlyout(roomId, ev) {
+    function toggleRoomPin(roomId, ev) {
       if (ev) ev.stopPropagation();
-      if (activeRoomFlyoutId === roomId) {
-        closeRoomFlyout();
-        return;
+      if (pinnedRoomIds.has(roomId)) {
+        pinnedRoomIds.delete(roomId);
+      } else {
+        pinnedRoomIds.add(roomId);
       }
-      activeRoomFlyoutId = roomId;
       renderRoomDockBar();
+      renderPinnedRoomsTray();
+    }
 
-      const flyout = document.getElementById('room-flyout');
-      const pillEl = document.getElementById('room-pill-' + roomId);
-      if (pillEl && flyout) {
-        const rect = pillEl.getBoundingClientRect();
-        const maxLeft = Math.max(16, window.innerWidth - 360);
-        const targetLeft = Math.min(maxLeft, Math.max(16, rect.left));
-        flyout.style.left = targetLeft + 'px';
-      }
-      renderActiveRoomFlyout();
+    function unpinAllRooms() {
+      pinnedRoomIds.clear();
+      renderRoomDockBar();
+      renderPinnedRoomsTray();
     }
 
     function renderRoomDockBar() {
       const container = document.getElementById('room-pills-container');
       if (!container) return;
 
-      container.innerHTML = roomsData
+      // Filter out kameras_vision from left room tabs (Vision is right-aligned in StatusBar)
+      const roomTabs = roomsData.filter((r) => r.id !== 'kameras_vision');
+
+      container.innerHTML = roomTabs
         .map((r) => {
           const hasOn = r.activeCount > 0;
           const hasMotion = Boolean(r.motionActive);
-          const isActive = activeRoomFlyoutId === r.id;
+          const isPinned = pinnedRoomIds.has(r.id);
 
           const metaParts = [];
           if (r.tempC != null) metaParts.push(r.tempC.toFixed(1) + '°');
           if (r.activeCount > 0) metaParts.push(r.activeCount + ' an');
           if (r.totalPowerW > 0.5) metaParts.push(Math.round(r.totalPowerW) + 'W');
-          if (hasMotion) metaParts.push('Bewegung');
-          if (r.id === 'kameras_vision') {
-            metaParts.push(
-              visionSummaryData?.lastTotalObjects
-                ? visionSummaryData.lastTotalObjects + ' Obj'
-                : r.devices.length + ' Cams'
-            );
-          }
 
           return \`
             <button id="room-pill-\${r.id}"
-                    class="room-pill \${hasOn ? 'has-on' : ''} \${hasMotion ? 'has-motion' : ''} \${isActive ? 'active-flyout' : ''}"
-                    onclick="openRoomFlyout('\${r.id}', event)">
+                    class="room-pill \${hasOn ? 'has-on' : ''} \${hasMotion ? 'has-motion' : ''} \${isPinned ? 'pinned-tab' : ''}"
+                    title="\${isPinned ? 'Klicken zum Minimieren (Entpinnen)' : 'Klicken zum Anheften (Pinnen) der Raum-Geräte'}"
+                    onclick="toggleRoomPin('\${r.id}', event)">
               <span class="room-dot"></span>
               <span>\${r.name}</span>
               \${metaParts.length > 0 ? \`<span class="room-meta">\${metaParts.join(' · ')}</span>\` : ''}
@@ -1509,163 +2828,206 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         })
         .join('');
 
+      // Populate right-aligned Vision upward flyout & StatusBar meta
+      const visionRoom = roomsData.find((r) => r.id === 'kameras_vision');
       const vMeta = document.getElementById('vision-dock-meta');
-      if (vMeta && visionSummaryData) {
-        vMeta.textContent = visionSummaryData.lastSceneSummary
-          ? (visionSummaryData.lastTotalObjects || 0) + ' Objekte'
-          : 'Zyklisch';
+      if (vMeta) {
+        if (visionSummaryData && visionSummaryData.lastTotalObjects != null) {
+          vMeta.textContent = visionSummaryData.lastTotalObjects + ' Obj';
+        } else if (visionRoom && Array.isArray(visionRoom.devices)) {
+          vMeta.textContent = visionRoom.devices.length + ' Cams';
+        } else {
+          vMeta.textContent = 'Zyklisch';
+        }
+      }
+
+      const vSummaryEl = document.getElementById('vision-flyout-summary');
+      if (vSummaryEl) {
+        vSummaryEl.textContent = (visionSummaryData && visionSummaryData.lastSceneSummary)
+          ? visionSummaryData.lastSceneSummary
+          : 'Zyklischer Snapshot-Scan aktiv (COCO-SSD)';
+      }
+
+      const vCamsEl = document.getElementById('vision-flyout-cameras');
+      if (vCamsEl) {
+        if (visionRoom && Array.isArray(visionRoom.devices) && visionRoom.devices.length > 0) {
+          vCamsEl.innerHTML = visionRoom.devices.map(buildRoomDeviceRowHtml).join('');
+        } else {
+          vCamsEl.innerHTML = '<div style="font-size:11px; color:rgba(255,255,255,0.45);">Keine Kameras verbunden</div>';
+        }
       }
     }
 
-    function renderActiveRoomFlyout() {
-      const flyout = document.getElementById('room-flyout');
-      if (!flyout || !activeRoomFlyoutId) return;
-      const room = roomsData.find((r) => r.id === activeRoomFlyoutId);
-      if (!room) {
-        closeRoomFlyout();
+    function buildRoomDeviceRowHtml(d) {
+      const pwr = d.powerW != null && d.powerW > 0 ? \`<span class="rf-power-badge">\${d.powerW.toFixed(1)} W</span>\` : '';
+
+      if (d.kind === 'toggle' || d.kind === 'rgbw') {
+        const extraRgbw =
+          d.kind === 'rgbw' && d.isOn
+            ? \`
+              <div class="rf-slider-row">
+                <span style="font-size:10px; color:rgba(255,255,255,0.45);">Dim</span>
+                <input type="range" min="5" max="100" value="\${d.brightness || 80}" class="rf-slider"
+                       onchange="triggerDeviceAction('\${d.entityId}', 'brightness', { brightnessPct: Number(this.value) })" />
+              </div>
+              \${
+                Array.isArray(d.effectList) && d.effectList.length > 0
+                  ? \`<div class="rf-effect-pills">
+                      \${d.effectList
+                        .map(
+                          (fx) =>
+                            \`<button class="rf-fx-pill \${d.effect === fx ? 'active' : ''}" onclick="triggerDeviceAction('\${d.entityId}', 'effect', { effect: '\${fx}' })">\${fx}</button>\`
+                        )
+                        .join('')}
+                    </div>\`
+                  : ''
+              }
+            \`
+            : '';
+
+        return \`
+          <div class="rf-dev-row \${d.isOn ? 'is-on' : ''}">
+            <div class="rf-dev-main">
+              <span class="rf-dev-label">\${d.label}</span>
+              <div class="rf-dev-right">
+                \${pwr}
+                <button class="rf-toggle-btn \${d.isOn ? 'on' : ''}"
+                        onclick="triggerDeviceAction('\${d.entityId}', 'toggle')">
+                  \${d.isOn ? 'AN' : 'AUS'}
+                </button>
+              </div>
+            </div>
+            \${extraRgbw}
+          </div>
+        \`;
+      }
+
+      if (d.kind === 'camera') {
+        const camLive = d.state === 'recording' || d.state === 'streaming';
+        const currentMode = (visionSummaryData?.cameraModes && visionSummaryData.cameraModes[d.entityId]) || 'Personen';
+        const modes = ['Personen', 'Fahrzeuge', 'Objekte', 'Kamera', 'Aktivitäten'];
+        return \`
+          <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
+            <div class="rf-dev-main">
+              <span class="rf-dev-label">\${d.label}</span>
+              <div class="rf-dev-right">
+                <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
+                  \${camLive ? 'Aktiv' : 'QR-Auth'}
+                </span>
+                <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
+                  Abtasten
+                </button>
+              </div>
+            </div>
+            <div class="rf-effect-pills">
+              \${modes
+                .map(
+                  (m) =>
+                    \`<button class="rf-fx-pill \${currentMode === m ? 'active' : ''}" style="\${currentMode === m ? 'background:#38bdf8; color:#040711; font-weight:600;' : ''}" onclick="setCameraModeFromFlyout('\${d.entityId}', '\${m}')">\${m}</button>\`
+                )
+                .join('')}
+            </div>
+          </div>
+        \`;
+      }
+
+      const formattedState =
+        d.state === 'on'
+          ? 'Bewegung erkannt'
+          : d.state === 'off'
+            ? 'Ruhig'
+            : d.state === 'unavailable'
+              ? 'Offline'
+              : \`\${d.state}\${d.unit ? ' ' + d.unit : ''}\`;
+
+      return \`
+        <div class="rf-dev-row">
+          <div class="rf-dev-main">
+            <span class="rf-dev-label">\${d.label}</span>
+            <span class="rf-power-badge" style="color:rgba(248,250,252,0.75);">\${formattedState}</span>
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderPinnedRoomsTray() {
+      const tray = document.getElementById('pinned-rooms-tray');
+      const countLbl = document.getElementById('pinned-rooms-count-label');
+      const unpinBtn = document.getElementById('btn-unpin-all-rooms');
+      if (!tray) return;
+
+      const pinnedRooms = roomsData.filter((r) => pinnedRoomIds.has(r.id));
+      if (pinnedRooms.length === 0) {
+        tray.classList.remove('has-pinned');
+        tray.innerHTML = '';
+        if (countLbl) countLbl.style.display = 'none';
+        if (unpinBtn) unpinBtn.style.display = 'none';
+        requestAnimationFrame(syncDevicesDockHeight);
         return;
       }
 
-      const subParts = [];
-      if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + ' °C');
-      if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
-      if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
+      tray.classList.add('has-pinned');
+      if (countLbl) {
+        countLbl.textContent = \`· \${pinnedRooms.length} angeheftet\`;
+        countLbl.style.display = 'inline';
+      }
+      if (unpinBtn) {
+        unpinBtn.style.display = 'inline-block';
+      }
 
-      const rowsHtml = room.devices
-        .map((d) => {
-          const pwr = d.powerW != null && d.powerW > 0 ? \`<span class="rf-power-badge">\${d.powerW.toFixed(1)} W</span>\` : '';
+      tray.innerHTML = pinnedRooms
+        .map((room) => {
+          const subParts = [];
+          if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + ' °C');
+          if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
+          if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
 
-          if (d.kind === 'toggle' || d.kind === 'rgbw') {
-            const extraRgbw =
-              d.kind === 'rgbw' && d.isOn
+          const rowsHtml = room.devices.map(buildRoomDeviceRowHtml).join('');
+          const footerHtml =
+            room.id === 'kameras_vision'
+              ? \`
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-top:2px;">
+                  <span style="font-size:10px; color:rgba(255,255,255,0.48);">
+                    \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 32) : 'COCO-SSD aktiv'}
+                  </span>
+                  <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('camera-vision', 'Camera Vision')">
+                    Vision →
+                  </button>
+                </div>
+              \`
+              : room.activeCount > 0
                 ? \`
-                  <div class="rf-slider-row">
-                    <span style="font-size:10px; color:rgba(255,255,255,0.45);">Dim</span>
-                    <input type="range" min="5" max="100" value="\${d.brightness || 80}" class="rf-slider"
-                           onchange="triggerDeviceAction('\${d.entityId}', 'brightness', { brightnessPct: Number(this.value) })" />
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding-top:2px;">
+                    <button class="w-action-link" style="margin:0; font-size:10.5px; color:#fbbf24;" onclick="turnOffAllInRoom('\${room.id}')">
+                      Alle ausschalten
+                    </button>
+                    <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('smart-canvas', 'Smart Home')">
+                      Canvas →
+                    </button>
                   </div>
-                  \${
-                    Array.isArray(d.effectList) && d.effectList.length > 0
-                      ? \`<div class="rf-effect-pills">
-                          \${d.effectList
-                            .map(
-                              (fx) =>
-                                \`<button class="rf-fx-pill \${d.effect === fx ? 'active' : ''}" onclick="triggerDeviceAction('\${d.entityId}', 'effect', { effect: '\${fx}' })">\${fx}</button>\`
-                            )
-                            .join('')}
-                        </div>\`
-                      : ''
-                  }
                 \`
                 : '';
 
-            return \`
-              <div class="rf-dev-row \${d.isOn ? 'is-on' : ''}">
-                <div class="rf-dev-main">
-                  <span class="rf-dev-label">\${d.label}</span>
-                  <div class="rf-dev-right">
-                    \${pwr}
-                    <button class="rf-toggle-btn \${d.isOn ? 'on' : ''}"
-                            onclick="triggerDeviceAction('\${d.entityId}', 'toggle')">
-                      \${d.isOn ? 'AN' : 'AUS'}
-                    </button>
-                  </div>
-                </div>
-                \${extraRgbw}
-              </div>
-            \`;
-          }
-
-          if (d.kind === 'camera') {
-            const camLive = d.state === 'recording' || d.state === 'streaming';
-            const currentMode = (visionSummaryData?.cameraModes && visionSummaryData.cameraModes[d.entityId]) || 'Personen';
-            const modes = ['Personen', 'Fahrzeuge', 'Objekte', 'Kamera', 'Aktivitäten'];
-            return \`
-              <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
-                <div class="rf-dev-main">
-                  <span class="rf-dev-label">\${d.label}</span>
-                  <div class="rf-dev-right">
-                    <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
-                      \${camLive ? 'Aktiv' : 'QR-Auth'}
-                    </span>
-                    <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
-                      Abtasten
-                    </button>
-                  </div>
-                </div>
-                <div class="rf-effect-pills">
-                  \${modes
-                    .map(
-                      (m) =>
-                        \`<button class="rf-fx-pill \${currentMode === m ? 'active' : ''}" style="\${currentMode === m ? 'background:#38bdf8; color:#040711; font-weight:600;' : ''}" onclick="setCameraModeFromFlyout('\${d.entityId}', '\${m}')">\${m}</button>\`
-                    )
-                    .join('')}
-                </div>
-              </div>
-            \`;
-          }
-
-          // Sensor row
-          const formattedState =
-            d.state === 'on'
-              ? 'Bewegung erkannt'
-              : d.state === 'off'
-                ? 'Ruhig'
-                : d.state === 'unavailable'
-                  ? 'Offline'
-                  : \`\${d.state}\${d.unit ? ' ' + d.unit : ''}\`;
-
           return \`
-            <div class="rf-dev-row">
-              <div class="rf-dev-main">
-                <span class="rf-dev-label">\${d.label}</span>
-                <span class="rf-power-badge" style="color:rgba(248,250,252,0.75);">\${formattedState}</span>
+            <div class="pinned-room-card">
+              <div class="prc-header">
+                <div class="prc-title-wrap">
+                  <span class="prc-title">\${room.name}</span>
+                  <span class="prc-meta">\${subParts.join(' · ') || (room.activeCount + ' aktiv')}</span>
+                </div>
+                <button class="prc-unpin" onclick="toggleRoomPin('\${room.id}', event)" title="Raum-Tab wieder minimieren">
+                  <span>📌 Angeheftet</span>
+                  <span>✕</span>
+                </button>
               </div>
+              <div class="prc-dev-grid">\${rowsHtml}</div>
+              \${footerHtml}
             </div>
           \`;
         })
         .join('');
 
-      const footerHtml =
-        room.id === 'kameras_vision'
-          ? \`
-            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
-              <span style="font-size:11px; color:rgba(255,255,255,0.48);">
-                \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 36) : 'Lokales COCO-SSD aktiv'}
-              </span>
-              <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('camera-vision', 'Camera Vision')">
-                Vision öffnen →
-              </button>
-            </div>
-          \`
-          : room.activeCount > 0
-            ? \`
-              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
-                <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="turnOffAllInRoom('\${room.id}')">
-                  Alle im Raum ausschalten
-                </button>
-                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
-                  Canvas →
-                </button>
-              </div>
-            \`
-            : \`
-              <div style="display:flex; justify-content:flex-end; padding-top:4px;">
-                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
-                  Smart Canvas →
-                </button>
-              </div>
-            \`;
-
-      flyout.innerHTML = \`
-        <div class="rf-header">
-          <span class="rf-title">\${room.name}</span>
-          <span class="rf-subtitle">\${subParts.join(' · ') || (room.activeCount + ' aktiv')}</span>
-        </div>
-        <div class="rf-dev-list">\${rowsHtml}</div>
-        \${footerHtml}
-      \`;
-      flyout.style.display = 'flex';
+      requestAnimationFrame(syncDevicesDockHeight);
     }
 
     async function setCameraModeFromFlyout(cameraId, mode) {
@@ -1732,21 +3094,27 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         roomsData = data.rooms || [];
         visionSummaryData = data.visionSummary || null;
         renderRoomDockBar();
-        if (activeRoomFlyoutId) {
-          renderActiveRoomFlyout();
-        }
+        renderPinnedRoomsTray();
       } catch (e) {
         console.error('Failed loading rooms quick access:', e);
       }
     }
 
+    function setLeftNavActive(id) {
+      document.querySelectorAll('#left-ambient-navbar .lnav-item').forEach((btn) => {
+        btn.classList.toggle('active', btn.id === 'lnav-' + id);
+      });
+    }
+
     function openFullService(appId, title, hash) {
+      setLeftNavActive(appId);
       document.getElementById('full-app-title').textContent = title;
       document.getElementById('full-app-frame').src = base + '/apps/' + appId + '/' + (hash || '');
       document.getElementById('full-app-overlay').style.display = 'flex';
     }
 
     function closeFullService() {
+      setLeftNavActive('horizon');
       document.getElementById('full-app-overlay').style.display = 'none';
       document.getElementById('full-app-frame').src = 'about:blank';
       loadAllLiveData();
@@ -1794,35 +3162,35 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         console.warn('Finance dashboard endpoint fallback:', err);
       }
 
-      if (fallbackSummary) {
-        financesDashData = {
-          kpis: {
-            activeMonth: fallbackSummary.activeMonth || 'Aktuell',
-            currentBalance: 4850,
-            accountName: 'Sparkasse George Girokonto',
-            expensesDay: 0,
-            expensesWeek: 0,
-            income: fallbackSummary.income || 0,
-            expenses: fallbackSummary.expenses || 0,
-            net: fallbackSummary.netCashflow || 0,
-          },
-          balanceConfig: {
-            currentBalance: 4850,
-            accountName: 'Sparkasse George Girokonto',
-          },
-          previewGroupBudgets: [],
-          previewConfig: {
-            hiddenByDefault: true,
-            primaryMetric: 'current_balance',
-            enabledElements: ['current_balance', 'expenses_day', 'expenses_week', 'quick_import']
-          }
-        };
-        renderFinancesPreviewWidget();
-      }
+      const fb = fallbackSummary || {};
+      financesDashData = {
+        kpis: {
+          activeMonth: fb.activeMonth || 'Aktuell',
+          currentBalance: fb.currentBalance ?? 4850,
+          accountName: 'Sparkasse George Girokonto',
+          expensesDay: fb.expensesDay ?? 0,
+          expensesWeek: fb.expensesWeek ?? 0,
+          income: fb.income || 0,
+          expenses: fb.expenses || 0,
+          net: fb.netCashflow || 0,
+        },
+        balanceConfig: {
+          currentBalance: fb.currentBalance ?? 4850,
+          accountName: 'Sparkasse George Girokonto',
+        },
+        previewGroupBudgets: [],
+        previewConfig: {
+          hiddenByDefault: true,
+          primaryMetric: 'current_balance',
+          enabledElements: ['current_balance', 'expenses_day', 'expenses_week', 'quick_import']
+        }
+      };
+      renderFinancesPreviewWidget();
     }
 
     function renderFinancesPreviewWidget() {
       const d = financesDashData;
+      const widgetEl = document.getElementById('widget-finances');
       const compactEl = document.getElementById('compact-finances');
       const subEl = document.getElementById('sub-finances');
       const eyeBtn = document.getElementById('finances-eye-btn');
@@ -1831,6 +3199,10 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const qiSlot = document.getElementById('finances-quick-import-slot');
 
       if (!d || !compactEl || !dynEl) return;
+
+      if (widgetEl) {
+        widgetEl.classList.toggle('finances-is-hidden', Boolean(financesHidden));
+      }
 
       const k = d.kpis || {};
       const bal = d.balanceConfig || {};
@@ -1850,18 +3222,17 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const enabled = cfg.enabledElements || [];
 
       if (eyeBtn) {
-        eyeBtn.innerHTML = financesHidden ? '🔒 versteckt' : '👁️ sichtbar';
-        eyeBtn.style.color = financesHidden ? '#fbbf24' : '#34d399';
-        eyeBtn.style.borderColor = financesHidden ? 'rgba(251,191,36,0.35)' : 'rgba(52,211,153,0.35)';
+        eyeBtn.innerHTML = financesHidden ? '👁️' : '🔒';
+        eyeBtn.title = financesHidden ? 'Finanzdaten anzeigen' : 'Finanzdaten verbergen';
       }
       if (toggleLink) {
         toggleLink.innerHTML = financesHidden ? '👁️ Zahlen anzeigen' : '🔒 Zahlen verbergen';
       }
 
-      // Primary headline
+      // Primary headline (hidden via CSS when financesHidden is true and widget is collapsed)
       if (financesHidden) {
-        compactEl.innerHTML = '<strong>🔒 •••• €</strong>';
-        subEl.textContent = 'Klick zum Anzeigen · ' + accountName;
+        compactEl.innerHTML = '<strong>•••• €</strong>';
+        if (subEl) subEl.textContent = accountName;
       } else {
         let headlineVal = fmtEurDash(currentBalance, false);
         let headlineSub = accountName + ' · Kontostand';
@@ -1877,7 +3248,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           headlineSub = 'Cashflow ' + activeMonth;
         }
         compactEl.innerHTML = '<strong>' + headlineVal + '</strong>';
-        subEl.textContent = headlineSub;
+        if (subEl) subEl.textContent = headlineSub;
       }
 
       // Build configurable dynamic body
@@ -2110,42 +3481,262 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       await loadAllLiveData();
     }
 
+    function applyHealthWidgetData(h) {
+      if (h && (h.steps != null || h.currentHr != null)) {
+        const stepsVal = Number(h.steps ?? 0);
+        const stepGoal = Number(h.stepGoal || 10000);
+        const hrVal = h.currentHr != null ? Math.round(Number(h.currentHr)) : null;
+
+        // Minimal preview: Heart icon with HR inside + Progress circle with step count inside
+        const hrInsideEl = document.getElementById('health-hr-inside');
+        if (hrInsideEl) {
+          hrInsideEl.textContent = hrVal != null ? String(hrVal) : '--';
+        }
+        const stepsInsideEl = document.getElementById('health-steps-inside');
+        if (stepsInsideEl) {
+          stepsInsideEl.textContent = h.steps != null
+            ? (stepsVal >= 10000 ? (stepsVal / 1000).toFixed(1) + 'k' : String(stepsVal))
+            : '--';
+        }
+        const ringEl = document.getElementById('health-steps-ring');
+        if (ringEl) {
+          const pct = Math.min(1, Math.max(0, stepsVal / Math.max(1, stepGoal)));
+          const circum = 116.24; // 2 * Math.PI * 18.5
+          ringEl.style.strokeDashoffset = (circum * (1 - pct)).toFixed(1);
+        }
+
+        const stepsTxt = h.steps != null ? stepsVal.toLocaleString() + ' steps' : 'No steps';
+        const hrTxt = hrVal != null ? hrVal + ' bpm' : '';
+        const compactEl = document.getElementById('compact-health');
+        if (compactEl) compactEl.innerHTML = \`<strong>\${stepsTxt}</strong> \${hrTxt ? '· ' + hrTxt : ''}\`;
+        const subEl = document.getElementById('sub-health');
+        if (subEl) {
+          subEl.textContent =
+            h.readinessScore != null ? \`\${h.readinessScore}% readiness · \${h.readinessStatus || 'Pixel 10'}\` : (h.source || 'Pixel 10');
+        }
+        document.getElementById('eh-steps').textContent = h.steps != null ? stepsVal.toLocaleString() : 'No data';
+        document.getElementById('eh-ready').textContent = h.readinessScore != null ? h.readinessScore + '/100' : 'No data';
+        document.getElementById('eh-hr').textContent = hrVal != null ? hrVal + ' bpm' : 'No data';
+        document.getElementById('eh-rhr').textContent =
+          (h.restingHr != null ? h.restingHr + ' bpm' : '--') + ' / ' + (h.hrvMs != null ? h.hrvMs + ' ms' : '--');
+        document.getElementById('eh-sleep').textContent = h.sleepHours != null ? h.sleepHours + ' h' : 'No data';
+        document.getElementById('eh-burn').textContent =
+          (h.activeCalories != null ? h.activeCalories + ' kcal' : '--') + ' · ' + (h.distanceKm != null ? h.distanceKm + ' km' : '--');
+        return true;
+      }
+      return false;
+    }
+
+    async function refreshHealthWidget(summaryFromSys) {
+      if (applyHealthWidgetData(summaryFromSys)) return;
+      try {
+        const res = await fetch(base + '/api/apps/google-health/dashboard');
+        if (res.ok) {
+          const d = await res.json();
+          const t = d.today || {};
+          const r = d.readiness || {};
+          const normalized = {
+            steps: t.steps,
+            stepGoal: t.step_goal,
+            currentHr: t.current_hr,
+            restingHr: t.resting_hr,
+            sleepHours: t.sleep_hours,
+            activeCalories: t.active_calories,
+            readinessScore: r.score ?? t.readiness_score,
+            readinessStatus: r.status,
+            hrvMs: d.hrvMs,
+            distanceKm: d.distanceKm,
+            source: t.source || 'Pixel 10',
+          };
+          if (applyHealthWidgetData(normalized)) return;
+        }
+      } catch (_e) {}
+      const hrInsideEl = document.getElementById('health-hr-inside');
+      if (hrInsideEl) hrInsideEl.textContent = '--';
+      const stepsInsideEl = document.getElementById('health-steps-inside');
+      if (stepsInsideEl) stepsInsideEl.textContent = '--';
+      const compactEl = document.getElementById('compact-health');
+      if (compactEl) compactEl.textContent = 'No data';
+      const subEl = document.getElementById('sub-health');
+      if (subEl) subEl.textContent = 'Waiting for Pixel 10 telemetry';
+    }
+
+    function applyMealsWidgetData(m) {
+      if (m && (m.breakfast || m.lunch || m.dinner)) {
+        const nextMeal = m.dinner || m.lunch || m.breakfast;
+        document.getElementById('compact-meals').innerHTML = \`<strong>\${nextMeal}</strong>\`;
+        document.getElementById('sub-meals').textContent = \`\${m.totalCalories || 0} kcal planned today\`;
+        document.getElementById('em-slots').innerHTML = \`
+          <div>🌅 <strong>Breakfast:</strong> \${m.breakfast || '—'}</div>
+          <div>☀️ <strong>Lunch:</strong> \${m.lunch || '—'}</div>
+          <div>🌙 <strong>Dinner:</strong> \${m.dinner || '—'}</div>
+        \`;
+        return true;
+      }
+      return false;
+    }
+
+    async function refreshMealsWidget(summaryFromSys) {
+      if (applyMealsWidgetData(summaryFromSys)) return;
+      try {
+        const res = await fetch(base + '/api/apps/meal-planner/sync-ha', { method: 'POST' });
+        if (res.ok) {
+          const d = await res.json();
+          if (applyMealsWidgetData(d)) return;
+        }
+      } catch (_e) {}
+      document.getElementById('compact-meals').textContent = 'Unplanned';
+      document.getElementById('sub-meals').textContent = 'No meals logged for today';
+      document.getElementById('em-slots').innerHTML = 'No meals planned for today yet.';
+    }
+
+    function toggleCalendarFilterPopover(ev) {
+      if (ev) ev.stopPropagation();
+      const pop = document.getElementById('horizon-cal-filter-popover');
+      if (!pop) return;
+      pop.classList.toggle('open');
+      if (pop.classList.contains('open')) {
+        renderCalendarFilterPopover();
+      }
+    }
+
+    function renderCalendarFilterPopover() {
+      const listEl = document.getElementById('horizon-cal-filter-list');
+      const badgeEl = document.getElementById('cal-filter-oauth-badge');
+      const btnLabel = document.getElementById('cal-filter-btn-label');
+
+      const visibleSet = new Set();
+      for (const c of horizonCalendars) {
+        if (Number(c.show_in_horizon) === 1) {
+          visibleSet.add(c.calendar_name);
+        }
+      }
+
+      if (btnLabel) {
+        if (horizonCalendars.length > 0) {
+          btnLabel.textContent = \`Calendars (\${visibleSet.size}/\${horizonCalendars.length})\`;
+        } else {
+          btnLabel.textContent = 'Calendars';
+        }
+      }
+
+      if (badgeEl) {
+        if (googleOAuthInfo && googleOAuthInfo.authorized) {
+          badgeEl.style.color = '#34d399';
+          badgeEl.textContent = '🟢 Google OAuth Connected' + (googleOAuthInfo.accountEmail ? ' (' + googleOAuthInfo.accountEmail + ')' : '');
+        } else {
+          badgeEl.style.color = '#fbbf24';
+          badgeEl.textContent = '⚡ Home Assistant + Google Calendar Sync';
+        }
+      }
+
+      if (!listEl) return;
+      if (!horizonCalendars || horizonCalendars.length === 0) {
+        listEl.innerHTML = '<div style="font-size:11px; color:#94a3b8; padding:6px;">No calendars discovered yet. Click Sync below.</div>';
+        return;
+      }
+
+      listEl.innerHTML = horizonCalendars
+        .map((c, idx) => {
+          const checked = Number(c.show_in_horizon) === 1;
+          const color = c.color || '#38bdf8';
+          const count = Number(c.event_count || 0);
+          const safeName = String(c.calendar_name || '').split('"').join('&quot;');
+          return \`
+            <label class="cal-filter-row" title="\${safeName}">
+              <div style="display:flex; align-items:center; gap:7px; min-width:0; flex:1;">
+                <input type="checkbox" \${checked ? 'checked' : ''} onchange="toggleHorizonCalendarItem(\${idx}, this.checked)" style="accent-color:\${color}; cursor:pointer;" />
+                <span style="width:8px; height:8px; border-radius:99px; background:\${color}; flex-shrink:0;"></span>
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; color:\${checked ? '#f8fafc' : '#64748b'};">\${c.calendar_name}</span>
+              </div>
+              <span style="font-size:10px; color:#94a3b8; flex-shrink:0;">\${count}</span>
+            </label>
+          \`;
+        })
+        .join('');
+    }
+
+    function applyLocalHorizonCalendarFilter() {
+      const hiddenNames = new Set(
+        horizonCalendars.filter((c) => Number(c.show_in_horizon) === 0).map((c) => c.calendar_name)
+      );
+      calendarEvents = allCalendarEvents.filter((ev) => !hiddenNames.has(ev.calendar_name || 'Google Calendar'));
+      renderCalendarFilterPopover();
+      renderTimelineGeometry();
+    }
+
+    async function toggleHorizonCalendarItem(idx, checked) {
+      const target = horizonCalendars[idx];
+      if (!target) return;
+      target.show_in_horizon = checked ? 1 : 0;
+      applyLocalHorizonCalendarFilter();
+      try {
+        await fetch(base + '/api/apps/google-calendar/calendars/visibility', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ calendar_name: target.calendar_name, show_in_horizon: checked })
+        });
+      } catch (_e) {}
+    }
+
+    async function setAllHorizonCalendarsFromDash(show) {
+      const map = {};
+      for (const c of horizonCalendars) {
+        c.show_in_horizon = show ? 1 : 0;
+        map[c.calendar_name] = show;
+      }
+      applyLocalHorizonCalendarFilter();
+      try {
+        await fetch(base + '/api/apps/google-calendar/calendars/visibility', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ calendars: map })
+        });
+      } catch (_e) {}
+    }
+
+    async function syncGoogleCalendarsFromDash() {
+      const badgeEl = document.getElementById('cal-filter-oauth-badge');
+      if (badgeEl) {
+        badgeEl.style.color = '#38bdf8';
+        badgeEl.textContent = '⏳ Syncing Google OAuth & Home Assistant...';
+      }
+      try {
+        await fetch(base + '/api/apps/google-calendar/oauth/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ importFromHa: true })
+        });
+        await fetch(base + '/api/apps/google-calendar/sync', { method: 'POST' });
+        await loadAllLiveData();
+      } catch (_e) {}
+    }
+
     async function loadAllLiveData() {
       try {
         void loadRoomsQuickAccess();
         const [sysRes, calRes] = await Promise.all([
-          fetch(base + '/api/system/status'),
+          fetch(base + '/api/system/status').catch(() => null),
           fetch(base + '/api/apps/google-calendar/dashboard').catch(() => null)
         ]);
-        const sys = await sysRes.json();
+        const sys = sysRes && sysRes.ok ? await sysRes.json() : {};
         const calData = calRes && calRes.ok ? await calRes.json() : { events: [] };
 
         calendarEvents = calData.events || [];
+        allCalendarEvents = calData.allEvents || calData.events || [];
+        horizonCalendars = calData.calendars || [];
+        googleOAuthInfo = calData.googleOAuth || null;
+        renderCalendarFilterPopover();
         renderTimelineGeometry();
 
+        // Weather forecast & background effects for St. Veit / Gölsen
+        void loadWeatherData(sys.summaries?.weather);
+
         // 1. Update HEALTH widget
-        const h = sys.summaries?.health;
-        if (h && (h.steps != null || h.currentHr != null)) {
-          const stepsTxt = h.steps != null ? Number(h.steps).toLocaleString() + ' steps' : 'No steps';
-          const hrTxt = h.currentHr != null ? h.currentHr + ' bpm' : '';
-          document.getElementById('compact-health').innerHTML = \`<strong>\${stepsTxt}</strong> \${hrTxt ? '· ' + hrTxt : ''}\`;
-          document.getElementById('sub-health').textContent =
-            h.readinessScore != null ? \`\${h.readinessScore}% readiness · \${h.readinessStatus || 'Pixel 10'}\` : (h.source || 'Pixel 10');
-          document.getElementById('eh-steps').textContent = h.steps != null ? Number(h.steps).toLocaleString() : 'No data';
-          document.getElementById('eh-ready').textContent = h.readinessScore != null ? h.readinessScore + '/100' : 'No data';
-          document.getElementById('eh-hr').textContent = h.currentHr != null ? h.currentHr + ' bpm' : 'No data';
-          document.getElementById('eh-rhr').textContent =
-            (h.restingHr != null ? h.restingHr + ' bpm' : '--') + ' / ' + (h.hrvMs != null ? h.hrvMs + ' ms' : '--');
-          document.getElementById('eh-sleep').textContent = h.sleepHours != null ? h.sleepHours + ' h' : 'No data';
-          document.getElementById('eh-burn').textContent =
-            (h.activeCalories != null ? h.activeCalories + ' kcal' : '--') + ' · ' + (h.distanceKm != null ? h.distanceKm + ' km' : '--');
-        } else {
-          document.getElementById('compact-health').textContent = 'No data';
-          document.getElementById('sub-health').textContent = 'Waiting for Pixel 10 telemetry';
-        }
+        void refreshHealthWidget(sys.summaries?.health);
 
         // 2. Update FINANCES widget (Configurable preview, hidden by default)
-        await refreshFinancesWidget(sys.summaries?.finance);
+        void refreshFinancesWidget(sys.summaries?.finance);
 
         // 3. Update NOTES widget
         const notes = sys.notes || [];
@@ -2168,24 +3759,10 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         }
 
         // 4. Update MEALS widget
-        const m = sys.summaries?.meals;
-        if (m && (m.breakfast || m.lunch || m.dinner)) {
-          const nextMeal = m.dinner || m.lunch || m.breakfast;
-          document.getElementById('compact-meals').innerHTML = \`<strong>\${nextMeal}</strong>\`;
-          document.getElementById('sub-meals').textContent = \`\${m.totalCalories || 0} kcal planned today\`;
-          document.getElementById('em-slots').innerHTML = \`
-            <div>🌅 <strong>Breakfast:</strong> \${m.breakfast || '—'}</div>
-            <div>☀️ <strong>Lunch:</strong> \${m.lunch || '—'}</div>
-            <div>🌙 <strong>Dinner:</strong> \${m.dinner || '—'}</div>
-          \`;
-        } else {
-          document.getElementById('compact-meals').textContent = 'Unplanned';
-          document.getElementById('sub-meals').textContent = 'No meals logged for today';
-          document.getElementById('em-slots').innerHTML = 'No meals planned for today yet.';
-        }
+        void refreshMealsWidget(sys.summaries?.meals);
 
         // 5. Update 3D PRINT Mini-Preview Widget
-        await refreshMini3dData(sys.summaries?.print3d);
+        void refreshMini3dData(sys.summaries?.print3d);
       } catch (err) {
         console.error('Failed loading dashboard data:', err);
       }
@@ -2463,6 +4040,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const subEl = document.getElementById('sub-3dprint');
       const fillEl = document.getElementById('mini-3d-progress-fill');
       const dotEl = document.getElementById('dot-3dprint');
+      const dockMetaEl = document.getElementById('print3d-dock-meta');
       const ePrinter = document.getElementById('e3d-printer');
       const eLayer = document.getElementById('e3d-layer');
       const eDims = document.getElementById('e3d-dims');
@@ -2475,6 +4053,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (!hasProj) {
         if (compactEl) compactEl.textContent = 'Kein 3D-Projekt';
         if (subEl) subEl.textContent = 'Platzhalter aktiv · 0%';
+        if (dockMetaEl) dockMetaEl.textContent = 'Leerlauf';
         if (dotEl) {
           dotEl.style.background = '#94a3b8';
           dotEl.style.boxShadow = '0 0 8px rgba(148,163,184,0.5)';
@@ -2490,6 +4069,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
               ? (Math.round(dimX) + '×' + Math.round(dimY) + '×' + Math.round(dimZ) + 'mm · ' + (pct > 0 ? pct + '%' : 'Bereit'))
               : 'Bereit zum Druck');
         if (subEl) subEl.textContent = statusLabel;
+        if (dockMetaEl) {
+          dockMetaEl.textContent = isPrinting ? (pct + '%') : 'Bereit';
+        }
         if (dotEl) {
           const c = isPrinting ? '#38bdf8' : '#00AE42';
           dotEl.style.background = c;
@@ -2713,18 +4295,25 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     window.submitMini3dPrompt = submitMini3dPrompt;
     window.toggleMini3dPlaceholder = toggleMini3dPlaceholder;
     window.triggerMini3dPrint = triggerMini3dPrint;
+    window.toggleRoomPin = toggleRoomPin;
+    window.unpinAllRooms = unpinAllRooms;
 
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
       renderTimelineGeometry();
+      syncDevicesDockHeight();
     });
 
     renderSolarArcPaths();
+    renderTimelineGeometry();
+    syncDevicesDockHeight();
     initMini3dCanvas();
     tickClockAndTimeline();
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
+    void loadWeatherData();
     setInterval(loadAllLiveData, 60000);
+    setInterval(() => void loadWeatherData(), 600000);
     setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
 

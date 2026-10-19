@@ -2,6 +2,9 @@ FROM node:24-alpine
 
 WORKDIR /app
 
+# Install Python 3, Git, and OpenSSH client for n8n workflow execution & unit tests
+RUN apk add --no-cache python3 git openssh-client
+
 # Copy pre-bundled zero-dependency runtime and built-in apps
 COPY dist/ /app/dist/
 COPY run.sh /app/run.sh

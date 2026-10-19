@@ -1,0 +1,8 @@
+{
+  "id": "project-workflow",
+  "name": "Projekte & Workflow",
+  "version": "1.0.0",
+  "description": "Home Assistant Modul-Workflow & Projektverwaltung — Custom Panel zur visuellen Darstellung des n8n-Workflows (Webhook, Gemini API, Python Unit-Tests, Git & SSH/Samba), Modul-Template-Formular und Live-GitHub-API-Repository-Abfrage.",
+  "icon": "mdi:sitemap-outline",
+  "category": "automation"
+}

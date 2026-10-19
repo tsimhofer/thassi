@@ -12,7 +12,9 @@
     "deploy": "tsx packages/cli/src/index.ts deploy",
     "export": "tsx packages/cli/src/index.ts export",
     "list": "tsx packages/cli/src/index.ts list",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:python": "python -m unittest discover -s python_modules -p \"test_*.py\" -v",
+    "test:workflow": "tsx apps/project-workflow/backend/verify-phase5.ts"
   },
   "dependencies": {
     "@tensorflow-models/coco-ssd": "^2.2.3",

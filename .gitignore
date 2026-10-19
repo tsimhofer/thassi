@@ -11,3 +11,11 @@ data/
 **/obj/
 .vs/
 *.user
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+.coverage
+htmlcov/
+

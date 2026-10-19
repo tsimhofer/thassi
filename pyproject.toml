@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thassi-ha-python-modules"
+version = "1.0.0"
+description = "Generated and tested Python Home Assistant Custom Components & Automation Modules for the Thassi Ecosystem"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Thomas Simhofer" }
+]
+dependencies = []
+
+[tool.unittest]
+start-dir = "python_modules"
+pattern = "test_*.py"

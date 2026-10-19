@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { defineThassiApp } from '@thassi/sdk';
 
 export interface CalendarEventRow {
@@ -20,6 +22,15 @@ export interface CalendarFeedRow {
   ics_url: string;
   default_category: string;
   last_synced_at: string | null;
+}
+
+export interface CalendarSettingRow {
+  calendar_name: string;
+  external_cal_id: string;
+  color: string;
+  source: string;
+  show_in_horizon: number;
+  updated_at: string | null;
 }
 
 export function inferEventCategory(
@@ -49,7 +60,6 @@ export function inferEventCategory(
 
 function parseIcsDate(raw: string): Date | null {
   const val = raw.trim();
-  // Match YYYYMMDDTHHMMSSZ or YYYYMMDDTHHMMSS or YYYYMMDD
   const m = val.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
   if (!m) return null;
   const [, year, month, day, hh, mm, ss, isUtc] = m;
@@ -70,7 +80,6 @@ export function parseIcsFeed(
   calendarName: string,
   defaultCategory: CalendarEventRow['category'] = 'personal'
 ): Array<Omit<CalendarEventRow, 'id'>> {
-  // Unfold multi-line RFC-5545 lines (lines starting with space or tab)
   const unfolded = icsText.replace(/\r?\n[ \t]/g, '');
   const blocks = unfolded.split('BEGIN:VEVENT').slice(1);
   const results: Array<Omit<CalendarEventRow, 'id'>> = [];
@@ -125,83 +134,19 @@ export function parseIcsFeed(
   return results;
 }
 
-function createSeedEvents(): Array<Omit<CalendarEventRow, 'id'>> {
-  const now = new Date();
-  const baseDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const makeIso = (dayOffset: number, hour: number, minute = 0) => {
-    const d = new Date(baseDate);
-    d.setDate(d.getDate() + dayOffset);
-    d.setHours(hour, minute, 0, 0);
-    return d.toISOString();
-  };
-
-  return [
-    {
-      external_id: 'seed_1',
-      calendar_name: 'Work Calendar',
-      title: 'Engineering Architecture Sync',
-      category: 'work',
-      start_time: makeIso(0, 10, 0),
-      end_time: makeIso(0, 11, 0),
-      duration_minutes: 60,
-      location: 'Google Meet',
-      description: 'Weekly system design and sprint alignment.',
-      source: 'manual',
-    },
-    {
-      external_id: 'seed_2',
-      calendar_name: 'Personal',
-      title: 'Deep Work: Home Assistant & TypeScript Hub',
-      category: 'focus',
-      start_time: makeIso(0, 14, 0),
-      end_time: makeIso(0, 16, 30),
-      duration_minutes: 150,
-      location: 'Home Office',
-      description: 'Building custom data analytics & smart home workflow.',
-      source: 'manual',
-    },
-    {
-      external_id: 'seed_3',
-      calendar_name: 'Health & Fitness',
-      title: 'Evening Strength & Mobility Session',
-      category: 'health',
-      start_time: makeIso(0, 18, 0),
-      end_time: makeIso(0, 19, 15),
-      duration_minutes: 75,
-      location: 'Fitness Studio',
-      description: 'Upper body + 15 min zone 2 cardio.',
-      source: 'manual',
-    },
-    {
-      external_id: 'seed_4',
-      calendar_name: 'Work Calendar',
-      title: 'Product Roadmap & Q4 Planning',
-      category: 'work',
-      start_time: makeIso(1, 9, 30),
-      end_time: makeIso(1, 11, 0),
-      duration_minutes: 90,
-      location: 'Conference Room A / Meet',
-      description: 'Reviewing milestones and resource allocation.',
-      source: 'manual',
-    },
-    {
-      external_id: 'seed_5',
-      calendar_name: 'Personal',
-      title: 'Friends Dinner & Board Games',
-      category: 'social',
-      start_time: makeIso(2, 19, 30),
-      end_time: makeIso(2, 22, 30),
-      duration_minutes: 180,
-      location: 'Downtown',
-      description: 'Catching up over dinner.',
-      source: 'manual',
-    },
-  ];
-}
+const DEFAULT_CAL_COLORS = [
+  '#38bdf8',
+  '#4ade80',
+  '#a855f7',
+  '#f472b6',
+  '#fbbf24',
+  '#fb923c',
+  '#2dd4bf',
+  '#818cf8',
+];
 
 export default defineThassiApp((ctx) => {
-  // 1. Initialize SQLite Schema for Google Calendar & Time Analytics
+  // 1. Initialize SQLite Schema for Google Calendar, OAuth Sources & Horizon Visibility Config
   ctx.db.exec(`
     CREATE TABLE IF NOT EXISTS calendar_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,12 +169,198 @@ export default defineThassiApp((ctx) => {
       default_category TEXT NOT NULL DEFAULT 'personal',
       last_synced_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS calendar_settings (
+      calendar_name TEXT PRIMARY KEY,
+      external_cal_id TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT '#38bdf8',
+      source TEXT NOT NULL DEFAULT 'google_oauth',
+      show_in_horizon INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT
+    );
   `);
 
   // Purge any legacy dummy/seed events so only real Google Calendar & user events remain
   ctx.db.execute("DELETE FROM calendar_events WHERE external_id LIKE 'seed_%'");
 
+  function cleanupCaseDuplicateCalendars() {
+    const rows = ctx.db.query<CalendarSettingRow>('SELECT * FROM calendar_settings');
+    const byLower = new Map<string, CalendarSettingRow[]>();
+    for (const r of rows) {
+      const k = r.calendar_name.toLowerCase();
+      const arr = byLower.get(k) || [];
+      arr.push(r);
+      byLower.set(k, arr);
+    }
+    for (const [, group] of byLower.entries()) {
+      if (group.length <= 1) continue;
+      // Prefer the entry whose external_cal_id is a real Google Calendar ID (not starting with 'calendar.')
+      const canonical =
+        group.find(
+          (g) => g.external_cal_id && !g.external_cal_id.startsWith('calendar.') && g.external_cal_id !== g.calendar_name
+        ) || group[0];
+      for (const dup of group) {
+        if (dup.calendar_name === canonical.calendar_name) continue;
+        ctx.db.execute('UPDATE calendar_events SET calendar_name = ? WHERE calendar_name = ?', [
+          canonical.calendar_name,
+          dup.calendar_name,
+        ]);
+        ctx.db.execute('DELETE FROM calendar_settings WHERE calendar_name = ?', [dup.calendar_name]);
+      }
+    }
+    ctx.db.execute(
+      `DELETE FROM calendar_events
+       WHERE external_id NOT LIKE 'gcal_%'
+         AND external_id NOT LIKE 'manual_%'
+         AND LOWER(calendar_name) IN (
+           SELECT DISTINCT LOWER(calendar_name) FROM calendar_events WHERE external_id LIKE 'gcal_%'
+         )`
+    );
+  }
+
+  function ensureCalendarSetting(
+    calendarName: string,
+    externalCalId = '',
+    color = '',
+    source = 'google_oauth',
+    defaultShowInHorizon = 1
+  ) {
+    const cleanName = (calendarName || '').trim();
+    if (!cleanName) return;
+    const existing = ctx.db.queryOne<CalendarSettingRow>(
+      'SELECT * FROM calendar_settings WHERE LOWER(calendar_name) = LOWER(?)',
+      [cleanName]
+    );
+    if (!existing) {
+      const countRow = ctx.db.queryOne<{ cnt: number }>(
+        'SELECT COUNT(*) as cnt FROM calendar_settings'
+      );
+      const assignedColor =
+        color || DEFAULT_CAL_COLORS[(countRow?.cnt || 0) % DEFAULT_CAL_COLORS.length];
+      ctx.db.execute(
+        `INSERT INTO calendar_settings (calendar_name, external_cal_id, color, source, show_in_horizon, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          cleanName,
+          externalCalId || cleanName,
+          assignedColor,
+          source,
+          defaultShowInHorizon ? 1 : 0,
+          new Date().toISOString(),
+        ]
+      );
+    } else {
+      const isRealGoogleCal = Boolean(externalCalId && !externalCalId.startsWith('calendar.') && externalCalId !== cleanName);
+      const targetName = isRealGoogleCal ? cleanName : existing.calendar_name;
+      if (targetName !== existing.calendar_name) {
+        ctx.db.execute('UPDATE calendar_events SET calendar_name = ? WHERE LOWER(calendar_name) = LOWER(?)', [
+          targetName,
+          cleanName,
+        ]);
+      }
+      if (externalCalId || color || targetName !== existing.calendar_name) {
+        ctx.db.execute(
+          `UPDATE calendar_settings
+           SET calendar_name = ?,
+               external_cal_id = CASE WHEN ? != '' THEN ? ELSE external_cal_id END,
+               color = CASE WHEN ? != '' THEN ? ELSE color END,
+               updated_at = ?
+           WHERE calendar_name = ?`,
+          [targetName, externalCalId, externalCalId, color, color, new Date().toISOString(), existing.calendar_name]
+        );
+      }
+    }
+  }
+
+  cleanupCaseDuplicateCalendars();
+
+  /**
+   * Automatically bridges/imports real Google OAuth2 credentials & refresh tokens
+   * from Home Assistant's `/homeassistant/.storage/core.config_entries` and
+   * `/homeassistant/.storage/application_credentials` if present.
+   */
+  function trySyncGoogleOAuthFromHomeAssistantStorage(): {
+    imported: boolean;
+    accountEmail?: string;
+    details?: string;
+  } {
+    const storageDirs = ['/homeassistant/.storage', '/config/.storage'];
+    for (const dir of storageDirs) {
+      const entriesFile = path.join(dir, 'core.config_entries');
+      const credsFile = path.join(dir, 'application_credentials');
+      if (!fs.existsSync(entriesFile)) continue;
+
+      try {
+        const entriesRaw = JSON.parse(fs.readFileSync(entriesFile, 'utf-8'));
+        const entries: any[] = entriesRaw?.data?.entries || [];
+        const googleEntry = entries.find(
+          (e) => e.domain === 'google' && e.data && e.data.token && e.data.token.refresh_token
+        );
+        if (!googleEntry) continue;
+
+        const tokenObj = googleEntry.data.token;
+        const authImpl = googleEntry.data.auth_implementation;
+
+        let clientId = '';
+        let clientSecret = '';
+
+        if (fs.existsSync(credsFile)) {
+          const credsRaw = JSON.parse(fs.readFileSync(credsFile, 'utf-8'));
+          const items: any[] = credsRaw?.data?.items || [];
+          const matchedCred =
+            items.find((it) => it.id === authImpl || it.domain === 'google') || items[0];
+          if (matchedCred) {
+            clientId = matchedCred.client_id || '';
+            clientSecret = matchedCred.client_secret || '';
+          }
+        }
+
+        if (clientId && clientSecret) {
+          const curCfg = ctx.google.getConfig();
+          ctx.google.saveConfig({
+            clientId,
+            clientSecret,
+            redirectUri:
+              curCfg?.redirectUri || 'http://192.168.188.92:8099/api/system/google/callback',
+            scopes: tokenObj.scope
+              ? String(tokenObj.scope).split(' ')
+              : [
+                  'https://www.googleapis.com/auth/calendar',
+                  'https://www.googleapis.com/auth/calendar.readonly',
+                ],
+          });
+        }
+
+        if (tokenObj.access_token || tokenObj.refresh_token) {
+          const expiryDate = tokenObj.expires_at
+            ? Number(tokenObj.expires_at) * 1000
+            : Date.now() + 3000 * 1000;
+          ctx.google.saveTokens({
+            accessToken: tokenObj.access_token || '',
+            refreshToken: tokenObj.refresh_token,
+            expiryDate,
+            scope: tokenObj.scope,
+            tokenType: tokenObj.token_type || 'Bearer',
+          });
+          ctx.sharedDb.kvSet('google_oauth_account_email', googleEntry.title || 'Google Calendar');
+          return {
+            imported: true,
+            accountEmail: googleEntry.title || 'Google Account',
+            details: `Imported Google OAuth2 credentials & refresh token for ${googleEntry.title || 'Google Calendar'}`,
+          };
+        }
+      } catch (err) {
+        console.warn('[google-calendar] Failed reading HA .storage OAuth:', err);
+      }
+    }
+    return { imported: false };
+  }
+
+  // Run automatic OAuth bridge on startup so real Google OAuth is immediately active
+  trySyncGoogleOAuthFromHomeAssistantStorage();
+
   function upsertEvent(ev: Omit<CalendarEventRow, 'id'>) {
+    ensureCalendarSetting(ev.calendar_name, ev.calendar_name, '', ev.source, 1);
     ctx.db.execute(
       `INSERT INTO calendar_events
        (external_id, calendar_name, title, category, start_time, end_time, duration_minutes, location, description, source)
@@ -258,6 +389,38 @@ export default defineThassiApp((ctx) => {
     );
   }
 
+  function normalizeGoogleEventDates(
+    rawStart: string,
+    rawEnd: string | undefined,
+    isAllDay: boolean
+  ): { startDate: Date; endDate: Date; durationMinutes: number } {
+    const startDate = new Date(isAllDay ? `${rawStart}T08:00:00` : rawStart);
+    let endDate: Date;
+    if (isAllDay && rawEnd) {
+      const exclusiveEnd = new Date(`${rawEnd}T00:00:00`);
+      const daysSpan = Math.max(
+        1,
+        Math.round(
+          (exclusiveEnd.getTime() - new Date(`${rawStart}T00:00:00`).getTime()) / 86400000
+        )
+      );
+      endDate = new Date(
+        startDate.getTime() + (daysSpan === 1 ? 10 * 3600000 : (daysSpan * 24 - 12) * 3600000)
+      );
+    } else if (rawEnd) {
+      endDate = new Date(rawEnd);
+    } else {
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    }
+
+    const rawDuration = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+    const durationMinutes = isAllDay
+      ? 60
+      : Math.max(15, Math.min(720, Number.isFinite(rawDuration) ? rawDuration : 60));
+
+    return { startDate, endDate, durationMinutes };
+  }
+
   async function syncExternalCalendars(): Promise<{
     haCalendarSynced: number;
     oauthSynced: number;
@@ -269,23 +432,151 @@ export default defineThassiApp((ctx) => {
     let icsSynced = 0;
     const errors: string[] = [];
 
-    // A) Sync directly from Home Assistant's connected Google Calendar entities (calendar.*)
+    if (!ctx.google.getStatus().authorized) {
+      trySyncGoogleOAuthFromHomeAssistantStorage();
+    }
+
+    const startIso = new Date(Date.now() - 7 * 86400000).toISOString();
+    const endIso = new Date(Date.now() + 30 * 86400000).toISOString();
+
+    const oauthCalLowerNames = new Set<string>();
+
+    // A) Sync directly via real Google Calendar v3 OAuth2 REST API if authorized
+    const oauthStatus = ctx.google.getStatus();
+    if (oauthStatus.authorized) {
+      try {
+        const calListRes = await ctx.google.googleFetch<{
+          items?: Array<{
+            id: string;
+            summary?: string;
+            summaryOverride?: string;
+            backgroundColor?: string;
+            primary?: boolean;
+            selected?: boolean;
+          }>;
+        }>('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader');
+
+        const calItems = calListRes.items || [];
+        for (const gCal of calItems) {
+          const calTitle = String(gCal.summaryOverride || gCal.summary || gCal.id).trim();
+          const lowerTitle = calTitle.toLowerCase();
+          oauthCalLowerNames.add(lowerTitle);
+          const defaultShow =
+            lowerTitle.includes('kalenderwochen') || lowerTitle.includes('feiertage in deutschland')
+              ? 0
+              : 1;
+
+          ensureCalendarSetting(
+            calTitle,
+            gCal.id,
+            gCal.backgroundColor || '',
+            'google_oauth',
+            defaultShow
+          );
+
+          if (gCal.primary && gCal.id.includes('@')) {
+            ctx.sharedDb.kvSet('google_oauth_account_email', gCal.id);
+          }
+
+          try {
+            const params = new URLSearchParams({
+              timeMin: startIso,
+              timeMax: endIso,
+              singleEvents: 'true',
+              orderBy: 'startTime',
+              maxResults: '250',
+            });
+            const evRes = await ctx.google.googleFetch<{
+              items?: Array<{
+                id: string;
+                summary?: string;
+                description?: string;
+                location?: string;
+                status?: string;
+                start?: { dateTime?: string; date?: string };
+                end?: { dateTime?: string; date?: string };
+              }>;
+            }>(
+              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+                gCal.id
+              )}/events?${params.toString()}`
+            );
+
+            for (const item of evRes.items || []) {
+              if (item.status === 'cancelled') continue;
+              const rawStart = item.start?.dateTime || item.start?.date;
+              const rawEnd = item.end?.dateTime || item.end?.date;
+              if (!rawStart || !item.summary) continue;
+
+              const isAllDay = !item.start?.dateTime;
+              const { startDate, endDate, durationMinutes } = normalizeGoogleEventDates(
+                rawStart,
+                rawEnd,
+                isAllDay
+              );
+
+              const extId = `gcal_${gCal.id}_${item.id}`;
+              upsertEvent({
+                external_id: extId,
+                calendar_name: calTitle,
+                title: item.summary,
+                category: inferEventCategory(
+                  item.summary,
+                  item.description || '',
+                  'personal',
+                  calTitle
+                ),
+                start_time: startDate.toISOString(),
+                end_time: endDate.toISOString(),
+                duration_minutes: durationMinutes,
+                location: item.location || '',
+                description: item.description || '',
+                source: 'google_oauth',
+              });
+              oauthSynced++;
+            }
+          } catch (calFetchErr) {
+            errors.push(
+              `Google API (${calTitle}): ${
+                calFetchErr instanceof Error ? calFetchErr.message : String(calFetchErr)
+              }`
+            );
+          }
+        }
+      } catch (err) {
+        errors.push(`Google OAuth API: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // B) Sync from Home Assistant's connected Google Calendar entities (calendar.*)
+    // If OAuth2 already synced a calendar, skip HA duplicate fetch and remove older ha_ rows
     try {
       const haStatus = await ctx.ha.getStatus();
       if (haStatus.connected) {
         const calStates = await ctx.ha.getStates('calendar');
-        const startIso = new Date(Date.now() - 7 * 86400000).toISOString();
-        const endIso = new Date(Date.now() + 30 * 86400000).toISOString();
 
         for (const cal of calStates) {
-          if (
-            cal.state === 'unavailable' ||
-            cal.entity_id === 'calendar.kalenderwochen' ||
-            cal.entity_id === 'calendar.feiertage_in_deutschland'
-          ) {
+          if (cal.state === 'unavailable') continue;
+          const calName = String(
+            cal.attributes?.friendly_name || cal.entity_id.replace('calendar.', '')
+          ).trim();
+          const lowerName = calName.toLowerCase();
+
+          if (oauthCalLowerNames.has(lowerName)) {
+            ctx.db.execute(
+              'DELETE FROM calendar_events WHERE LOWER(calendar_name) = LOWER(?) AND external_id LIKE ?',
+              [calName, 'ha_%']
+            );
             continue;
           }
-          const calName = String(cal.attributes?.friendly_name || cal.entity_id.replace('calendar.', '')).trim();
+
+          const defaultShow =
+            lowerName.includes('kalenderwochen') || lowerName.includes('feiertage in deutschland')
+              ? 0
+              : 1;
+
+          ensureCalendarSetting(calName, cal.entity_id, '', 'google_oauth', defaultShow);
+
           try {
             const endpoint = `/calendars/${encodeURIComponent(cal.entity_id)}?start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`;
             const items =
@@ -307,30 +598,11 @@ export default defineThassiApp((ctx) => {
               if (!rawStart || !item.summary) continue;
 
               const isAllDay = !item.start?.dateTime;
-              const startDate = new Date(isAllDay ? `${rawStart}T08:00:00` : rawStart);
-              let endDate: Date;
-              if (isAllDay && rawEnd) {
-                // Google Calendar all-day end date is exclusive (next day 00:00)
-                const exclusiveEnd = new Date(`${rawEnd}T00:00:00`);
-                const daysSpan = Math.max(
-                  1,
-                  Math.round(
-                    (exclusiveEnd.getTime() - new Date(`${rawStart}T00:00:00`).getTime()) / 86400000
-                  )
-                );
-                endDate = new Date(
-                  startDate.getTime() + (daysSpan === 1 ? 10 * 3600000 : (daysSpan * 24 - 12) * 3600000)
-                );
-              } else if (rawEnd) {
-                endDate = new Date(rawEnd);
-              } else {
-                endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
-              }
-
-              const rawDuration = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
-              const durationMinutes = isAllDay
-                ? 60
-                : Math.max(15, Math.min(720, Number.isFinite(rawDuration) ? rawDuration : 60));
+              const { startDate, endDate, durationMinutes } = normalizeGoogleEventDates(
+                rawStart,
+                rawEnd,
+                isAllDay
+              );
 
               const extId =
                 item.uid ||
@@ -340,7 +612,12 @@ export default defineThassiApp((ctx) => {
                 external_id: extId,
                 calendar_name: calName,
                 title: item.summary,
-                category: inferEventCategory(item.summary, item.description || '', 'personal', calName),
+                category: inferEventCategory(
+                  item.summary,
+                  item.description || '',
+                  'personal',
+                  calName
+                ),
                 start_time: startDate.toISOString(),
                 end_time: endDate.toISOString(),
                 duration_minutes: durationMinutes,
@@ -351,7 +628,9 @@ export default defineThassiApp((ctx) => {
               haCalendarSynced++;
             }
           } catch (calErr) {
-            errors.push(`${cal.entity_id}: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
+            errors.push(
+              `${cal.entity_id}: ${calErr instanceof Error ? calErr.message : String(calErr)}`
+            );
           }
         }
       }
@@ -359,38 +638,11 @@ export default defineThassiApp((ctx) => {
       errors.push(`HA Calendar sync: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // B) Sync from Shared Google OAuth2 Client if authorized directly
-    const oauthStatus = ctx.google.getStatus();
-    if (oauthStatus.authorized) {
-      try {
-        const gEvents = await ctx.google.fetchUpcomingCalendarEvents(50);
-        for (const item of gEvents) {
-          const start = new Date(item.start);
-          const end = item.end ? new Date(item.end) : new Date(start.getTime() + 60 * 60 * 1000);
-          const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
-          upsertEvent({
-            external_id: `gcal_${item.id}`,
-            calendar_name: 'Google Calendar (OAuth)',
-            title: item.summary,
-            category: inferEventCategory(item.summary, item.description || ''),
-            start_time: start.toISOString(),
-            end_time: end.toISOString(),
-            duration_minutes: Number.isFinite(duration) ? duration : 60,
-            location: item.location || '',
-            description: item.description || '',
-            source: 'google_oauth',
-          });
-          oauthSynced++;
-        }
-      } catch (err) {
-        errors.push(`Google OAuth sync: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
     // C) Sync from any configured Google Calendar iCal (.ics) Feeds
     const feeds = ctx.db.query<CalendarFeedRow>('SELECT * FROM calendar_feeds');
     for (const feed of feeds) {
       try {
+        ensureCalendarSetting(feed.name, feed.ics_url, '', 'ics_feed', 1);
         const res = await fetch(feed.ics_url);
         if (!res.ok) {
           throw new Error(`HTTP ${res.status} fetching ${feed.name}`);
@@ -418,29 +670,64 @@ export default defineThassiApp((ctx) => {
     return { haCalendarSynced, oauthSynced, icsSynced, errors };
   }
 
+  function getCalendarsWithCounts() {
+    // Ensure any calendar_name in calendar_events has a row in calendar_settings
+    const distinctNames = ctx.db.query<{ calendar_name: string; source: string }>(
+      'SELECT DISTINCT calendar_name, source FROM calendar_events'
+    );
+    for (const row of distinctNames) {
+      ensureCalendarSetting(row.calendar_name, row.calendar_name, '', row.source || 'google_oauth', 1);
+    }
+
+    // Deduplicate case-insensitive calendar_settings entries (e.g. "Thomas.simhofer@gmail.com" vs "thomas.simhofer@gmail.com")
+    const rawSettings = ctx.db.query<CalendarSettingRow>(
+      'SELECT * FROM calendar_settings ORDER BY calendar_name ASC'
+    );
+    const counts = ctx.db.query<{ calendar_name: string; cnt: number }>(
+      'SELECT calendar_name, COUNT(*) as cnt FROM calendar_events GROUP BY calendar_name'
+    );
+    const countMap = new Map<string, number>();
+    for (const c of counts) {
+      countMap.set(c.calendar_name, (countMap.get(c.calendar_name) || 0) + Number(c.cnt || 0));
+    }
+
+    return rawSettings.map((s) => ({
+      calendar_name: s.calendar_name,
+      external_cal_id: s.external_cal_id,
+      color: s.color || '#38bdf8',
+      source: s.source || 'google_oauth',
+      show_in_horizon: Boolean(s.show_in_horizon),
+      event_count: countMap.get(s.calendar_name) || 0,
+    }));
+  }
+
+  function getVisibleCalendarEvents(limit = 150): CalendarEventRow[] {
+    const calendars = getCalendarsWithCounts();
+    const hiddenNames = new Set(
+      calendars.filter((c) => !c.show_in_horizon).map((c) => c.calendar_name)
+    );
+    const all = ctx.db.query<CalendarEventRow>(
+      'SELECT * FROM calendar_events ORDER BY start_time ASC LIMIT ?',
+      [limit * 2]
+    );
+    return all.filter((ev) => !hiddenNames.has(ev.calendar_name)).slice(0, limit);
+  }
+
   async function publishCalendarSensorsAndSharedState() {
     const now = new Date();
     const todayPrefix = now.toISOString().slice(0, 10);
 
-    const todayEvents = ctx.db.query<CalendarEventRow>(
-      'SELECT * FROM calendar_events WHERE substr(start_time, 1, 10) = ? ORDER BY start_time ASC',
-      [todayPrefix]
-    );
-
-    const nextEvent = ctx.db.queryOne<CalendarEventRow>(
-      'SELECT * FROM calendar_events WHERE end_time >= ? ORDER BY start_time ASC LIMIT 1',
-      [now.toISOString()]
-    );
+    const visibleEvents = getVisibleCalendarEvents(250);
+    const todayEvents = visibleEvents.filter((e) => e.start_time.slice(0, 10) === todayPrefix);
+    const nextEvent = visibleEvents.find((e) => e.end_time >= now.toISOString()) || null;
 
     const totalMinutesToday = todayEvents.reduce((s, e) => s + (e.duration_minutes || 0), 0);
     const busyHoursToday = Number((totalMinutesToday / 60).toFixed(1));
 
-    const allEvents = ctx.db.query<CalendarEventRow>('SELECT * FROM calendar_events');
     const totalWeeklyHours = Number(
-      (allEvents.reduce((s, e) => s + (e.duration_minutes || 0), 0) / 60).toFixed(1)
+      (visibleEvents.reduce((s, e) => s + (e.duration_minutes || 0), 0) / 60).toFixed(1)
     );
 
-    // Save summary to /data/shared.db for cross-app intelligence (e.g. Meal Planner & Health)
     ctx.sharedDb.kvSet('google_calendar_today', {
       date: todayPrefix,
       todayEventCount: todayEvents.length,
@@ -489,12 +776,13 @@ export default defineThassiApp((ctx) => {
   // 2. REST API Endpoints (/api/apps/google-calendar/*)
 
   ctx.route('GET', '/dashboard', (_req, { db, sharedDb, google }) => {
-    const events = db.query<CalendarEventRow>(
-      'SELECT * FROM calendar_events ORDER BY start_time ASC LIMIT 100'
+    const calendars = getCalendarsWithCounts();
+    const events = getVisibleCalendarEvents(150);
+    const allEvents = db.query<CalendarEventRow>(
+      'SELECT * FROM calendar_events ORDER BY start_time ASC LIMIT 250'
     );
     const feeds = db.query<CalendarFeedRow>('SELECT * FROM calendar_feeds ORDER BY id DESC');
 
-    // Time analytics by category
     const byCategory = db.query<{
       category: string;
       event_count: number;
@@ -511,7 +799,6 @@ export default defineThassiApp((ctx) => {
       ORDER BY total_minutes DESC
     `);
 
-    // Read cross-app Meal Planner data from /data/shared.db!
     const mealPlannerToday = sharedDb.kvGet<{
       date: string;
       breakfast: string | null;
@@ -521,23 +808,141 @@ export default defineThassiApp((ctx) => {
       totalProtein: number;
     }>('meal_planner_today');
 
+    const oauthStatus = google.getStatus();
+    const accountEmail = sharedDb.kvGet<string>('google_oauth_account_email') || null;
+
     return {
       events,
+      allEvents,
+      calendars,
       feeds,
       byCategory,
-      googleOAuth: google.getStatus(),
+      googleOAuth: {
+        ...oauthStatus,
+        accountEmail,
+      },
       mealPlannerToday: mealPlannerToday || null,
     };
   });
 
-  ctx.route('GET', '/events', (_req, { db }) => {
-    const events = db.query<CalendarEventRow>(
-      'SELECT * FROM calendar_events ORDER BY start_time ASC LIMIT 250'
-    );
-    return { events };
+  // List & configure which calendars are shown in the Horizon dashboard
+  ctx.route('GET', '/calendars', () => {
+    return {
+      calendars: getCalendarsWithCounts(),
+    };
   });
 
-  // Add manual or quick event
+  ctx.route('POST', '/calendars/visibility', async (req, { db }) => {
+    const body = (req.body || {}) as {
+      calendar_name?: string;
+      show_in_horizon?: boolean;
+      calendars?: Record<string, boolean>;
+    };
+
+    if (body.calendar_name !== undefined && body.show_in_horizon !== undefined) {
+      ensureCalendarSetting(body.calendar_name, '', '', 'google_oauth', body.show_in_horizon ? 1 : 0);
+      db.execute(
+        'UPDATE calendar_settings SET show_in_horizon = ?, updated_at = ? WHERE calendar_name = ?',
+        [body.show_in_horizon ? 1 : 0, new Date().toISOString(), body.calendar_name]
+      );
+    }
+
+    if (body.calendars && typeof body.calendars === 'object') {
+      for (const [calName, visible] of Object.entries(body.calendars)) {
+        ensureCalendarSetting(calName, '', '', 'google_oauth', visible ? 1 : 0);
+        db.execute(
+          'UPDATE calendar_settings SET show_in_horizon = ?, updated_at = ? WHERE calendar_name = ?',
+          [visible ? 1 : 0, new Date().toISOString(), calName]
+        );
+      }
+    }
+
+    await publishCalendarSensorsAndSharedState();
+    return {
+      updated: true,
+      calendars: getCalendarsWithCounts(),
+      events: getVisibleCalendarEvents(150),
+    };
+  });
+
+  // Direct Google OAuth2 configuration & token management endpoints
+  ctx.route('GET', '/oauth/status', (_req, { google, sharedDb }) => {
+    return {
+      ...google.getStatus(),
+      accountEmail: sharedDb.kvGet<string>('google_oauth_account_email') || null,
+    };
+  });
+
+  ctx.route('POST', '/oauth/config', async (req, { google }) => {
+    const body = (req.body || {}) as {
+      clientId?: string;
+      clientSecret?: string;
+      redirectUri?: string;
+      refreshToken?: string;
+      importFromHa?: boolean;
+    };
+
+    if (body.importFromHa) {
+      const imp = trySyncGoogleOAuthFromHomeAssistantStorage();
+      const syncRes = await syncExternalCalendars();
+      return {
+        ...google.getStatus(),
+        importedFromHa: imp.imported,
+        accountEmail: imp.accountEmail || null,
+        details: imp.details,
+        syncRes,
+      };
+    }
+
+    const status = google.saveConfig({
+      clientId: body.clientId,
+      clientSecret: body.clientSecret,
+      redirectUri: body.redirectUri,
+      scopes: [
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/fitness.activity.read',
+        'https://www.googleapis.com/auth/fitness.body.read',
+        'https://www.googleapis.com/auth/fitness.sleep.read',
+      ],
+    });
+
+    if (body.refreshToken?.trim()) {
+      google.saveTokens({
+        accessToken: '',
+        refreshToken: body.refreshToken.trim(),
+        expiryDate: 0,
+      });
+      const syncRes = await syncExternalCalendars();
+      return { ...google.getStatus(), syncRes };
+    }
+
+    return status;
+  });
+
+  ctx.route('GET', '/oauth/auth-url', (_req, { google }) => {
+    const url = google.getAuthorizationUrl([
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.readonly',
+    ]);
+    return { url };
+  });
+
+  ctx.route('POST', '/oauth/exchange', async (req, { google }) => {
+    const body = (req.body || {}) as { code?: string };
+    if (!body.code?.trim()) {
+      return { status: 400, body: { error: 'Authorization code is required' } };
+    }
+    const status = await google.exchangeCode(body.code.trim());
+    const syncRes = await syncExternalCalendars();
+    return { status, syncRes };
+  });
+
+  ctx.route('GET', '/events', () => {
+    return { events: getVisibleCalendarEvents(250) };
+  });
+
+  // Add manual or quick event (and push to Google Calendar via OAuth2 API or HA)
   ctx.route('POST', '/events', async (req) => {
     const body = (req.body || {}) as {
       title?: string;
@@ -558,10 +963,61 @@ export default defineThassiApp((ctx) => {
     const end = new Date(start.getTime() + duration * 60000);
     const category =
       body.category || inferEventCategory(body.title, body.description || '', 'personal');
+    const targetCalendarName = (body.calendar_name || 'Thomas.simhofer@gmail.com').trim();
+
+    let createdExternalId = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    // 1. Try creating directly via Google Calendar v3 OAuth2 API if authorized
+    if (ctx.google.getStatus().authorized) {
+      try {
+        const setting = ctx.db.queryOne<CalendarSettingRow>(
+          'SELECT * FROM calendar_settings WHERE LOWER(calendar_name) = LOWER(?)',
+          [targetCalendarName]
+        );
+        const calId =
+          setting?.external_cal_id && !setting.external_cal_id.startsWith('calendar.')
+            ? setting.external_cal_id
+            : 'primary';
+        const created = await ctx.google.googleFetch<{ id?: string }>(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              summary: body.title.trim(),
+              description: (body.description || '').trim(),
+              location: (body.location || '').trim(),
+              start: { dateTime: start.toISOString() },
+              end: { dateTime: end.toISOString() },
+            }),
+          }
+        );
+        if (created?.id) {
+          createdExternalId = `gcal_${calId}_${created.id}`;
+        }
+      } catch {
+        // Fallback to HA service call below
+      }
+    }
+
+    // 2. Fallback: push to Home Assistant calendar.create_event service if not created via OAuth
+    if (createdExternalId.startsWith('manual_')) {
+      try {
+        await ctx.ha.callService('calendar', 'create_event', {
+          entity_id: 'calendar.thomas_simhofer_gmail_com',
+          summary: body.title.trim(),
+          description: (body.description || '').trim(),
+          location: (body.location || '').trim(),
+          start_date_time: start.toISOString(),
+          end_date_time: end.toISOString(),
+        });
+      } catch {
+        // Ignore if calendar is read-only
+      }
+    }
 
     upsertEvent({
-      external_id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      calendar_name: (body.calendar_name || 'Thomas.simhofer@gmail.com').trim(),
+      external_id: createdExternalId,
+      calendar_name: targetCalendarName,
       title: body.title.trim(),
       category,
       start_time: start.toISOString(),
@@ -569,25 +1025,11 @@ export default defineThassiApp((ctx) => {
       duration_minutes: duration,
       location: (body.location || '').trim(),
       description: (body.description || '').trim(),
-      source: 'manual',
+      source: createdExternalId.startsWith('gcal_') ? 'google_oauth' : 'manual',
     });
 
-    // Also push event to Google Calendar via Home Assistant calendar.create_event service
-    try {
-      await ctx.ha.callService('calendar', 'create_event', {
-        entity_id: 'calendar.thomas_simhofer_gmail_com',
-        summary: body.title.trim(),
-        description: (body.description || '').trim(),
-        location: (body.location || '').trim(),
-        start_date_time: start.toISOString(),
-        end_date_time: end.toISOString(),
-      });
-    } catch {
-      // Ignore if calendar is read-only
-    }
-
     await publishCalendarSensorsAndSharedState();
-    return { created: true };
+    return { created: true, external_id: createdExternalId };
   });
 
   ctx.route('DELETE', '/events', async (req, { db }) => {
@@ -597,7 +1039,6 @@ export default defineThassiApp((ctx) => {
     return { deleted: id };
   });
 
-  // Add a Google Calendar Secret iCal (.ics) Feed URL and immediately sync it
   ctx.route('POST', '/feeds', async (req, { db }) => {
     const body = (req.body || {}) as {
       name?: string;
@@ -625,7 +1066,6 @@ export default defineThassiApp((ctx) => {
     return { deleted: id };
   });
 
-  // Trigger live sync of Google OAuth2 + iCal feeds + Home Assistant sensors
   ctx.route('POST', '/sync', async () => {
     const syncRes = await syncExternalCalendars();
     const sensorRes = await publishCalendarSensorsAndSharedState();
@@ -637,13 +1077,13 @@ export default defineThassiApp((ctx) => {
     id: 'sync-google-calendar',
     name: 'Sync Google Calendar & Publish HA Sensors',
     description:
-      'Pulls upcoming events from Home Assistant Google Calendars, Google OAuth2 & iCal feeds, updates time-allocation stats, and publishes sensor.thassi_google_calendar_next_event.',
+      'Pulls upcoming events from Google Calendar OAuth2 v3 API, Home Assistant Calendars & iCal feeds, filters by Horizon visibility, and publishes HA sensors.',
     intervalMinutes: 15,
     runOnStart: true,
     handler: async () => {
       const sync = await syncExternalCalendars();
       const ha = await publishCalendarSensorsAndSharedState();
-      return `Next: "${ha.nextEvent}" | Today: ${ha.todayEventCount} events (${ha.busyHoursToday}h) | Synced HA=${sync.haCalendarSynced}, OAuth=${sync.oauthSynced}, ICS=${sync.icsSynced}`;
+      return `Next: "${ha.nextEvent}" | Today: ${ha.todayEventCount} events (${ha.busyHoursToday}h) | Synced OAuth=${sync.oauthSynced}, HA=${sync.haCalendarSynced}, ICS=${sync.icsSynced}`;
     },
   });
 });

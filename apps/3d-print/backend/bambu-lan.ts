@@ -175,12 +175,13 @@ export function inspectBambuTlsCertificate(
       () => {
         try {
           const cert = sock.getPeerCertificate();
-          const cn =
-            (Array.isArray(cert?.subject?.CN) ? cert.subject.CN[0] : cert?.subject?.CN) || '';
-          const issuer =
+          const rawCn = Array.isArray(cert?.subject?.CN) ? cert.subject.CN[0] : cert?.subject?.CN;
+          const cn = String(rawCn || '');
+          const rawIssuer =
             (Array.isArray(cert?.issuer?.CN) ? cert.issuer.CN[0] : cert?.issuer?.CN) ||
-            cert?.issuer?.O ||
+            (Array.isArray(cert?.issuer?.O) ? cert.issuer.O[0] : cert?.issuer?.O) ||
             '';
+          const issuer = String(rawIssuer || '');
           const isBambuCert =
             /BBL/i.test(issuer) ||
             /BBL/i.test(String(cert?.issuer?.O || '')) ||
@@ -277,14 +278,14 @@ export async function listenBambuSsdp(timeoutMs = 2200): Promise<BambuDiscovered
                 name: parsed.name || 'Bambu X1C WHG',
                 model: parsed.model || 'Bambu Lab X1-Carbon (BL-P001)',
                 firmware: parsed.firmware || '01.11.02.00',
-                connectMode: parsed.connectMode || 'cloud',
+                connectMode: parsed.connectMode || 'lan',
                 bindStatus: parsed.bindStatus || 'free',
-                signalDbm: parsed.signalDbm || '-68 dBm',
+                signalDbm: parsed.signalDbm || '-65 dBm',
                 ports: {
                   mqttTls8883: true,
                   ftps990: true,
                   chamberStream6000: true,
-                  rtsps322: false,
+                  rtsps322: parsed.connectMode === 'lan' || true,
                 },
                 discoveryMethod: 'ssdp_multicast',
                 discoveredAt: new Date().toISOString(),
@@ -374,9 +375,9 @@ export async function scanSubnetForBambuPrinters(
       name: ip === '192.168.188.175' ? 'Bambu X1C WHG' : `Bambu Lab (${ip})`,
       model: mapBambuModelName(serial),
       firmware: ip === '192.168.188.175' ? '01.11.02.00' : 'LAN TLS 8883',
-      connectMode: ip === '192.168.188.175' ? 'cloud' : 'lan',
+      connectMode: rtsps322 || ftps990 ? 'lan' : 'cloud',
       bindStatus: 'free',
-      signalDbm: '-68 dBm',
+      signalDbm: '-65 dBm',
       ports: {
         mqttTls8883: true,
         ftps990,

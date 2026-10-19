@@ -157,16 +157,44 @@ export class ThassiAppDatabase {
   constructor(dbPath: string) {
     this.dbPath = dbPath;
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.raw = new DatabaseSync(dbPath);
-    this.raw.exec('PRAGMA journal_mode = WAL;');
-    this.raw.exec('PRAGMA foreign_keys = ON;');
-    this.raw.exec(`
-      CREATE TABLE IF NOT EXISTS _thassi_kv (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-    `);
+    this.raw = this.openWithAutoRecovery(dbPath);
+  }
+
+  private openWithAutoRecovery(dbPath: string): DatabaseSync {
+    try {
+      const db = new DatabaseSync(dbPath);
+      db.exec('PRAGMA journal_mode = WAL;');
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS _thassi_kv (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      // Quick integrity probe on _thassi_kv
+      db.prepare('SELECT COUNT(*) FROM _thassi_kv').get();
+      return db;
+    } catch {
+      try {
+        for (const suffix of ['', '-wal', '-shm']) {
+          if (fs.existsSync(dbPath + suffix)) {
+            fs.rmSync(dbPath + suffix, { force: true });
+          }
+        }
+      } catch {}
+      const db = new DatabaseSync(dbPath);
+      db.exec('PRAGMA journal_mode = WAL;');
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS _thassi_kv (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      return db;
+    }
   }
 
   /** Execute raw DDL or multi-statement SQL */

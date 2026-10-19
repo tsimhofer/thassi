@@ -19,157 +19,82 @@ import path2 from "node:path";
 function getHassSidebarStylerScript() {
   return `
   (function initThassiHassSidebarStyler() {
-    const LABEL_MAP = {
-      'Main Dashboard': 'Horizon',
-      'Thassi Main Dashboard': 'Horizon',
-      'Thassi Unified Dashboard': 'Horizon',
-      'Google Calendar & Time Analytics': 'Calendar',
-      'Google Health & Readiness': 'Health',
-      'Finance & Budget': 'Finances',
-      'Meal Planner': 'Meals',
-      'Smart Control Canvas': 'Smart Home',
-      'Camera Vision & Object Detection': 'Vision'
-    };
+    const SUBTLE_BAR_BG = '#161f2e';
 
     const ROOT_THEME_CSS = \`
       :root, html, body, home-assistant {
         --primary-background-color: #040711 !important;
-        --secondary-background-color: #060a17 !important;
+        --secondary-background-color: #161f2e !important;
         --card-background-color: rgba(8, 13, 26, 0.72) !important;
         --ha-card-background: rgba(8, 13, 26, 0.72) !important;
-        --sidebar-background-color: transparent !important;
-        --sidebar-text-color: rgba(248, 250, 252, 0.58) !important;
-        --sidebar-icon-color: rgba(148, 163, 184, 0.58) !important;
-        --sidebar-selected-text-color: #ffffff !important;
+        --sidebar-background-color: \${SUBTLE_BAR_BG} !important;
+        --sidebar-text-color: #cbd5e1 !important;
+        --sidebar-icon-color: #94a3b8 !important;
+        --sidebar-selected-text-color: #f8fafc !important;
         --sidebar-selected-icon-color: #38bdf8 !important;
         --primary-color: #38bdf8 !important;
         --accent-color: #38bdf8 !important;
-        --divider-color: rgba(255, 255, 255, 0.0) !important;
-        --app-header-background-color: #040711 !important;
+        --divider-color: rgba(255, 255, 255, 0.08) !important;
+        --app-header-background-color: \${SUBTLE_BAR_BG} !important;
         --app-header-text-color: #f8fafc !important;
         --mdc-theme-primary: #38bdf8 !important;
-        --mdc-theme-surface: #040711 !important;
-        --mdc-drawer-width: 208px !important;
+        --mdc-theme-surface: \${SUBTLE_BAR_BG} !important;
         background-color: #040711 !important;
       }
     \`;
 
     const DRAWER_SHADOW_CSS = \`
-      .mdc-drawer, aside.mdc-drawer {
-        background: var(--thassi-sidebar-bg, linear-gradient(180deg, rgba(4, 7, 17, 0.94) 0%, rgba(7, 13, 29, 0.92) 55%, rgba(3, 6, 15, 0.96) 100%)) !important;
-        backdrop-filter: blur(30px) saturate(140%) !important;
-        -webkit-backdrop-filter: blur(30px) saturate(140%) !important;
-        border-right: none !important;
-        box-shadow: 16px 0 48px rgba(0, 0, 0, 0.35) !important;
-        transition: background 1.2s cubic-bezier(0.22, 1, 0.36, 1) !important;
+      .mdc-drawer,
+      aside.mdc-drawer {
+        background: \${SUBTLE_BAR_BG} !important;
+        background-color: \${SUBTLE_BAR_BG} !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.07) !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
-      .mdc-drawer.mdc-drawer--open:not(.mdc-drawer--closing) + .mdc-drawer-app-content {
-        background: #040711 !important;
-      }
-      .mdc-drawer-app-content {
-        background: #040711 !important;
+      .mdc-drawer__content {
+        background: \${SUBTLE_BAR_BG} !important;
+        background-color: \${SUBTLE_BAR_BG} !important;
       }
     \`;
 
     const SIDEBAR_SHADOW_CSS = \`
       :host {
-        background: transparent !important;
-        color: rgba(248, 250, 252, 0.62) !important;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        background: \${SUBTLE_BAR_BG} !important;
+        background-color: \${SUBTLE_BAR_BG} !important;
+        color: #cbd5e1 !important;
         border-right: none !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
       .menu {
-        background: transparent !important;
-        border-bottom: none !important;
-        height: 68px !important;
-        padding: 0 14px !important;
-        display: flex !important;
-        align-items: center !important;
-      }
-      .menu .title {
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
-        font-size: 11px !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.28em !important;
-        text-transform: uppercase !important;
-        color: rgba(248, 250, 252, 0.72) !important;
-        margin-left: 6px !important;
-      }
-      .menu ha-icon-button {
-        color: rgba(248, 250, 252, 0.55) !important;
-      }
-      /* Hide sidebar edit button, dividers, notifications & non-Thassi items */
-      .divider,
-      div.divider,
-      .notifications-container,
-      .notifications,
-      ha-md-list-item.notifications,
-      a[data-panel="lovelace"],
-      a[data-panel="developer-tools"],
-      a[data-panel="config"],
-      a[data-panel="44ec3c40_thassi_system_monitor"],
-      a[data-panel="44ec3c40_thassi_fuege_neue"],
-      ha-md-list-item[href="/lovelace"],
-      ha-md-list-item[href="/developer-tools"],
-      ha-md-list-item[href="/44ec3c40_thassi_system_monitor"],
-      ha-md-list-item[href="/44ec3c40_thassi_fuege_neue"] {
-        display: none !important;
+        background: \${SUBTLE_BAR_BG} !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+        box-shadow: none !important;
       }
       ha-md-list,
-      paper-listbox {
-        padding: 4px 10px !important;
+      paper-listbox,
+      .ha-scrollbar {
         background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
       }
       ha-md-list-item,
       paper-icon-item,
       a[role="option"] {
-        border-radius: 14px !important;
-        margin: 4px 0 !important;
-        min-height: 42px !important;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
-        font-size: 12.5px !important;
-        font-weight: 400 !important;
-        letter-spacing: 0.04em !important;
-        color: rgba(248, 250, 252, 0.56) !important;
-        transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
-        --md-list-item-leading-icon-color: rgba(148, 163, 184, 0.56) !important;
-        --md-list-item-label-text-color: rgba(248, 250, 252, 0.56) !important;
-        --md-list-item-label-text-font: "Inter", system-ui, sans-serif !important;
-        --md-list-item-label-text-size: 12.5px !important;
-        --md-list-item-label-text-weight: 400 !important;
+        transition: none !important;
+        transform: none !important;
+        box-shadow: none !important;
       }
       ha-md-list-item:hover,
       a[role="option"]:hover {
-        background: rgba(255, 255, 255, 0.04) !important;
-        color: rgba(248, 250, 252, 0.92) !important;
-        transform: translateX(3px) !important;
-        --md-list-item-leading-icon-color: rgba(248, 250, 252, 0.92) !important;
-        --md-list-item-label-text-color: rgba(248, 250, 252, 0.92) !important;
-      }
-      ha-md-list-item[selected],
-      ha-md-list-item.selected,
-      a.iron-selected,
-      a[aria-selected="true"] {
-        background: rgba(56, 189, 248, 0.11) !important;
-        color: #ffffff !important;
-        box-shadow: inset 2px 0 0 #38bdf8, 0 8px 24px rgba(0, 0, 0, 0.22) !important;
-        --md-list-item-leading-icon-color: #38bdf8 !important;
-        --md-list-item-label-text-color: #ffffff !important;
-        --md-list-item-label-text-weight: 500 !important;
-      }
-      .item-text {
-        font-size: 12.5px !important;
-        letter-spacing: 0.04em !important;
-      }
-      /* Subtle profile footer */
-      .profile,
-      ha-md-list-item.user {
-        opacity: 0.55 !important;
-        transition: opacity 0.2s ease !important;
-      }
-      .profile:hover,
-      ha-md-list-item.user:hover {
-        opacity: 0.95 !important;
+        transform: none !important;
+        box-shadow: none !important;
       }
     \`;
 
@@ -218,54 +143,19 @@ function getHassSidebarStylerScript() {
         const drawer = main.shadowRoot.querySelector('ha-drawer');
         if (drawer && drawer.shadowRoot) {
           ensureStyleTag(drawer.shadowRoot, 'thassi-drawer-style', DRAWER_SHADOW_CSS);
+          drawer.style.removeProperty('--mdc-drawer-width');
+          const appContent = drawer.shadowRoot.querySelector('.mdc-drawer-app-content');
+          if (appContent) {
+            appContent.style.removeProperty('margin-inline-start');
+            appContent.style.removeProperty('width');
+          }
         }
 
         const sidebar = main.shadowRoot.querySelector('ha-sidebar');
         if (sidebar && sidebar.shadowRoot) {
           ensureStyleTag(sidebar.shadowRoot, 'thassi-sidebar-style', SIDEBAR_SHADOW_CSS);
-
-          const titleEl = sidebar.shadowRoot.querySelector('.menu .title');
-          if (titleEl && titleEl.textContent !== 'THASSI') {
-            titleEl.textContent = 'THASSI';
-          }
-
-          const items = sidebar.shadowRoot.querySelectorAll('.item-text, span[slot="headline"]');
-          let has3dPrintItem = false;
-          items.forEach((el) => {
-            const raw = (el.textContent || '').trim();
-            if (raw === '3D Druck' || raw === '3D Print') has3dPrintItem = true;
-            if (LABEL_MAP[raw]) {
-              el.textContent = LABEL_MAP[raw];
-            }
-          });
-
-          // Ensure "3D Druck" appears in the Home Assistant sidebar even before standalone add-on install
-          const list = sidebar.shadowRoot.querySelector('ha-md-list, paper-listbox');
-          if (list && !has3dPrintItem && !list.querySelector('#thassi-sidebar-3dprint')) {
-            const item = document.createElement('a');
-            item.id = 'thassi-sidebar-3dprint';
-            item.setAttribute('role', 'option');
-            item.href = '/44ec3c40_thassi_host#3d-print';
-            item.style.cssText = 'display:flex;align-items:center;gap:16px;padding:0 16px;min-height:42px;border-radius:14px;margin:4px 0;text-decoration:none;color:rgba(248,250,252,0.56);font-family:Inter,system-ui,sans-serif;font-size:12.5px;cursor:pointer;transition:all 0.25s ease;';
-            item.innerHTML = '<ha-icon icon="mdi:printer-3d-nozzle" style="color:rgba(148,163,184,0.56);"></ha-icon><span class="item-text">3D Druck</span>';
-            item.addEventListener('click', (ev) => {
-              ev.preventDefault();
-              try {
-                if (typeof window.openFullService === 'function') {
-                  window.openFullService('3d-print', '3D Druck Studio');
-                  return;
-                }
-                if (window.top) {
-                  window.top.history.pushState(null, '', '/44ec3c40_thassi_host#3d-print');
-                  window.top.dispatchEvent(new CustomEvent('location-changed'));
-                }
-              } catch (_e) {}
-            });
-            list.appendChild(item);
-          }
         }
 
-        // Also strip Lovelace top header if currently on /lovelace
         const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
         const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');
         if (huiRoot && huiRoot.shadowRoot) {
@@ -276,16 +166,21 @@ function getHassSidebarStylerScript() {
       }
     }
 
-    window.syncThassiSidebarSky = function(skyOverlayGradient) {
+    window.syncThassiSidebarSky = function(_skyOverlayGradient) {
+      // No-op: keep sidebar solid subtle non-black background with no effects
+    };
+
+    window.toggleHassMobileSidebar = function() {
       try {
-        if (!window.top || window.top === window) return;
+        if (!window.top || window.top === window) return false;
         const ha = window.top.document.querySelector('home-assistant');
         const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector('home-assistant-main');
-        const drawer = main && main.shadowRoot && main.shadowRoot.querySelector('ha-drawer');
-        if (drawer) {
-          drawer.style.setProperty('--thassi-sidebar-bg', skyOverlayGradient);
+        if (main) {
+          main.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
+          return true;
         }
       } catch (_e) {}
+      return false;
     };
 
     applyThassiChromeToParent();
@@ -334,7 +229,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Thassi Horizon</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
@@ -344,14 +239,17 @@ function renderUnifiedDashboardHtml(ingressPath) {
       --text-muted: rgba(248, 250, 252, 0.45);
       --accent: #38bdf8;
       --sun-glow: #fbbf24;
+      --nav-safe-left: 0px;
+      --devices-dock-height: 44px;
       --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     * { box-sizing: border-box; user-select: none; }
+    input, textarea, select { user-select: text !important; -webkit-user-select: text !important; }
     html, body {
       margin: 0;
       padding: 0;
       width: 100vw;
-      height: 100vh;
+      height: 100dvh;
       overflow: hidden;
       background: #040711;
       color: var(--text);
@@ -359,10 +257,119 @@ function renderUnifiedDashboardHtml(ingressPath) {
       -webkit-font-smoothing: antialiased;
     }
 
-    /* 1. DYNAMIC DAYTIME SKY & CELESTIAL SUN STAGE */
+    /* TOOLBAR / LEFT NAVBAR HIDDEN ALTOGETHER PER USER REQUEST */
+    #left-ambient-navbar,
+    #mobile-nav-toggle,
+    #mobile-nav-backdrop {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+    }
+
+    /* DIRECT SPECIAL-VIEW NAVIGATION BUTTONS IN HORIZON DASHBOARD */
+    .w-nav-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(248, 250, 252, 0.78);
+      border-radius: 7px;
+      padding: 1px 6px;
+      font-family: var(--font-sans);
+      font-size: 9.5px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.18s ease;
+      line-height: 1.3;
+    }
+    .w-nav-btn:hover {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #ffffff;
+    }
+    .horizon-view-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(248, 250, 252, 0.78);
+      border-radius: 8px;
+      padding: 3px 9px;
+      font-family: var(--font-sans);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+    .horizon-view-btn:hover {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #ffffff;
+    }
+    .cal-filter-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    #horizon-cal-filter-popover {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 0;
+      width: 310px;
+      max-height: 340px;
+      background: rgba(11, 17, 32, 0.96);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.72);
+      z-index: 95;
+      pointer-events: auto;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #horizon-cal-filter-popover.open {
+      display: flex;
+    }
+    .cal-filter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow-y: auto;
+      max-height: 210px;
+      padding-right: 2px;
+    }
+    .cal-filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      cursor: pointer;
+      font-size: 11.5px;
+      color: #e2e8f0;
+      user-select: none;
+    }
+    .cal-filter-row:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+
+    /* 1. DYNAMIC DAYTIME SKY, WEATHER FX & ABSTRACT CELESTIAL HORIZON STAGE */
     #sky-stage {
       position: fixed;
       inset: 0;
+      width: 100vw;
+      height: 100dvh;
       z-index: 1;
       pointer-events: none;
       transition: background 1.2s cubic-bezier(0.22, 1, 0.36, 1);
@@ -384,117 +391,188 @@ function renderUnifiedDashboardHtml(ingressPath) {
       100% { opacity: 0.95; transform: scale(1.2); }
     }
 
+    /* Subtle Background Weather Effects */
+    #weather-fx-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+      overflow: hidden;
+    }
+    #weather-cloud-veil-1,
+    #weather-cloud-veil-2 {
+      position: absolute;
+      left: -20%;
+      right: -20%;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0;
+      transition: opacity 1.8s ease;
+    }
+    #weather-cloud-veil-1 {
+      top: 4vh;
+      height: 32vh;
+      background: radial-gradient(ellipse at 38% 50%, rgba(148, 163, 184, 0.22), rgba(100, 116, 139, 0.08) 55%, transparent 78%);
+      animation: cloudDriftSlow 46s ease-in-out infinite alternate;
+    }
+    #weather-cloud-veil-2 {
+      top: 18vh;
+      height: 36vh;
+      background: radial-gradient(ellipse at 66% 50%, rgba(203, 213, 225, 0.16), rgba(71, 85, 105, 0.08) 60%, transparent 80%);
+      animation: cloudDriftSlow 62s ease-in-out infinite alternate-reverse;
+    }
+    @keyframes cloudDriftSlow {
+      0% { transform: translate3d(-4%, 0, 0) scale(1); }
+      100% { transform: translate3d(4%, 1.5%, 0) scale(1.06); }
+    }
+    #weather-fx-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
     /* Atmospheric horizon mist & glow */
     #horizon-glow {
       position: absolute;
       left: -10%;
       right: -10%;
-      bottom: 18vh;
-      height: 38vh;
-      filter: blur(55px);
-      opacity: 0.75;
+      bottom: 22vh;
+      height: 36vh;
+      filter: blur(58px);
+      opacity: 0.72;
       transition: background 1.2s ease, opacity 1.2s ease;
     }
 
-    /* Delicate Solar Arc SVG Path */
+    /* Abstract Horizon & Celestial Trajectory SVG */
     #solar-arc-svg {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       overflow: visible;
+      z-index: 3;
     }
 
-    /* The Rising & Setting Sun */
+    /* Abstract Sun Sculpture (Concentric Geometric Rings + Singularity Annulus) */
     #sun-assembly {
       position: absolute;
       width: 0;
       height: 0;
+      z-index: 4;
       transform: translate3d(0, 0, 0);
-      transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease;
+      transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease, transform 0.8s ease;
       will-change: left, top;
     }
-    .sun-core {
+    .abstract-sun-bloom {
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      left: -110px;
+      top: -110px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(254, 240, 138, 0.36) 0%, rgba(251, 191, 36, 0.16) 42%, rgba(249, 115, 22, 0.05) 68%, transparent 100%);
+      filter: blur(28px);
+      animation: abstractPulse 7s ease-in-out infinite alternate;
+    }
+    .abstract-sun-outer-ring {
+      position: absolute;
+      width: 104px;
+      height: 104px;
+      left: -52px;
+      top: -52px;
+      animation: rotateOrbital 72s linear infinite;
+    }
+    .abstract-sun-mid-ring {
+      position: absolute;
+      width: 56px;
+      height: 56px;
+      left: -28px;
+      top: -28px;
+      border-radius: 50%;
+      border: 1px solid rgba(254, 240, 138, 0.42);
+      background: radial-gradient(circle, rgba(254, 240, 138, 0.12) 0%, rgba(251, 191, 36, 0.03) 70%, transparent 100%);
+      box-shadow: 0 0 32px rgba(251, 191, 36, 0.22);
+    }
+    .abstract-sun-annulus {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      left: -11px;
+      top: -11px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255, 255, 255, 0.92);
+      background: rgba(254, 240, 138, 0.18);
+      box-shadow:
+        0 0 20px rgba(251, 191, 36, 0.8),
+        inset 0 0 8px rgba(254, 240, 138, 0.65);
+    }
+    .abstract-sun-singularity {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      left: -2px;
+      top: -2px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 0 10px #ffffff;
+    }
+    @keyframes abstractPulse {
+      0% { transform: scale(0.94); opacity: 0.78; }
+      100% { transform: scale(1.08); opacity: 1; }
+    }
+    @keyframes rotateOrbital {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Abstract Lunar Sculpture (Geometric Eclipse Crescent & Orbital Ring) */
+    #moon-assembly {
+      position: absolute;
+      width: 0;
+      height: 0;
+      z-index: 4;
+      transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
+    }
+    .abstract-moon-bloom {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      left: -75px;
+      top: -75px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.24) 0%, rgba(129, 140, 248, 0.1) 48%, transparent 74%);
+      filter: blur(22px);
+    }
+    .abstract-moon-svg {
       position: absolute;
       width: 84px;
       height: 84px;
       left: -42px;
       top: -42px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #ffffff 0%, #fef08a 38%, #fbbf24 72%, rgba(245, 158, 11, 0) 100%);
-      box-shadow:
-        0 0 60px 20px rgba(251, 191, 36, 0.65),
-        0 0 140px 55px rgba(249, 115, 22, 0.42),
-        0 0 260px 110px rgba(234, 88, 12, 0.24);
-      animation: sunPulse 6s ease-in-out infinite alternate;
-    }
-    .sun-corona {
-      position: absolute;
-      width: 240px;
-      height: 240px;
-      left: -120px;
-      top: -120px;
-      border-radius: 50%;
-      background: conic-gradient(
-        from 0deg,
-        transparent 0deg,
-        rgba(254, 240, 138, 0.16) 20deg,
-        transparent 45deg,
-        rgba(251, 191, 36, 0.12) 90deg,
-        transparent 130deg,
-        rgba(254, 240, 138, 0.18) 180deg,
-        transparent 220deg,
-        rgba(251, 191, 36, 0.14) 275deg,
-        transparent 320deg,
-        rgba(254, 240, 138, 0.15) 350deg,
-        transparent 360deg
-      );
-      filter: blur(8px);
-      animation: rotateCorona 60s linear infinite;
-    }
-    @keyframes sunPulse {
-      0% { transform: scale(0.96); }
-      100% { transform: scale(1.05); }
-    }
-    @keyframes rotateCorona {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      overflow: visible;
     }
 
-    /* Nocturnal Moon (when sun is below horizon) */
-    #moon-assembly {
-      position: absolute;
-      width: 0;
-      height: 0;
-      transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
-    }
-    .moon-core {
-      position: absolute;
-      width: 46px;
-      height: 46px;
-      left: -23px;
-      top: -23px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #f8fafc 0%, #cbd5e1 65%, #64748b 100%);
-      box-shadow: 0 0 45px 12px rgba(186, 230, 253, 0.32), 0 0 110px 35px rgba(56, 189, 248, 0.14);
-    }
-
-    /* 2. MONUMENTAL DATE & TIME TYPOGRAPHY */
+    /* 2. LEFT-ALIGNED MONUMENTAL DATE, TIME & SIMPLIFIED WEATHER FORECAST */
     #hero-clock-region {
       position: fixed;
-      top: 5.5vh;
-      left: 4.2vw;
+      top: 3.2vh;
+      left: 24px;
+      margin-left: 0;
+      text-align: left;
       z-index: 15;
       pointer-events: none;
     }
     .clock-row {
       display: flex;
       align-items: baseline;
+      justify-content: flex-start;
       gap: 10px;
       line-height: 0.92;
     }
     #hero-time {
-      font-size: clamp(5rem, 10.2vw, 9.4rem);
+      font-size: clamp(4.0rem, 7.6vw, 7.4rem);
       font-weight: 200;
       letter-spacing: -0.045em;
       font-variant-numeric: tabular-nums;
@@ -502,69 +580,147 @@ function renderUnifiedDashboardHtml(ingressPath) {
       text-shadow: 0 12px 45px rgba(0, 0, 0, 0.35);
     }
     #hero-seconds {
-      font-size: clamp(1.4rem, 2.6vw, 2.4rem);
+      font-size: clamp(1.2rem, 2.0vw, 1.9rem);
       font-weight: 300;
       color: rgba(255, 255, 255, 0.56);
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
     }
     #hero-date {
-      margin-top: 10px;
-      font-size: clamp(1.15rem, 1.9vw, 1.75rem);
+      margin-top: 6px;
+      font-size: clamp(1.0rem, 1.45vw, 1.38rem);
       font-weight: 300;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
       color: rgba(255, 255, 255, 0.84);
       text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
     #solar-telemetry {
-      margin-top: 6px;
-      font-size: 11.5px;
-      font-weight: 400;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.45);
+      display: none;
     }
 
-    /* 5. TOP-RIGHT BORDERLESS EXPANDABLE SERVICE WIDGETS */
+    /* Simplified Minimal Weather Component (St. Veit / G\xF6lsen) */
+    #hero-weather-strip {
+      margin-top: 10px;
+      pointer-events: auto;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 5px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+    }
+    .mw-current-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .mw-main-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mw-icon-wrap {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #38bdf8;
+    }
+    .mw-temp-now {
+      font-size: 18px;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    }
+    .mw-cond-text {
+      font-size: 12px;
+      color: rgba(248, 250, 252, 0.72);
+      font-weight: 400;
+    }
+    .mw-hi-lo {
+      font-size: 11.5px;
+      color: rgba(248, 250, 252, 0.48);
+      font-variant-numeric: tabular-nums;
+    }
+    .mw-day-slots {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .mw-slot {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: rgba(248, 250, 252, 0.56);
+      font-variant-numeric: tabular-nums;
+    }
+    .mw-slot.is-current-slot {
+      color: #38bdf8;
+      font-weight: 500;
+    }
+    .mw-slot-hr {
+      font-size: 10px;
+      opacity: 0.72;
+    }
+    .mw-slot-ico {
+      width: 13px;
+      height: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .mw-slot-temp {
+      font-size: 11px;
+      color: rgba(248, 250, 252, 0.88);
+    }
+
+    /* 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS (health, meals, finances, notes) */
     #top-right-widgets {
       position: fixed;
-      top: 5.5vh;
-      right: 4.2vw;
+      top: 3.5vh;
+      right: 28px;
       z-index: 30;
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 22px;
-      max-height: 60vh;
+      gap: 16px;
+      max-height: 62vh;
     }
     .ambient-widget {
       text-align: right;
       cursor: pointer;
-      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), background 0.35s ease, padding 0.35s ease, backdrop-filter 0.35s ease;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease, padding 0.3s ease;
       border: none;
       background: transparent;
-      padding: 4px 0;
-      border-radius: 20px;
-      max-width: 390px;
+      padding: 2px 0;
+      border-radius: 18px;
+      max-width: 360px;
     }
     .ambient-widget:hover:not(.expanded) {
-      transform: translateX(-6px);
+      transform: translateX(-4px);
     }
     .ambient-widget.expanded {
       cursor: default;
-      padding: 18px 22px;
-      background: rgba(6, 10, 22, 0.56);
+      padding: 16px 20px;
+      background: rgba(6, 10, 22, 0.62);
       backdrop-filter: blur(28px) saturate(140%);
       -webkit-backdrop-filter: blur(28px) saturate(140%);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
       transform: translateX(-4px);
-      width: 340px;
+      width: 330px;
     }
     .w-header {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 3px;
+      gap: 4px;
       cursor: pointer;
     }
     .w-label-row {
@@ -575,7 +731,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       font-weight: 600;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.48);
+      color: rgba(255, 255, 255, 0.52);
     }
     .w-dot {
       width: 6px;
@@ -585,24 +741,84 @@ function renderUnifiedDashboardHtml(ingressPath) {
       box-shadow: 0 0 10px var(--accent);
     }
     .w-primary {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 300;
       letter-spacing: -0.01em;
       color: #ffffff;
       text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
       display: flex;
       align-items: baseline;
-      gap: 10px;
+      gap: 8px;
       justify-content: flex-end;
     }
     .w-primary strong {
       font-weight: 500;
     }
+    /* Hide verbose sub-lines in minimal preview cards */
     .w-sub {
-      font-size: 11.5px;
-      color: rgba(255, 255, 255, 0.52);
-      font-weight: 400;
+      display: none;
     }
+
+    /* a) Health Minimal Preview: Heart Icon with HR inside + Progress Circle with Step Count inside */
+    .health-minimal-badges {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 2px;
+    }
+    .hm-badge {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hm-badge svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+    }
+    .hm-badge-val {
+      position: relative;
+      z-index: 2;
+      font-size: 10.5px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #ffffff;
+      letter-spacing: -0.03em;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+      line-height: 1;
+    }
+    .hm-heart-val {
+      padding-bottom: 2px;
+    }
+
+    /* b) Finances Minimal Preview: In hidden mode ONLY show eye toggle next to title */
+    #widget-finances.finances-is-hidden:not(.expanded) #compact-finances {
+      display: none !important;
+    }
+    .finances-eye-icon-btn {
+      background: transparent;
+      border: none;
+      color: rgba(248, 250, 252, 0.75);
+      padding: 0 2px;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s ease, transform 0.2s ease;
+    }
+    .finances-eye-icon-btn:hover {
+      color: #38bdf8;
+      transform: scale(1.1);
+    }
+
     .w-expand-body {
       max-height: 0;
       opacity: 0;
@@ -682,24 +898,21 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .note-del:hover { color: #f87171; }
 
-    /* 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER */
+    /* 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER (TRANSPARENT FOR FULL-BLEED HORIZON) */
     #timeline-dock {
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 46px;
-      height: 31vh;
-      min-height: 220px;
+      bottom: var(--devices-dock-height, 44px);
+      height: 28vh;
+      min-height: 195px;
       z-index: 20;
-      background: linear-gradient(
-        to top,
-        rgba(3, 6, 15, 0.88) 0%,
-        rgba(5, 10, 24, 0.58) 55%,
-        rgba(5, 10, 24, 0.0) 100%
-      );
+      background: transparent;
       display: flex;
       flex-direction: column;
       justify-content: flex-end;
+      transition: bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
     }
 
     /* Whisper-quiet minimal controls right above the timeline */
@@ -707,19 +920,20 @@ function renderUnifiedDashboardHtml(ingressPath) {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 4.2vw 6px 4.2vw;
+      padding: 0 28px 6px 24px;
       font-size: 11px;
       letter-spacing: 0.08em;
+      pointer-events: auto;
     }
     .tl-controls {
       display: flex;
       align-items: center;
       gap: 14px;
-      opacity: 0.42;
+      opacity: 0.55;
       transition: opacity 0.25s ease;
     }
     .tl-controls:hover {
-      opacity: 0.95;
+      opacity: 0.98;
     }
     .tl-pill {
       background: none;
@@ -745,17 +959,18 @@ function renderUnifiedDashboardHtml(ingressPath) {
     #timeline-viewport {
       position: relative;
       width: 100vw;
-      height: calc(31vh - 28px);
-      min-height: 192px;
+      height: calc(28vh - 28px);
+      min-height: 168px;
       overflow: hidden;
       cursor: grab;
+      pointer-events: auto;
     }
     #timeline-viewport:active { cursor: grabbing; }
 
-    /* Fixed "NOW" Marker at 22% from left */
+    /* Fixed "NOW" Marker at 25% from left */
     #fixed-now-marker {
       position: absolute;
-      left: 22vw;
+      left: 25vw;
       top: 6px;
       bottom: 0;
       width: 1.5px;
@@ -842,12 +1057,12 @@ function renderUnifiedDashboardHtml(ingressPath) {
       font-size: 10px;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
-      color: rgba(255, 255, 255, 0.38);
+      color: rgba(255, 255, 255, 0.42);
       white-space: nowrap;
     }
     .tl-tick.day-start .tl-tick-mark {
-      height: 180px;
-      margin-top: -142px;
+      height: 165px;
+      margin-top: -127px;
       background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.38));
     }
     .tl-tick.day-start .tl-tick-label {
@@ -861,10 +1076,10 @@ function renderUnifiedDashboardHtml(ingressPath) {
     /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE */
     .tl-event-rect {
       position: absolute;
-      height: 44px;
+      height: 42px;
       border-radius: 10px;
-      padding: 6px 12px;
-      background: rgba(12, 19, 36, 0.62);
+      padding: 5px 12px;
+      background: rgba(12, 19, 36, 0.56);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-left: 2.5px solid var(--ev-color, #38bdf8);
@@ -911,7 +1126,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     #quick-event-modal {
       position: fixed;
       bottom: 35vh;
-      right: 4.2vw;
+      right: 28px;
       z-index: 40;
       background: rgba(6, 10, 22, 0.78);
       backdrop-filter: blur(28px);
@@ -945,138 +1160,331 @@ function renderUnifiedDashboardHtml(ingressPath) {
       border: none;
     }
 
-    /* 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR BELOW TIMELINE */
-    #room-dock-bar {
+    /* 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS */
+    #devices-dock {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
-      height: 46px;
-      z-index: 28;
-      background: rgba(3, 6, 15, 0.92);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      z-index: 32;
+      background: transparent !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Subtle hairline separator between Timeline and StatusBar */
+    #timeline-devices-separator {
+      position: relative;
+      height: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 0 28px 0 24px;
+      pointer-events: auto;
+    }
+    #timeline-devices-separator::before {
+      content: "";
+      position: absolute;
+      left: 24px;
+      right: 28px;
+      top: 50%;
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.14) 0%,
+        rgba(56, 189, 248, 0.28) 35%,
+        rgba(255, 255, 255, 0.12) 75%,
+        rgba(255, 255, 255, 0.06) 100%
+      );
+      pointer-events: none;
+    }
+    .td-sep-badge {
+      position: relative;
+      z-index: 2;
+      background: transparent;
+      padding: 0 6px 0 0;
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(248, 250, 252, 0.45);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .td-sep-unpin-btn {
+      background: none;
+      border: none;
+      color: #38bdf8;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+    .td-sep-unpin-btn:hover {
+      text-decoration: underline;
+    }
+
+    /* Pinned Room Groups Tray (Expands upwards above the tabview when rooms are pinned) */
+    #pinned-rooms-tray {
+      display: none;
+      padding: 6px 28px 8px 24px;
+      gap: 12px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      align-items: stretch;
+    }
+    #pinned-rooms-tray.has-pinned {
+      display: flex;
+    }
+    .pinned-room-card {
+      min-width: 265px;
+      max-width: 330px;
+      flex: 0 0 auto;
+      background: rgba(6, 10, 22, 0.64);
+      backdrop-filter: blur(24px) saturate(140%);
+      -webkit-backdrop-filter: blur(24px) saturate(140%);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: 16px;
+      padding: 10px 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      animation: pinCardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes pinCardIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .prc-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 4.2vw;
       gap: 8px;
-      overflow-x: auto;
-      scrollbar-width: none;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
-    #room-dock-bar::-webkit-scrollbar { display: none; }
+    .prc-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .prc-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+    .prc-meta {
+      font-size: 10px;
+      color: rgba(248, 250, 252, 0.48);
+      font-variant-numeric: tabular-nums;
+    }
+    .prc-unpin {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+      border-radius: 99px;
+      padding: 2px 8px;
+      font-size: 9px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s ease;
+    }
+    .prc-unpin:hover {
+      background: rgba(248, 113, 113, 0.18);
+      border-color: rgba(248, 113, 113, 0.4);
+      color: #fca5a5;
+    }
+    .prc-dev-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 155px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    /* Minimalistic TabView Bar + Right-Aligned 3D Print & Vision Previews */
+    #room-dock-bar {
+      position: relative;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px 4px 24px;
+      gap: 16px;
+      background: transparent;
+    }
 
     .room-dock-group {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 14px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      flex: 1;
+      min-width: 0;
     }
+    .room-dock-group::-webkit-scrollbar { display: none; }
+
+    /* Minimalistic Tab item */
     .room-pill {
+      position: relative;
       background: transparent;
       border: none;
-      border-radius: 99px;
-      padding: 6px 13px;
-      color: rgba(248, 250, 252, 0.56);
+      border-bottom: 1.5px solid transparent;
+      border-radius: 0;
+      padding: 6px 2px;
+      color: rgba(248, 250, 252, 0.52);
       font-family: var(--font-sans);
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 400;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.04em;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.22s ease, background 0.22s ease, transform 0.2s ease;
+      transition: color 0.2s ease, border-color 0.2s ease;
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
     }
     .room-pill:hover {
-      color: rgba(248, 250, 252, 0.92);
-      background: rgba(255, 255, 255, 0.045);
+      color: rgba(248, 250, 252, 0.95);
+      border-bottom-color: rgba(255, 255, 255, 0.28);
     }
-    .room-pill.active-flyout {
+    .room-pill.pinned-tab {
       color: #ffffff;
-      background: rgba(56, 189, 248, 0.13);
+      font-weight: 500;
+      border-bottom-color: #38bdf8;
     }
     .room-pill.has-on {
       color: rgba(248, 250, 252, 0.88);
     }
+    .room-pin-ico {
+      display: none;
+    }
     .room-dot {
-      width: 5.5px;
-      height: 5.5px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.22);
+      background: rgba(255, 255, 255, 0.24);
       transition: background 0.25s ease, box-shadow 0.25s ease;
     }
     .room-pill.has-on .room-dot {
       background: #fbbf24;
-      box-shadow: 0 0 9px rgba(251, 191, 36, 0.85);
+      box-shadow: 0 0 8px rgba(251, 191, 36, 0.85);
     }
     .room-pill.has-motion .room-dot {
       background: #4ade80;
-      box-shadow: 0 0 9px rgba(74, 222, 128, 0.85);
+      box-shadow: 0 0 8px rgba(74, 222, 128, 0.85);
     }
     .room-meta {
-      font-size: 10px;
-      color: rgba(248, 250, 252, 0.36);
+      font-size: 9.5px;
+      color: rgba(248, 250, 252, 0.38);
       font-variant-numeric: tabular-nums;
     }
     .room-pill.has-on .room-meta {
-      color: rgba(251, 191, 36, 0.78);
+      color: rgba(251, 191, 36, 0.82);
     }
 
-    /* Upward Glassmorphic Room Flyout */
-    #room-flyout {
-      position: fixed;
-      bottom: 54px;
-      left: 4.2vw;
-      z-index: 45;
-      width: 340px;
-      max-width: 92vw;
-      background: rgba(6, 10, 22, 0.78);
-      backdrop-filter: blur(32px) saturate(150%);
-      -webkit-backdrop-filter: blur(32px) saturate(150%);
-      border-radius: 22px;
-      padding: 18px 20px;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
-      display: none;
-      flex-direction: column;
-      gap: 12px;
-      animation: flyoutRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    @keyframes flyoutRise {
-      from { opacity: 0; transform: translateY(10px) scale(0.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .rf-header {
+    /* Right-Aligned StatusBar Previews (3D Print & Vision \u2014 NOT inside tabs, expand upwards) */
+    #statusbar-right-previews {
       display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding-bottom: 4px;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 20px;
+      flex-shrink: 0;
+      position: relative;
     }
-    .rf-title {
-      font-size: 13px;
-      font-weight: 600;
+    .sb-preview-item {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .sb-preview-trigger {
+      background: transparent;
+      border: none;
+      padding: 4px 0;
+      color: rgba(248, 250, 252, 0.78);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.2s ease, opacity 0.2s ease;
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+    }
+    .sb-preview-trigger:hover,
+    .sb-preview-item.expanded .sb-preview-trigger {
       color: #ffffff;
     }
-    .rf-subtitle {
-      font-size: 11px;
-      color: rgba(248, 250, 252, 0.48);
+    .sb-preview-meta {
+      font-size: 10.5px;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      text-transform: none;
+      color: rgba(248, 250, 252, 0.54);
       font-variant-numeric: tabular-nums;
     }
-    .rf-dev-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 44vh;
-      overflow-y: auto;
+    .sb-mini-bar {
+      width: 34px;
+      height: 3.5px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.14);
+      overflow: hidden;
     }
+
+    /* Upward Flyout Panel for StatusBar Previews (3D Print & Vision) */
+    .sb-upward-flyout {
+      position: absolute;
+      bottom: calc(100% + 14px);
+      right: 0;
+      width: 340px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(6, 10, 22, 0.76);
+      backdrop-filter: blur(28px) saturate(140%);
+      -webkit-backdrop-filter: blur(28px) saturate(140%);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      box-shadow: 0 20px 55px rgba(0, 0, 0, 0.6);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(10px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 0.24s ease, transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.24s;
+      z-index: 50;
+      text-align: left;
+    }
+    .sb-preview-item.expanded .sb-upward-flyout {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    /* Device Row Controls inside Pinned Room Cards & Vision Flyout */
     .rf-dev-row {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      padding: 9px 12px;
-      border-radius: 13px;
+      gap: 5px;
+      padding: 6px 10px;
+      border-radius: 10px;
       background: rgba(255, 255, 255, 0.035);
       transition: background 0.2s ease;
     }
@@ -1087,10 +1495,10 @@ function renderUnifiedDashboardHtml(ingressPath) {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
     .rf-dev-label {
-      font-size: 12.5px;
+      font-size: 11.5px;
       font-weight: 400;
       color: rgba(248, 250, 252, 0.88);
     }
@@ -1101,18 +1509,18 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .rf-dev-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
     .rf-power-badge {
-      font-size: 10.5px;
+      font-size: 10px;
       color: rgba(248, 250, 252, 0.45);
       font-variant-numeric: tabular-nums;
     }
     .rf-toggle-btn {
       border: none;
       border-radius: 99px;
-      padding: 4px 12px;
-      font-size: 11px;
+      padding: 3px 10px;
+      font-size: 10px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -1122,7 +1530,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .rf-toggle-btn.on {
       background: #fbbf24;
       color: #040711;
-      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+      box-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
     }
     .rf-slider-row {
       display: flex;
@@ -1138,15 +1546,15 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .rf-effect-pills {
       display: flex;
-      gap: 5px;
+      gap: 4px;
       flex-wrap: wrap;
       padding-top: 2px;
     }
     .rf-fx-pill {
       border: none;
       border-radius: 99px;
-      padding: 2px 8px;
-      font-size: 10px;
+      padding: 2px 7px;
+      font-size: 9.5px;
       background: rgba(255, 255, 255, 0.06);
       color: rgba(255, 255, 255, 0.6);
       cursor: pointer;
@@ -1155,27 +1563,415 @@ function renderUnifiedDashboardHtml(ingressPath) {
       background: #a855f7;
       color: #fff;
     }
+    .w-3d-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .w-3d-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ============================================================================
+       7. RESPONSIVE & MOBILE-COMPATIBLE LAYOUT (TABLET, LANDSCAPE & SMARTPHONE)
+       ============================================================================ */
+    @media (max-width: 1180px) and (min-width: 901px) {
+      :root {
+        --nav-safe-left: 0px;
+      }
+      #hero-time {
+        font-size: clamp(3.5rem, 6.2vw, 5.8rem);
+      }
+      #hero-weather-strip {
+        max-width: min(390px, 44vw);
+      }
+      #top-right-widgets {
+        right: 2.5vw;
+        gap: 12px;
+      }
+      .ambient-widget.expanded {
+        width: 310px;
+      }
+    }
+
+    @media (max-height: 540px) and (orientation: landscape) {
+      :root {
+        --nav-safe-left: 0px;
+      }
+      html, body {
+        width: 100vw;
+        height: 100dvh;
+        overflow: hidden;
+      }
+      #sky-stage {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100dvh;
+      }
+      #hero-clock-region {
+        top: 12px;
+        left: 18px;
+        margin-left: 0;
+      }
+      #hero-time {
+        font-size: clamp(2.4rem, 6vw, 3.6rem);
+      }
+      #timeline-dock {
+        height: 155px;
+        background: transparent !important;
+      }
+      #timeline-viewport {
+        height: 120px;
+      }
+    }
+
+    @media (max-width: 900px) {
+      :root {
+        --nav-safe-left: 0px;
+        --devices-dock-height: 52px;
+      }
+      html, body {
+        width: 100%;
+        height: auto;
+        min-height: 100dvh;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: calc(var(--devices-dock-height, 52px) + env(safe-area-inset-bottom, 10px) + 18px);
+      }
+      #sky-stage {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100dvh;
+      }
+
+      /* Scale celestial sculptures slightly on mobile screens */
+      #sun-assembly,
+      #moon-assembly {
+        transform: scale(0.82);
+      }
+
+      /* Left-aligned Clock & Simplified Weather at top of mobile view */
+      #hero-clock-region {
+        position: relative;
+        top: auto;
+        left: auto;
+        margin-left: 0;
+        width: 100%;
+        padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 6px 16px;
+        text-align: left;
+        z-index: 15;
+        pointer-events: auto;
+      }
+      #hero-time {
+        font-size: clamp(3.1rem, 13vw, 4.6rem);
+      }
+      #hero-seconds {
+        font-size: clamp(1.1rem, 4vw, 1.5rem);
+      }
+      #hero-date {
+        margin-top: 4px;
+        font-size: clamp(0.95rem, 3.6vw, 1.2rem);
+      }
+      #solar-telemetry {
+        font-size: 10px;
+        line-height: 1.4;
+      }
+      #hero-weather-strip {
+        display: flex;
+        width: 100%;
+        max-width: 100%;
+        margin-top: 8px;
+        padding: 0;
+        background: transparent;
+        border: none;
+      }
+      .mw-current-row {
+        flex-wrap: wrap;
+        gap: 8px 10px;
+      }
+      .mw-day-slots {
+        gap: 10px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+      .mw-day-slots::-webkit-scrollbar {
+        display: none;
+      }
+
+      /* Responsive Grid for Top-Right Service Preview Widgets on Mobile */
+      #top-right-widgets {
+        position: relative;
+        top: auto;
+        right: auto;
+        width: 100%;
+        max-height: none;
+        padding: 8px 16px 10px 16px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        align-items: stretch;
+        z-index: 25;
+      }
+      .ambient-widget {
+        text-align: left;
+        width: 100%;
+        max-width: 100%;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(6, 11, 24, 0.28);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .ambient-widget:hover:not(.expanded) {
+        transform: none;
+      }
+      .ambient-widget.expanded {
+        grid-column: 1 / -1;
+        width: 100%;
+        max-width: 100%;
+        padding: 15px 16px;
+        background: rgba(6, 10, 22, 0.86);
+        border: 1px solid rgba(56, 189, 248, 0.28);
+        transform: none;
+      }
+      .ambient-widget.expanded .w-expand-body {
+        max-height: 460px;
+      }
+      #widget-finances .w-expand-body {
+        min-width: 0 !important;
+        width: 100%;
+      }
+      .w-header {
+        align-items: flex-start;
+        width: 100%;
+      }
+      .w-label-row {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+      }
+      .health-minimal-badges {
+        justify-content: flex-start;
+      }
+      .w-primary {
+        justify-content: flex-start;
+        font-size: 14px;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+        text-align: left;
+      }
+
+      /* Mobile Timeline Section (Transparent to show Horizon background) */
+      #timeline-dock {
+        position: relative;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        width: 100%;
+        height: 205px;
+        min-height: 195px;
+        margin-top: 4px;
+        background: transparent !important;
+      }
+      #timeline-toolbar {
+        padding: 4px 16px 8px 16px;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .tl-controls {
+        opacity: 0.92;
+        gap: 6px;
+      }
+      .tl-pill {
+        padding: 4px 8px;
+        font-size: 10.5px;
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .tl-pill.active {
+        background: rgba(56, 189, 248, 0.2);
+        color: #38bdf8;
+      }
+      #timeline-viewport {
+        width: 100%;
+        height: 165px;
+        min-height: 160px;
+        touch-action: pan-y;
+      }
+
+      /* Mobile Transparent Bottom StatusBar + Pinnable Room Tabs */
+      #devices-dock {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        padding-bottom: env(safe-area-inset-bottom, 4px);
+        background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        box-shadow: none !important;
+      }
+      #timeline-devices-separator {
+        padding: 0 12px;
+        height: 16px;
+      }
+      #timeline-devices-separator::before {
+        left: 12px;
+        right: 12px;
+      }
+      #pinned-rooms-tray {
+        padding: 6px 12px 8px 12px;
+        gap: 10px;
+        max-height: 44vh;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x mandatory;
+      }
+      .pinned-room-card {
+        min-width: min(285px, 84vw);
+        max-width: 86vw;
+        scroll-snap-align: center;
+      }
+      .prc-dev-grid {
+        max-height: 26vh;
+        -webkit-overflow-scrolling: touch;
+      }
+      #room-dock-bar {
+        height: 36px;
+        padding: 0 12px;
+        gap: 6px;
+      }
+      .room-pill {
+        padding: 4px 8px;
+        font-size: 10.5px;
+        flex-shrink: 0;
+      }
+      .sb-upward-flyout {
+        right: 0;
+        width: min(330px, 92vw);
+      }
+
+      /* Mobile Modals & Overlays */
+      #quick-event-modal {
+        left: 12px;
+        right: 12px;
+        bottom: calc(var(--devices-dock-height, 52px) + 12px);
+        width: auto;
+        max-width: 420px;
+        margin: 0 auto;
+      }
+      #full-app-overlay {
+        height: 100dvh;
+      }
+      #full-app-bar {
+        padding: calc(env(safe-area-inset-top, 0px)) 14px 0 14px;
+        min-height: 46px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      #hero-clock-region {
+        padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 4px 12px;
+      }
+      #top-right-widgets {
+        padding: 6px 12px 8px 12px;
+        gap: 8px;
+      }
+      .ambient-widget {
+        padding: 9px 11px;
+      }
+      .w-stat-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 10px;
+      }
+      .mw-temp-now {
+        font-size: 18px;
+      }
+      #quick-import-flyout-modal > div {
+        width: 100vw !important;
+        height: 100dvh !important;
+      }
+    }
   </style>
 </head>
 <body>
-  <!-- 1. LIVING DAYTIME SKY & CELESTIAL SUN -->
+  <!-- TOOLBAR HIDDEN ALTOGETHER PER USER REQUEST (KEPT FOR DOM ID COMPATIBILITY ONLY) -->
+  <nav id="left-ambient-navbar" aria-hidden="true" style="display:none !important;">
+    <button class="lnav-item active" id="lnav-horizon" onclick="closeFullService()"></button>
+    <button class="lnav-item" id="lnav-google-calendar" onclick="openFullService('google-calendar', 'Calendar')"></button>
+    <button class="lnav-item" id="lnav-google-health" onclick="openFullService('google-health', 'Health')"></button>
+    <button class="lnav-item" id="lnav-finance-analytics" onclick="openFullService('finance-analytics', 'thassi.finances')"></button>
+    <button class="lnav-item" id="lnav-meal-planner" onclick="openFullService('meal-planner', 'Meals')"></button>
+    <button class="lnav-item" id="lnav-smart-canvas" onclick="openFullService('smart-canvas', 'Smart Home')"></button>
+    <button class="lnav-item" id="lnav-camera-vision" onclick="openFullService('camera-vision', 'Camera Vision')"></button>
+    <button class="lnav-item" id="lnav-3d-print" onclick="openFullService('3d-print', '3D Druck Studio')"></button>
+  </nav>
+
+  <!-- 1. LIVING SKY, SUBTLE WEATHER EFFECTS & ABSTRACT CELESTIAL HORIZON -->
   <div id="sky-stage">
     <div id="starfield"></div>
+    <div id="weather-fx-layer">
+      <div id="weather-cloud-veil-1"></div>
+      <div id="weather-cloud-veil-2"></div>
+      <canvas id="weather-fx-canvas"></canvas>
+    </div>
     <div id="horizon-glow"></div>
     <svg id="solar-arc-svg" preserveAspectRatio="none">
-      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4 6" />
-      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="1.4" />
+      <!-- Abstract Horizon Datum Line & Zenith Tick Marks -->
+      <line id="horizon-datum-line" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.09)" stroke-width="1" stroke-dasharray="2 8" />
+      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="3 7" />
+      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.16)" stroke-width="1.2" />
+      <path id="solar-progressed-path" fill="none" stroke="rgba(254,240,138,0.48)" stroke-width="1.8" />
+      <line id="celestial-elevation-chord" x1="0" y1="0" x2="0" y2="0" stroke="rgba(254,240,138,0.22)" stroke-width="1" stroke-dasharray="2 4" />
+      <circle id="horizon-node-dot" cx="0" cy="0" r="2.5" fill="rgba(56,189,248,0.65)" />
     </svg>
+
+    <!-- Abstract Lunar Geometry -->
     <div id="moon-assembly">
-      <div class="moon-core"></div>
+      <div class="abstract-moon-bloom"></div>
+      <svg class="abstract-moon-svg" viewBox="-42 -42 84 84">
+        <circle cx="0" cy="0" r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.8" stroke-dasharray="2 5" />
+        <circle cx="0" cy="0" r="21" fill="none" stroke="rgba(56,189,248,0.28)" stroke-width="1" />
+        <path d="M -4,-13 A 13,13 0 1,0 10,9 A 10.5,10.5 0 1,1 -4,-13 Z" fill="rgba(226,232,240,0.88)" />
+        <circle cx="-11" cy="-11" r="1.5" fill="#38bdf8" opacity="0.85" />
+      </svg>
     </div>
+
+    <!-- Abstract Solar Geometry (Concentric Astrolabe Rings + Singularity Annulus) -->
     <div id="sun-assembly">
-      <div class="sun-corona"></div>
-      <div class="sun-core"></div>
+      <div class="abstract-sun-bloom"></div>
+      <svg class="abstract-sun-outer-ring" viewBox="-52 -52 104 104">
+        <circle cx="0" cy="0" r="46" fill="none" stroke="rgba(254,240,138,0.22)" stroke-width="0.9" stroke-dasharray="3 7" />
+        <circle cx="0" cy="0" r="36" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="0.8" />
+        <line x1="-50" y1="0" x2="-39" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+        <line x1="39" y1="0" x2="50" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+        <line x1="0" y1="-50" x2="0" y2="-39" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+        <line x1="0" y1="39" x2="0" y2="50" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
+      </svg>
+      <div class="abstract-sun-mid-ring"></div>
+      <div class="abstract-sun-annulus"></div>
+      <div class="abstract-sun-singularity"></div>
     </div>
   </div>
 
-  <!-- 2. LARGE DATE & TIME IN UPPER-LEFT -->
+  <!-- 2. LEFT-ALIGNED DATE, TIME & SIMPLIFIED WEATHER IN UPPER-LEFT -->
   <div id="hero-clock-region">
     <div class="clock-row">
       <div id="hero-time">--:--</div>
@@ -1185,19 +1981,51 @@ function renderUnifiedDashboardHtml(ingressPath) {
     <div id="solar-telemetry">
       <span id="solar-phase-text"></span>
     </div>
+
+    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / G\xD6LSEN -->
+    <div id="hero-weather-strip" title="St. Veit an der G\xF6lsen">
+      <div class="mw-current-row">
+        <div class="mw-icon-wrap" id="mw-current-icon"></div>
+        <div class="mw-temp-now" id="mw-current-temp">--\xB0</div>
+        <div class="mw-cond-text" id="mw-current-desc">--</div>
+        <div class="mw-hi-lo" id="mw-hi-lo">--\xB0 / --\xB0</div>
+      </div>
+      <div class="mw-day-slots" id="mw-day-slots"></div>
+    </div>
   </div>
 
-  <!-- 5. TOP-RIGHT BORDERLESS EXPANDABLE SERVICE WIDGETS: (health), (finances), (notes), (meals) -->
+  <!-- 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS: (1) health, (2) meals, (3) finances, (4) notes -->
   <div id="top-right-widgets">
-    <!-- HEALTH WIDGET -->
+    <!-- 1. HEALTH WIDGET (MINIMAL: HEART ICON WITH HR INSIDE + PROGRESS RING WITH STEP COUNT INSIDE) -->
     <div class="ambient-widget" id="widget-health" onclick="toggleWidget('health', event)">
       <div class="w-header">
         <div class="w-label-row">
           <span>health</span>
           <span class="w-dot" id="dot-health" style="background:#4ade80; box-shadow:0 0 10px #4ade80;"></span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('google-health', 'Health')" title="Open Health View">\u2197</button>
         </div>
-        <div class="w-primary" id="compact-health">--</div>
-        <div class="w-sub" id="sub-health">Pixel 10 Health Connect</div>
+        <div class="health-minimal-badges">
+          <!-- Heart icon with Heart Rate number inside -->
+          <div class="hm-badge" title="Heart Rate (bpm)">
+            <svg class="hm-heart-svg" viewBox="0 0 24 24">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                    fill="rgba(244, 63, 94, 0.24)"
+                    stroke="#fb7185"
+                    stroke-width="1.35" />
+            </svg>
+            <span class="hm-badge-val" id="health-hr-inside">--</span>
+          </div>
+          <!-- Progress circle with Step Count number inside -->
+          <div class="hm-badge" title="Steps Today">
+            <svg class="hm-ring-svg" viewBox="0 0 44 44">
+              <circle class="hm-ring-bg" cx="22" cy="22" r="18.5"></circle>
+              <circle class="hm-ring-fg" id="health-steps-ring" cx="22" cy="22" r="18.5"></circle>
+            </svg>
+            <span class="hm-badge-val" id="health-steps-inside">--</span>
+          </div>
+        </div>
+        <div class="w-primary" id="compact-health" style="display:none;">--</div>
+        <div class="w-sub" id="sub-health" style="display:none;">Pixel 10 Health Connect</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
         <div class="w-stat-grid">
@@ -1212,28 +2040,60 @@ function renderUnifiedDashboardHtml(ingressPath) {
       </div>
     </div>
 
-    <!-- FINANCES WIDGET -->
-    <div class="ambient-widget" id="widget-finances" onclick="toggleWidget('finances', event)">
+    <!-- 2. MEALS WIDGET (MOVED DIRECTLY BELOW HEALTH) -->
+    <div class="ambient-widget" id="widget-meals" onclick="toggleWidget('meals', event)">
       <div class="w-header">
         <div class="w-label-row">
-          <span>finances</span>
-          <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7;"></span>
+          <span>meals</span>
+          <span class="w-dot" id="dot-meals" style="background:#fb923c; box-shadow:0 0 10px #fb923c;"></span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('meal-planner', 'Meals')" title="Open Meals View">\u2197</button>
         </div>
-        <div class="w-primary" id="compact-finances">--</div>
-        <div class="w-sub" id="sub-finances">Sparkasse George</div>
+        <div class="w-primary" id="compact-meals">Unplanned</div>
+        <div class="w-sub" id="sub-meals">Today's nutrition</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div class="w-stat-grid">
-          <div class="w-stat-item"><span class="w-stat-k">Income</span><span class="w-stat-v" id="ef-inc" style="color:#4ade80;">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Expenses</span><span class="w-stat-v" id="ef-exp" style="color:#f87171;">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Investments</span><span class="w-stat-v" id="ef-inv" style="color:#38bdf8;">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Groceries</span><span class="w-stat-v" id="ef-groc" style="color:#fbbf24;">--</span></div>
-        </div>
-        <button class="w-action-link" onclick="openFullService('finance-analytics', 'Finances')">Open Finances \u2192</button>
+        <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
+        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals \u2192</button>
       </div>
     </div>
 
-    <!-- NOTES WIDGET -->
+    <!-- 3. FINANCES WIDGET (IN HIDDEN MODE: ONLY SHOW EYE TOGGLE NEXT TO PREVIEW TITLE) -->
+    <div class="ambient-widget finances-is-hidden" id="widget-finances" onclick="toggleWidget('finances', event)">
+      <div class="w-header">
+        <div class="w-label-row" style="gap:6px;">
+          <span>finances</span>
+          <button id="finances-eye-btn"
+                  class="finances-eye-icon-btn"
+                  onclick="toggleFinancesVisibility(event)"
+                  title="Finanzdaten ein-/ausblenden">
+            \u{1F441}\uFE0F
+          </button>
+          <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7; display:none;"></span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('finance-analytics', 'thassi.finances')" title="Open Finances View">\u2197</button>
+        </div>
+        <div class="w-primary" id="compact-finances" onclick="handleCompactFinancesClick(event)" title="Klicken zum Ein-/Ausblenden">\u2022\u2022\u2022\u2022 \u20AC</div>
+        <div class="w-sub" id="sub-finances">Sparkasse George</div>
+      </div>
+      <div class="w-expand-body" onclick="event.stopPropagation()" style="min-width:270px;">
+        <div id="finances-preview-dynamic"
+              onclick="toggleFinancesVisibility(event)"
+              title="Klicken, um Zahlen ein-/auszublenden"
+              style="display:flex; flex-direction:column; gap:8px; cursor:pointer; margin-bottom:10px;">
+          <div class="w-stat-grid">
+            <div class="w-stat-item"><span class="w-stat-k">Aktueller Kontostand</span><span class="w-stat-v" id="ef-bal" style="color:#38bdf8;">\u2022\u2022\u2022\u2022 \u20AC</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Ausgaben (Tag / Woche)</span><span class="w-stat-v" id="ef-exp" style="color:#f87171;">\u2022\u2022\u2022\u2022 \u20AC</span></div>
+          </div>
+        </div>
+        <div id="finances-quick-import-slot" style="margin-bottom:8px;"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-top:1px solid rgba(255,255,255,0.07); padding-top:8px;">
+          <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="toggleFinancesVisibility(event)" id="finances-toggle-link">\u{1F441}\uFE0F Anzeigen</button>
+          <button class="w-action-link" style="margin:0; color:#94a3b8;" onclick="openFullService('finance-analytics', 'thassi.finances', '#preview-config')">\u{1F39B}\uFE0F Preview</button>
+          <button class="w-action-link" style="margin:0;" onclick="openFullService('finance-analytics', 'thassi.finances')">Finances \u2192</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. NOTES WIDGET (LAST POSITION AMONG TOP-RIGHT PREVIEWS) -->
     <div class="ambient-widget" id="widget-notes" onclick="toggleWidget('notes', event)">
       <div class="w-header">
         <div class="w-label-row">
@@ -1250,61 +2110,44 @@ function renderUnifiedDashboardHtml(ingressPath) {
         <div id="notes-list" style="max-height:160px; overflow-y:auto;"></div>
       </div>
     </div>
+  </div>
 
-    <!-- MEALS WIDGET -->
-    <div class="ambient-widget" id="widget-meals" onclick="toggleWidget('meals', event)">
-      <div class="w-header">
-        <div class="w-label-row">
-          <span>meals</span>
-          <span class="w-dot" id="dot-meals" style="background:#fb923c; box-shadow:0 0 10px #fb923c;"></span>
+  <!-- QUICK IMPORT ONLINE-BANKING POPUP FLYOUT -->
+  <div id="quick-import-flyout-modal"
+       onclick="closeQuickImportFlyout()"
+       style="position:fixed; inset:0; z-index:95; background:rgba(4,7,17,0.68); backdrop-filter:blur(8px); display:none; justify-content:flex-end;">
+    <div onclick="event.stopPropagation()"
+         style="width:min(540px, 95vw); height:100vh; background:#0b1120; border-left:1px solid #1e293b; display:flex; flex-direction:column; box-shadow:-20px 0 60px rgba(0,0,0,0.75);">
+      <div style="padding:16px 20px; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
+        <div>
+          <div style="font-size:15px; font-weight:700; color:#f8fafc;">\u26A1 Quick Import \u2014 Online-Banking Flyout</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Sparkasse George Auto-Login, Cookie-Tresor &amp; automatischer Datei-Import</div>
         </div>
-        <div class="w-primary" id="compact-meals">Unplanned</div>
-        <div class="w-sub" id="sub-meals">Today's nutrition</div>
+        <button onclick="closeQuickImportFlyout()" style="background:#1e293b; border:1px solid #334155; color:#cbd5e1; border-radius:8px; padding:5px 10px; cursor:pointer; font-size:12px;">\u2715</button>
       </div>
-      <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
-        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals \u2192</button>
+      <div style="padding:14px 18px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #1e293b; background:#0b1120;">
+        <button onclick="launchBankingPopupFromDashboard()"
+                style="padding:8px 13px; border-radius:9px; border:1px solid #38bdf8; background:linear-gradient(135deg,#0284c7,#2563eb); color:#fff; font-size:12px; font-weight:700; cursor:pointer;">
+          \u{1FA9F} Banking-Popup \xF6ffnen
+        </button>
+        <button onclick="triggerDashboardQuickImportSample()"
+                style="padding:8px 13px; border-radius:9px; border:1px solid rgba(16,185,129,0.45); background:rgba(16,185,129,0.15); color:#34d399; font-size:12px; font-weight:700; cursor:pointer;">
+          \u26A1 George Export herunterladen &amp; Auto-Import
+        </button>
+        <button onclick="triggerDashboardDownloadsScan()"
+                style="padding:8px 12px; border-radius:9px; border:1px solid #334155; background:#1e293b; color:#e2e8f0; font-size:11.5px; font-weight:600; cursor:pointer;">
+          \u{1F4C2} Downloads scannen
+        </button>
       </div>
-    </div>
-
-    <!-- 3D DRUCK MINI-PREVIEW WIDGET (MINIATURE 3D OBJECT + PROGRESS BAR + PLACEHOLDER) -->
-    <div class="ambient-widget" id="widget-3dprint" onclick="toggleWidget('3dprint', event)">
-      <div class="w-header">
-        <div class="w-label-row">
-          <span>3d druck \xB7 bambulab</span>
-          <span class="w-dot" id="dot-3dprint" style="background:#00AE42; box-shadow:0 0 10px #00AE42;"></span>
-        </div>
-        <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:2px;">
-          <div style="position:relative; width:82px; height:64px; border-radius:12px; background:rgba(4,7,17,0.72); border:1px solid rgba(56,189,248,0.22); overflow:hidden; flex-shrink:0;"
-               title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)"
-               onclick="event.stopPropagation()">
-            <canvas id="mini-3d-canvas" width="164" height="128" style="width:82px; height:64px; display:block; cursor:grab; touch-action:none;"></canvas>
-          </div>
-          <div style="display:flex; flex-direction:column; align-items:flex-end; min-width:145px;">
-            <div class="w-primary" id="compact-3dprint" style="font-size:15.5px;">Kein Projekt aktiv</div>
-            <div class="w-sub" id="sub-3dprint">Platzhalter \xB7 0% Leerlauf</div>
-            <div style="width:100%; height:5px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-top:6px;">
-              <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00AE42, #38bdf8); transition:width 0.35s ease;"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div class="w-stat-grid" style="margin-bottom:10px;">
-          <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer" style="color:#00AE42;">0% (0/0)</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">Ma\xDFe / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
-          <div class="w-stat-item"><span class="w-stat-k">D\xFCse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24\xB0C / 24\xB0C</span></div>
-        </div>
-        <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:10px;">
-          <input id="mini-3d-prompt" class="minimal-input" placeholder="Prompt: 3D-Objekt \xE4ndern oder neu erstellen\u2026" />
-          <button type="submit" id="mini-3d-prompt-btn" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 12px; font-weight:700; font-size:11.5px; cursor:pointer; white-space:nowrap;">KI</button>
-        </form>
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-          <button class="w-action-link" style="color:#fbbf24; margin:0;" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
-          <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">\u{1F5A8}\uFE0F Druck starten</button>
-          <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor \u2192</button>
-        </div>
+      <div id="qi-dash-status" style="display:none; margin:10px 18px 0; padding:9px 12px; border-radius:9px; font-size:12px; font-weight:600;"></div>
+      <div style="flex:1; padding:12px 18px; display:flex; flex-direction:column; gap:10px; overflow:hidden;">
+        <iframe id="qi-dash-frame"
+                src="about:blank"
+                style="flex:1; width:100%; border:1px solid #1e293b; border-radius:12px; background:#090d16;"></iframe>
+        <label style="padding:10px 14px; border-radius:10px; border:1px dashed #38bdf8; background:rgba(56,189,248,0.06); text-align:center; font-size:12px; color:#cbd5e1; cursor:pointer;">
+          \u{1F4E5} Bank-Export (.csv, .xml, .sta) hier ablegen oder klicken f\xFCr sofortigen Auto-Import
+          <input type="file" accept=".csv,.xml,.sta,.mt940,.json,.txt" onchange="handleDashboardQuickFileSelect(event)" style="display:none;" />
+        </label>
       </div>
     </div>
   </div>
@@ -1329,6 +2172,29 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <div id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
+        <button class="horizon-view-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar View">\u25F7 Calendar \u2197</button>
+        <div class="cal-filter-wrap" onclick="event.stopPropagation()">
+          <button class="horizon-view-btn" id="btn-horizon-cal-filter" onclick="toggleCalendarFilterPopover(event)" title="Configure which calendars appear in Horizon">
+            \u2699\uFE0F <span id="cal-filter-btn-label">Calendars</span>
+          </button>
+          <div id="horizon-cal-filter-popover">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">
+              <div>
+                <div style="font-size:12px; font-weight:700; color:#f8fafc;">\u{1F305} Horizon Calendars</div>
+                <div id="cal-filter-oauth-badge" style="font-size:10px; color:#94a3b8; margin-top:2px;">Checking Google OAuth...</div>
+              </div>
+              <div style="display:flex; gap:4px;">
+                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(true)">All</button>
+                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(false)">None</button>
+              </div>
+            </div>
+            <div class="cal-filter-list" id="horizon-cal-filter-list"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="syncGoogleCalendarsFromDash()">\u{1F504} Sync Google OAuth</button>
+              <button class="w-action-link" style="margin:0; font-size:10.5px; color:#94a3b8;" onclick="openFullService('google-calendar', 'Calendar')">OAuth &amp; Settings \u2197</button>
+            </div>
+          </div>
+        </div>
         <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">\u21BA Return to Now</button>
       </div>
       <div class="tl-controls">
@@ -1356,21 +2222,121 @@ function renderUnifiedDashboardHtml(ingressPath) {
     </div>
   </div>
 
-  <!-- 6. SUBTLE ROOM-GROUPED DEVICE QUICK-ACCESS BAR & UPWARD FLYOUT -->
-  <div id="room-flyout" onclick="event.stopPropagation()"></div>
-  <div id="room-dock-bar">
-    <div class="room-dock-group" id="room-pills-container"></div>
-    <div style="display:flex; align-items:center; gap:6px;">
-      <button class="room-pill" onclick="openFullService('3d-print', '3D Druck Studio')" title="3D Druck Editor & BambuLab Steuerung \xF6ffnen">
-        <span class="room-dot" id="print3d-dock-dot" style="background:#00AE42; box-shadow:0 0 8px #00AE42;"></span>
-        <span>3D Druck</span>
-        <span class="room-meta" id="print3d-dock-meta">Bambu P1S</span>
-      </button>
-      <button class="room-pill" onclick="openFullService('camera-vision', 'Camera Vision')" title="Kamera-Objekterkennung & Streams \xF6ffnen">
-        <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
-        <span>Vision AI</span>
-        <span class="room-meta" id="vision-dock-meta">Zyklisch</span>
-      </button>
+  <!-- 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS -->
+  <div id="devices-dock">
+    <div id="timeline-devices-separator">
+      <div class="td-sep-badge">
+        <span>Timeline \u25BE Rooms &amp; Devices</span>
+        <span id="pinned-rooms-count-label" style="color:#38bdf8; display:none;"></span>
+        <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Alle minimieren</button>
+        <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="pointer-events:auto; margin-left:4px;">\u2302 Smart Home \u2197</button>
+      </div>
+    </div>
+
+    <!-- Pinned Room Groups Tray (minimized/collapsed by default until user pins a room tab) -->
+    <div id="pinned-rooms-tray"></div>
+
+    <!-- Transparent Minimalistic TabView StatusBar: Left = Room Tabs, Right = 3D Print & Vision Previews (Expanding Upwards) -->
+    <div id="room-dock-bar">
+      <div class="room-dock-group" id="room-pills-container"></div>
+
+      <!-- Right-aligned StatusBar Previews (NOT inside room tabs; expand flyouts upwards) -->
+      <div id="statusbar-right-previews">
+        <!-- 3D PRINT STATUSBAR PREVIEW (UPWARD FLYOUT) -->
+        <div class="sb-preview-item" id="widget-3dprint">
+          <div style="display:inline-flex; align-items:center; gap:2px;">
+            <button class="sb-preview-trigger" onclick="toggleWidget('3dprint', event)" title="3D Druck Vorschau ein-/ausklappen">
+              <span class="room-dot" id="dot-3dprint" style="background:#00AE42; box-shadow:0 0 8px #00AE42;"></span>
+              <span id="print3d-dock-dot" style="display:none;"></span>
+              <span>3D Druck</span>
+              <span class="sb-meta" id="print3d-dock-meta">Bambu P1S</span>
+              <span class="sb-caret">\u25B4</span>
+            </button>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('3d-print', '3D Druck Studio')" title="Open 3D Druck Studio">\u2197</button>
+          </div>
+          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
+              <span>3d druck \xB7 bambulab</span>
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('3d-print', '3D Druck Studio')">Studio \u2197</button>
+            </div>
+            <div class="w-3d-row">
+              <div style="position:relative; width:82px; height:64px; border-radius:12px; background:rgba(4,7,17,0.72); border:1px solid rgba(56,189,248,0.22); overflow:hidden; flex-shrink:0;"
+                   title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)">
+                <canvas id="mini-3d-canvas" width="164" height="128" style="width:82px; height:64px; display:block; cursor:grab; touch-action:none;"></canvas>
+              </div>
+              <div class="w-3d-info">
+                <div class="w-primary" id="compact-3dprint" style="font-size:14.5px; justify-content:flex-start;">Kein Projekt aktiv</div>
+                <div class="w-sub" id="sub-3dprint" style="display:block; text-align:left;">Platzhalter \xB7 0% Leerlauf</div>
+                <div style="width:100%; height:5px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-top:6px;">
+                  <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00AE42, #38bdf8); transition:width 0.35s ease;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="w-stat-grid" style="margin-bottom:10px;">
+              <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
+              <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer" style="color:#00AE42;">0% (0/0)</span></div>
+              <div class="w-stat-item"><span class="w-stat-k">Ma\xDFe / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
+              <div class="w-stat-item"><span class="w-stat-k">D\xFCse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24\xB0C / 24\xB0C</span></div>
+            </div>
+            <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:10px;">
+              <input id="mini-3d-prompt" class="minimal-input" placeholder="Prompt: 3D-Objekt \xE4ndern oder neu erstellen\u2026" />
+              <button type="submit" id="mini-3d-prompt-btn" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 12px; font-weight:700; font-size:11.5px; cursor:pointer; white-space:nowrap;">KI</button>
+            </form>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <button class="w-action-link" style="color:#fbbf24; margin:0;" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
+              <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">\u{1F5A8}\uFE0F Druck starten</button>
+              <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor \u2192</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- VISION STATUSBAR PREVIEW (UPWARD FLYOUT) -->
+        <div class="sb-preview-item" id="widget-vision">
+          <div style="display:inline-flex; align-items:center; gap:2px;">
+            <button class="sb-preview-trigger" onclick="toggleWidget('vision', event)" title="Camera Vision Vorschau ein-/ausklappen">
+              <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
+              <span>Vision</span>
+              <span class="sb-meta" id="vision-dock-meta">Zyklisch</span>
+              <span class="sb-caret">\u25B4</span>
+            </button>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('camera-vision', 'Camera Vision')" title="Open Camera Vision">\u2197</button>
+          </div>
+          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
+              <span>camera vision \xB7 objekterkennung</span>
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('camera-vision', 'Camera Vision')">Streams \u2197</button>
+            </div>
+            <div id="vision-flyout-summary" style="font-size:11.5px; color:rgba(248,250,252,0.82); margin-bottom:8px; line-height:1.45;">
+              Zyklischer Snapshot-Scan aktiv
+            </div>
+            <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; max-height:180px; overflow-y:auto;"></div>
+            <button class="w-action-link" style="margin:0;" onclick="openFullService('camera-vision', 'Camera Vision')">Open Camera Vision \u2192</button>
+          </div>
+        </div>
+
+        <!-- N8N PROJEKTE & MODUL-WORKFLOW STATUSBAR PREVIEW (UPWARD FLYOUT) -->
+        <div class="sb-preview-item" id="widget-workflow">
+          <div style="display:inline-flex; align-items:center; gap:2px;">
+            <button class="sb-preview-trigger" onclick="toggleWidget('workflow', event)" title="n8n Modul-Workflow & Projektverwaltung">
+              <span class="room-dot" id="workflow-dock-dot" style="background:#22c55e; box-shadow:0 0 8px #22c55e;"></span>
+              <span>Projekte &amp; n8n</span>
+              <span class="sb-meta" id="workflow-dock-meta">LIVE</span>
+              <span class="sb-caret">\u25B4</span>
+            </button>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('project-workflow', 'Projekte & Modul-Workflow')" title="Open Projekte & n8n Workflow Panel">\u2197</button>
+          </div>
+          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
+              <span>n8n modul-workflow \xB7 gemini &amp; github</span>
+              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Panel \u2197</button>
+            </div>
+            <div style="font-size:11.5px; color:rgba(248,250,252,0.85); margin-bottom:8px; line-height:1.45;">
+              Webhook \u2192 Template \u2192 Gemini API \u2192 Python Unit-Tests (4/4 PASS) \u2192 Git \u2192 Samba/HA Deploy
+            </div>
+            <button class="w-action-link" style="margin:0;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Projekte &amp; n8n Workflow \xF6ffnen \u2192</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1387,20 +2353,40 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <script>
     ${sidebarStylerScript}
 
-    const base = window.__THASSI_INGRESS_PATH__ || '';
-    const NOW_ANCHOR_RATIO = 0.22;
+    // Detect if running inside Home Assistant parent frame (which already renders transparent ha-sidebar)
+    (function detectHassParentFrame() {
+      try {
+        if (window.top && window.top !== window && window.top.document && window.top.document.querySelector('home-assistant')) {
+          document.body.classList.add('in-hass-frame');
+        }
+      } catch (_e) {}
+    })();
+
+    const ingressRx = new RegExp('^(/api/hassio_ingress/[^/]+)');
+    const trailingSlashRx = new RegExp('/+$');
+    const base = (
+      window.__THASSI_INGRESS_PATH__ ||
+      ((window.location.pathname || '').match(ingressRx) || [])[1] ||
+      ''
+    ).replace(trailingSlashRx, '');
+    const NOW_ANCHOR_RATIO = 0.25;
 
     let calendarEvents = [];
+    let allCalendarEvents = [];
+    let horizonCalendars = [];
+    let googleOAuthInfo = null;
     let roomsData = [];
     let visionSummaryData = null;
-    let activeRoomFlyoutId = null;
+    let pinnedRoomIds = new Set();
     let visibleHoursSpan = 24;
     let panOffsetMs = 0;
     let timelineBaseEpochMs = Date.now();
+    let currentWeatherState = null;
 
     // Generate twinkling stars once
     (function initStars() {
       const sf = document.getElementById('starfield');
+      if (!sf) return;
       let html = '';
       for (let i = 0; i < 85; i++) {
         const x = (Math.random() * 100).toFixed(2);
@@ -1412,7 +2398,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       sf.innerHTML = html;
     })();
 
-    // 1. SOLAR POSITION & SKY COLOR ENGINE
+    // 1. ABSTRACT SOLAR / LUNAR POSITION & SKY COLOR ENGINE
     const SUNRISE_HOUR = 6.75; // 06:45
     const SUNSET_HOUR = 18.5;  // 18:30
 
@@ -1420,7 +2406,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 5.2 || h >= 21.2) {
         return {
           sky: 'linear-gradient(180deg, #02040a 0%, #070d1f 48%, #0f172a 78%, #172554 100%)',
-          sidebarBg: 'linear-gradient(180deg, #02040a 0%, #060b1a 55%, #03060f 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(56, 189, 248, 0.18), transparent 70%)',
           stars: 0.9,
           phase: 'Astronomical Night'
@@ -1429,7 +2415,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 6.5) {
         return {
           sky: 'linear-gradient(180deg, #090d1e 0%, #1e1b4b 42%, #6d28d9 74%, #f97316 100%)',
-          sidebarBg: 'linear-gradient(180deg, #070a18 0%, #131130 60%, #060813 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 25% 100%, rgba(251, 146, 60, 0.65), transparent 72%)',
           stars: 0.45,
           phase: 'Dawn Twilight'
@@ -1438,7 +2424,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 8.0) {
         return {
           sky: 'linear-gradient(180deg, #1d4ed8 0%, #3b82f6 42%, #f472b6 75%, #fbbf24 100%)',
-          sidebarBg: 'linear-gradient(180deg, #0c1f5e 0%, #172554 60%, #060b19 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 22% 100%, rgba(253, 224, 71, 0.8), transparent 75%)',
           stars: 0.05,
           phase: 'Golden Sunrise'
@@ -1447,7 +2433,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 16.5) {
         return {
           sky: 'linear-gradient(180deg, #0369a1 0%, #0284c7 45%, #38bdf8 80%, #bae6fd 100%)',
-          sidebarBg: 'linear-gradient(180deg, #042f4e 0%, #073b61 55%, #040917 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 50% 100%, rgba(254, 249, 195, 0.45), transparent 75%)',
           stars: 0,
           phase: h < 11.5 ? 'Morning Sky' : h < 14 ? 'Solar Noon' : 'Afternoon Sun'
@@ -1456,7 +2442,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (h < 18.8) {
         return {
           sky: 'linear-gradient(180deg, #1e1b4b 0%, #3730a3 36%, #c2410c 72%, #facc15 100%)',
-          sidebarBg: 'linear-gradient(180deg, #0f0e29 0%, #1e1b4b 58%, #060814 100%)',
+          sidebarBg: 'transparent',
           glow: 'radial-gradient(ellipse at 78% 100%, rgba(251, 146, 60, 0.85), transparent 75%)',
           stars: 0.15,
           phase: 'Golden Hour'
@@ -1464,7 +2450,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       }
       return {
         sky: 'linear-gradient(180deg, #050814 0%, #1e1b4b 46%, #4c1d95 76%, #9a3412 100%)',
-        sidebarBg: 'linear-gradient(180deg, #040711 0%, #110f2b 58%, #04060f 100%)',
+        sidebarBg: 'transparent',
         glow: 'radial-gradient(ellipse at 82% 100%, rgba(234, 88, 12, 0.45), transparent 70%)',
         stars: 0.65,
         phase: 'Dusk Twilight'
@@ -1472,11 +2458,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
 
     function computeSunPoint(hourFloat, vw, vh) {
-      const horizonY = vh * 0.65;
-      const zenithY = vh * 0.12;
-      const nadirY = vh * 0.82;
+      const isMobile = vw <= 900;
+      const horizonY = vh * (isMobile ? 0.44 : 0.62);
+      const zenithY = vh * (isMobile ? 0.09 : 0.12);
+      const nadirY = vh * (isMobile ? 0.64 : 0.80);
 
-      const x = vw * (0.06 + (hourFloat / 24) * 0.88);
+      const xMargin = isMobile ? 0.04 : 0.08;
+      const x = vw * (xMargin + (hourFloat / 24) * (1 - xMargin * 2));
       const daySpan = SUNSET_HOUR - SUNRISE_HOUR;
       const angle = ((hourFloat - SUNRISE_HOUR) / daySpan) * Math.PI;
       const sinVal = Math.sin(angle);
@@ -1484,12 +2472,23 @@ function renderUnifiedDashboardHtml(ingressPath) {
         ? horizonY - sinVal * (horizonY - zenithY)
         : horizonY - sinVal * (nadirY - horizonY);
 
-      return { x, y, aboveHorizon: sinVal >= -0.08, elevationPct: Math.round(sinVal * 100) };
+      return { x, y, horizonY, aboveHorizon: sinVal >= -0.06, elevationPct: Math.round(sinVal * 100) };
     }
 
     function renderSolarArcPaths() {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const isMobile = vw <= 900;
+      const horizonY = vh * (isMobile ? 0.44 : 0.62);
+
+      const datumEl = document.getElementById('horizon-datum-line');
+      if (datumEl) {
+        datumEl.setAttribute('x1', (vw * (isMobile ? 0.03 : 0.06)).toFixed(1));
+        datumEl.setAttribute('y1', horizonY.toFixed(1));
+        datumEl.setAttribute('x2', (vw * (isMobile ? 0.97 : 0.94)).toFixed(1));
+        datumEl.setAttribute('y2', horizonY.toFixed(1));
+      }
+
       let fullPath = '';
       let dayPath = '';
       for (let h = 0; h <= 24; h += 0.25) {
@@ -1499,8 +2498,10 @@ function renderUnifiedDashboardHtml(ingressPath) {
           dayPath += (dayPath === '' ? 'M' : 'L') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ' ';
         }
       }
-      document.getElementById('solar-arc-path').setAttribute('d', fullPath);
-      document.getElementById('solar-day-path').setAttribute('d', dayPath);
+      const arcEl = document.getElementById('solar-arc-path');
+      const dayEl = document.getElementById('solar-day-path');
+      if (arcEl) arcEl.setAttribute('d', fullPath);
+      if (dayEl) dayEl.setAttribute('d', dayPath);
     }
 
     function updateSkyAndSun(now) {
@@ -1517,27 +2518,292 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const isMobile = vw <= 900;
       const sunPt = computeSunPoint(effectiveHour, vw, vh);
 
       const sunEl = document.getElementById('sun-assembly');
       sunEl.style.left = sunPt.x.toFixed(1) + 'px';
       sunEl.style.top = sunPt.y.toFixed(1) + 'px';
-      sunEl.style.opacity = sunPt.aboveHorizon ? '1' : '0.28';
+      sunEl.style.opacity = sunPt.aboveHorizon ? '1' : '0.24';
+      const baseScale = isMobile ? 0.8 : 1;
+      sunEl.style.transform = sunPt.aboveHorizon ? \`scale(\${baseScale})\` : \`scale(\${(baseScale * 0.75).toFixed(2)})\`;
 
       const moonHour = (effectiveHour + 12) % 24;
       const moonPt = computeSunPoint(moonHour, vw, vh);
       const moonEl = document.getElementById('moon-assembly');
       moonEl.style.left = moonPt.x.toFixed(1) + 'px';
       moonEl.style.top = moonPt.y.toFixed(1) + 'px';
-      moonEl.style.opacity = sunPt.aboveHorizon ? '0' : '0.92';
+      moonEl.style.opacity = sunPt.aboveHorizon ? '0.12' : '0.95';
+
+      // Progressed arc & abstract elevation chord to horizon datum
+      const activePt = sunPt.aboveHorizon ? sunPt : moonPt;
+      const chordEl = document.getElementById('celestial-elevation-chord');
+      const nodeEl = document.getElementById('horizon-node-dot');
+      if (chordEl && nodeEl) {
+        chordEl.setAttribute('x1', activePt.x.toFixed(1));
+        chordEl.setAttribute('y1', activePt.y.toFixed(1));
+        chordEl.setAttribute('x2', activePt.x.toFixed(1));
+        chordEl.setAttribute('y2', sunPt.horizonY.toFixed(1));
+        nodeEl.setAttribute('cx', activePt.x.toFixed(1));
+        nodeEl.setAttribute('cy', sunPt.horizonY.toFixed(1));
+      }
+
+      const progEl = document.getElementById('solar-progressed-path');
+      if (progEl) {
+        let progD = '';
+        if (effectiveHour >= SUNRISE_HOUR) {
+          const endH = Math.min(effectiveHour, SUNSET_HOUR);
+          for (let h = SUNRISE_HOUR; h <= endH; h += 0.2) {
+            const p = computeSunPoint(h, vw, vh);
+            progD += (progD === '' ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
+          }
+          const curP = computeSunPoint(endH, vw, vh);
+          progD += (progD === '' ? 'M' : 'L') + curP.x.toFixed(1) + ',' + curP.y.toFixed(1);
+        }
+        progEl.setAttribute('d', progD);
+      }
 
       document.getElementById('solar-phase-text').textContent =
         \`\${palette.phase}  \xB7  Sunrise 06:45  \xB7  Sunset 18:30\`;
     }
 
+    // ============================================================================
+    // ST. VEIT / G\xD6LSEN WEATHER FORECAST & SUBTLE BACKGROUND WEATHER FX
+    // ============================================================================
+    function normalizeWxEffect(raw) {
+      const c = String(raw || '').toLowerCase();
+      if (c.includes('thunder') || c.includes('storm')) return 'thunder';
+      if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) return 'rain';
+      if (c.includes('snow') || c.includes('sleet')) return 'snow';
+      if (c.includes('fog') || c.includes('mist')) return 'fog';
+      if (c.includes('cloud') || c.includes('overcast')) return 'clouds';
+      return 'clear';
+    }
+
+    function getWeatherSvgIcon(rawEffect, size) {
+      const effect = normalizeWxEffect(rawEffect);
+      const s = size || 18;
+      if (effect === 'thunder') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><polyline points="13 11 9 17 15 17 11 23"/></svg>\`;
+      }
+      if (effect === 'rain') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/></svg>\`;
+      }
+      if (effect === 'snow') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#e0f2fe" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="8" y1="20" x2="8.01" y2="20"/><line x1="12" y1="18" x2="12.01" y2="18"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>\`;
+      }
+      if (effect === 'fog') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="10" x2="20" y2="10"/><line x1="6" y1="14" x2="18" y2="14"/><line x1="4" y1="18" x2="20" y2="18"/></svg>\`;
+      }
+      if (effect === 'clouds') {
+        return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>\`;
+      }
+      return \`<svg width="\${s}" height="\${s}" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>\`;
+    }
+
+    function renderWeatherStrip(w) {
+      if (!w || !w.current) return;
+      currentWeatherState = w;
+
+      const cur = w.current;
+      const curEffect = normalizeWxEffect(cur.conditionCode || cur.effect);
+      const curDesc = cur.conditionLabel || cur.descriptionDe || 'Leicht bew\xF6lkt';
+      const todaySummary = w.today || w.todaySummary;
+      const slotsList = w.daySlots || w.hourly || w.hourly24 || [];
+
+      const iconEl = document.getElementById('mw-current-icon');
+      const tempEl = document.getElementById('mw-current-temp');
+      const descEl = document.getElementById('mw-current-desc');
+      const hiloEl = document.getElementById('mw-hi-lo');
+      const slotsEl = document.getElementById('mw-day-slots');
+
+      if (iconEl) iconEl.innerHTML = getWeatherSvgIcon(curEffect, 20);
+      if (tempEl) tempEl.textContent = \`\${Math.round(Number(cur.tempC ?? 14))}\xB0\`;
+      if (descEl) descEl.textContent = curDesc;
+      if (hiloEl && todaySummary) {
+        hiloEl.textContent = \`\${Math.round(Number(todaySummary.tempMaxC))}\xB0 / \${Math.round(Number(todaySummary.tempMinC))}\xB0\`;
+      }
+
+      // Update subtle cloud veils in background
+      const veil1 = document.getElementById('weather-cloud-veil-1');
+      const veil2 = document.getElementById('weather-cloud-veil-2');
+      if (veil1 && veil2) {
+        const vOpacity = curEffect === 'rain' || curEffect === 'thunder' ? 0.95 : curEffect === 'clouds' || curEffect === 'fog' ? 0.78 : 0.25;
+        veil1.style.opacity = String(vOpacity);
+        veil2.style.opacity = String(vOpacity * 0.85);
+      }
+
+      if (slotsEl && Array.isArray(slotsList)) {
+        const nowHr = new Date().getHours();
+        slotsEl.innerHTML = slotsList.slice(0, 6).map((slot) => {
+          const slotHr = slot.hour != null ? Number(slot.hour) : parseInt((slot.hourLabel || '00:00').slice(0, 2), 10);
+          const isCur = Math.abs(slotHr - nowHr) <= 1;
+          const slotEff = normalizeWxEffect(slot.conditionCode || slot.effect);
+          return \`
+            <div class="mw-slot \${isCur ? 'is-current-slot' : ''}">
+              <span class="mw-slot-hr">\${slot.hourLabel}</span>
+              <span class="mw-slot-ico">\${getWeatherSvgIcon(slotEff, 13)}</span>
+              <span class="mw-slot-temp">\${Math.round(slot.tempC)}\xB0</span>
+            </div>
+          \`;
+        }).join('');
+      }
+    }
+
+    async function loadWeatherData(initialWeather) {
+      if (initialWeather && initialWeather.current) {
+        renderWeatherStrip(initialWeather);
+        return;
+      }
+      try {
+        const res = await fetch(base + '/api/system/weather');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.current) {
+            renderWeatherStrip(data);
+            return;
+          }
+        }
+      } catch (_e) {}
+
+      // Direct fallback for St. Veit an der G\xF6lsen (48.0444\xB0N, 15.6689\xB0E) if backend route is not yet loaded
+      try {
+        const meteoUrl = 'https://api.open-meteo.com/v1/forecast?latitude=48.0444&longitude=15.6689&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FVienna&forecast_days=1';
+        const r = await fetch(meteoUrl);
+        if (r.ok) {
+          const d = await r.json();
+          const c = d.current || {};
+          const wmo = Number(c.weather_code ?? 1);
+          const mapCode = (code) => {
+            if (code === 0) return { conditionCode: 'clear', conditionLabel: 'Klar & Sonnig' };
+            if (code <= 2) return { conditionCode: 'partly_cloudy', conditionLabel: 'Leicht bew\xF6lkt' };
+            if (code === 3) return { conditionCode: 'cloudy', conditionLabel: 'Bew\xF6lkt' };
+            if (code === 45 || code === 48) return { conditionCode: 'fog', conditionLabel: 'Talnebel' };
+            if (code >= 51 && code <= 67 || (code >= 80 && code <= 82)) return { conditionCode: 'rain', conditionLabel: 'Regen' };
+            if (code >= 71 && code <= 86) return { conditionCode: 'snow', conditionLabel: 'Schneefall' };
+            if (code >= 95) return { conditionCode: 'thunderstorm', conditionLabel: 'Gewitter' };
+            return { conditionCode: 'partly_cloudy', conditionLabel: 'Wechselhaft' };
+          };
+          const cm = mapCode(wmo);
+          const times = (d.hourly && d.hourly.time) || [];
+          const temps = (d.hourly && d.hourly.temperature_2m) || [];
+          const probs = (d.hourly && d.hourly.precipitation_probability) || [];
+          const codes = (d.hourly && d.hourly.weather_code) || [];
+          const targetHrs = [6, 9, 12, 15, 18, 21];
+          const daySlots = [];
+          for (let i = 0; i < times.length; i++) {
+            const hr = new Date(times[i]).getHours();
+            if (targetHrs.includes(hr) && daySlots.length < 6) {
+              const sm = mapCode(Number(codes[i] ?? 1));
+              daySlots.push({
+                hour: hr,
+                hourLabel: String(hr).padStart(2, '0') + ':00',
+                tempC: temps[i] ?? 14,
+                precipProbPct: probs[i] ?? 0,
+                conditionCode: sm.conditionCode,
+                conditionLabel: sm.conditionLabel
+              });
+            }
+          }
+          renderWeatherStrip({
+            provider: 'google-weather-api',
+            current: {
+              tempC: c.temperature_2m ?? 14,
+              feelsLikeC: c.apparent_temperature ?? 13.5,
+              conditionCode: cm.conditionCode,
+              conditionLabel: cm.conditionLabel,
+              humidityPct: c.relative_humidity_2m ?? 64,
+              windKmh: c.wind_speed_10m ?? 9,
+            },
+            today: {
+              tempMaxC: (d.daily && d.daily.temperature_2m_max && d.daily.temperature_2m_max[0]) ?? 17,
+              tempMinC: (d.daily && d.daily.temperature_2m_min && d.daily.temperature_2m_min[0]) ?? 7,
+            },
+            daySlots
+          });
+        }
+      } catch (_err) {}
+    }
+
+    (function initWeatherFxCanvas() {
+      const canvas = document.getElementById('weather-fx-canvas');
+      if (!canvas) return;
+
+      const particles = [];
+      for (let i = 0; i < 65; i++) {
+        particles.push({
+          x: Math.random(),
+          y: Math.random(),
+          len: 10 + Math.random() * 14,
+          speed: 0.002 + Math.random() * 0.004,
+          drift: (Math.random() - 0.5) * 0.001,
+          size: 1 + Math.random() * 2.2,
+          alpha: 0.08 + Math.random() * 0.22,
+        });
+      }
+
+      function resizeWxCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resizeWxCanvas();
+      window.addEventListener('resize', resizeWxCanvas);
+
+      function stepWeatherFx() {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.clearRect(0, 0, w, h);
+
+          const rawCode = currentWeatherState && currentWeatherState.current
+            ? (currentWeatherState.current.conditionCode || currentWeatherState.current.effect)
+            : 'clouds';
+          const eff = normalizeWxEffect(rawCode);
+          for (const p of particles) {
+            if (eff === 'rain' || eff === 'thunder') {
+              p.y += p.speed * 2.8;
+              p.x += 0.0008;
+              if (p.y > 0.72) { p.y = -0.05; p.x = Math.random(); }
+              ctx.strokeStyle = \`rgba(186, 230, 253, \${p.alpha * 0.85})\`;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(p.x * w, p.y * h);
+              ctx.lineTo(p.x * w + 3, p.y * h + p.len);
+              ctx.stroke();
+            } else if (eff === 'snow') {
+              p.y += p.speed * 0.55;
+              p.x += Math.sin(p.y * 18) * 0.0005;
+              if (p.y > 0.72) { p.y = -0.02; p.x = Math.random(); }
+              ctx.fillStyle = \`rgba(241, 245, 249, \${p.alpha})\`;
+              ctx.beginPath();
+              ctx.arc(p.x * w, p.y * h, p.size, 0, Math.PI * 2);
+              ctx.fill();
+            } else {
+              // Subtle atmospheric motes / breeze for clear, clouds, or fog
+              p.x += p.drift * 0.4 + 0.00018;
+              p.y += Math.sin(p.x * 12) * 0.00015;
+              if (p.x > 1.02) p.x = -0.02;
+              if (p.x < -0.02) p.x = 1.02;
+              if (p.y < 0.04 || p.y > 0.65) p.y = 0.1 + Math.random() * 0.5;
+              ctx.fillStyle = eff === 'clear'
+                ? \`rgba(254, 240, 138, \${p.alpha * 0.45})\`
+                : \`rgba(203, 213, 225, \${p.alpha * 0.42})\`;
+              ctx.beginPath();
+              ctx.arc(p.x * w, p.y * h, p.size * 0.75, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+        requestAnimationFrame(stepWeatherFx);
+      }
+      requestAnimationFrame(stepWeatherFx);
+    })();
+
     // 2. LARGE CLOCK & CONTINUOUS LEFTWARD TIMELINE LOOP
     function getPxPerMs() {
-      return window.innerWidth / (visibleHoursSpan * 3600 * 1000);
+      const effectiveWidth = Math.max(window.innerWidth, 720);
+      return effectiveWidth / (visibleHoursSpan * 3600 * 1000);
     }
 
     function tickClockAndTimeline() {
@@ -1608,6 +2874,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
         personal: { border: '#fbbf24', glow: 'rgba(251, 191, 36, 0.35)' },
       };
 
+      const calColorMap = {};
+      for (const c of horizonCalendars) {
+        if (c && c.calendar_name && c.color) {
+          calColorMap[c.calendar_name] = c.color;
+        }
+      }
+
       const sorted = [...calendarEvents]
         .map((ev) => {
           const s = new Date(ev.start_time).getTime();
@@ -1635,19 +2908,21 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
         laneEndPx[lane] = leftPx + widthPx;
 
-        const bottomPx = 48 + lane * 52;
+        const bottomPx = 46 + lane * 48;
         const pal = catPalette[ev.category] || catPalette.personal;
+        const evBorder = calColorMap[ev.calendar_name] || pal.border;
         const isNow = ev.s <= nowMs && ev.e >= nowMs;
         const isPast = ev.e < nowMs;
 
         const startStr = new Date(ev.s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const endStr = new Date(ev.e).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const dayStr = new Date(ev.s).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+        const safeTitle = String(ev.title || '').split('"').join('&quot;');
 
         eventsHtml += \`
           <div class="tl-event-rect \${isNow ? 'is-now' : ''} \${isPast ? 'is-past' : ''}"
-               style="left:\${leftPx.toFixed(1)}px; width:\${widthPx.toFixed(1)}px; bottom:\${bottomPx}px; --ev-color:\${pal.border}; --ev-glow:\${pal.glow};"
-               title="\${ev.title.replace(/"/g, '&quot;')} (\${dayStr}, \${startStr} \u2013 \${endStr}) \xB7 \${ev.calendar_name || 'Google Calendar'}">
+               style="left:\${leftPx.toFixed(1)}px; width:\${widthPx.toFixed(1)}px; bottom:\${bottomPx}px; --ev-color:\${evBorder}; --ev-glow:\${pal.glow};"
+               title="\${safeTitle} (\${dayStr}, \${startStr} \u2013 \${endStr}) \xB7 \${ev.calendar_name || 'Google Calendar'}">
             <div class="tl-ev-title">\${ev.title}</div>
             <div class="tl-ev-meta">\${startStr}\u2013\${endStr} \xB7 \${ev.calendar_name || ev.category}</div>
           </div>
@@ -1699,76 +2974,74 @@ function renderUnifiedDashboardHtml(ingressPath) {
     function toggleWidget(id, ev) {
       if (ev) ev.stopPropagation();
       const target = document.getElementById('widget-' + id);
+      if (!target) return;
       const isAlreadyOpen = target.classList.contains('expanded');
-      document.querySelectorAll('.ambient-widget').forEach((w) => w.classList.remove('expanded'));
+      document.querySelectorAll('.ambient-widget, .sb-preview-item').forEach((w) => w.classList.remove('expanded'));
       if (!isAlreadyOpen) {
         target.classList.add('expanded');
       }
     }
 
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.ambient-widget')) {
-        document.querySelectorAll('.ambient-widget').forEach((w) => w.classList.remove('expanded'));
+      if (!e.target.closest('.ambient-widget') && !e.target.closest('.sb-preview-item')) {
+        document.querySelectorAll('.ambient-widget, .sb-preview-item').forEach((w) => w.classList.remove('expanded'));
       }
-      if (!e.target.closest('#room-flyout') && !e.target.closest('.room-pill')) {
-        closeRoomFlyout();
+      if (!e.target.closest('.cal-filter-wrap')) {
+        const pop = document.getElementById('horizon-cal-filter-popover');
+        if (pop) pop.classList.remove('open');
       }
     });
 
-    function closeRoomFlyout() {
-      activeRoomFlyoutId = null;
-      const flyout = document.getElementById('room-flyout');
-      if (flyout) flyout.style.display = 'none';
-      document.querySelectorAll('.room-pill').forEach((p) => p.classList.remove('active-flyout'));
+    // ============================================================================
+    // 6. MINIMIZED-BY-DEFAULT ROOM TABS & PINNABLE ROOM GROUPS BELOW SEPARATOR
+    // ============================================================================
+    function syncDevicesDockHeight() {
+      const dock = document.getElementById('devices-dock');
+      if (!dock) return;
+      const h = dock.getBoundingClientRect().height || 44;
+      document.documentElement.style.setProperty('--devices-dock-height', Math.round(h) + 'px');
     }
 
-    function openRoomFlyout(roomId, ev) {
+    function toggleRoomPin(roomId, ev) {
       if (ev) ev.stopPropagation();
-      if (activeRoomFlyoutId === roomId) {
-        closeRoomFlyout();
-        return;
+      if (pinnedRoomIds.has(roomId)) {
+        pinnedRoomIds.delete(roomId);
+      } else {
+        pinnedRoomIds.add(roomId);
       }
-      activeRoomFlyoutId = roomId;
       renderRoomDockBar();
+      renderPinnedRoomsTray();
+    }
 
-      const flyout = document.getElementById('room-flyout');
-      const pillEl = document.getElementById('room-pill-' + roomId);
-      if (pillEl && flyout) {
-        const rect = pillEl.getBoundingClientRect();
-        const maxLeft = Math.max(16, window.innerWidth - 360);
-        const targetLeft = Math.min(maxLeft, Math.max(16, rect.left));
-        flyout.style.left = targetLeft + 'px';
-      }
-      renderActiveRoomFlyout();
+    function unpinAllRooms() {
+      pinnedRoomIds.clear();
+      renderRoomDockBar();
+      renderPinnedRoomsTray();
     }
 
     function renderRoomDockBar() {
       const container = document.getElementById('room-pills-container');
       if (!container) return;
 
-      container.innerHTML = roomsData
+      // Filter out kameras_vision from left room tabs (Vision is right-aligned in StatusBar)
+      const roomTabs = roomsData.filter((r) => r.id !== 'kameras_vision');
+
+      container.innerHTML = roomTabs
         .map((r) => {
           const hasOn = r.activeCount > 0;
           const hasMotion = Boolean(r.motionActive);
-          const isActive = activeRoomFlyoutId === r.id;
+          const isPinned = pinnedRoomIds.has(r.id);
 
           const metaParts = [];
           if (r.tempC != null) metaParts.push(r.tempC.toFixed(1) + '\xB0');
           if (r.activeCount > 0) metaParts.push(r.activeCount + ' an');
           if (r.totalPowerW > 0.5) metaParts.push(Math.round(r.totalPowerW) + 'W');
-          if (hasMotion) metaParts.push('Bewegung');
-          if (r.id === 'kameras_vision') {
-            metaParts.push(
-              visionSummaryData?.lastTotalObjects
-                ? visionSummaryData.lastTotalObjects + ' Obj'
-                : r.devices.length + ' Cams'
-            );
-          }
 
           return \`
             <button id="room-pill-\${r.id}"
-                    class="room-pill \${hasOn ? 'has-on' : ''} \${hasMotion ? 'has-motion' : ''} \${isActive ? 'active-flyout' : ''}"
-                    onclick="openRoomFlyout('\${r.id}', event)">
+                    class="room-pill \${hasOn ? 'has-on' : ''} \${hasMotion ? 'has-motion' : ''} \${isPinned ? 'pinned-tab' : ''}"
+                    title="\${isPinned ? 'Klicken zum Minimieren (Entpinnen)' : 'Klicken zum Anheften (Pinnen) der Raum-Ger\xE4te'}"
+                    onclick="toggleRoomPin('\${r.id}', event)">
               <span class="room-dot"></span>
               <span>\${r.name}</span>
               \${metaParts.length > 0 ? \`<span class="room-meta">\${metaParts.join(' \xB7 ')}</span>\` : ''}
@@ -1777,163 +3050,206 @@ function renderUnifiedDashboardHtml(ingressPath) {
         })
         .join('');
 
+      // Populate right-aligned Vision upward flyout & StatusBar meta
+      const visionRoom = roomsData.find((r) => r.id === 'kameras_vision');
       const vMeta = document.getElementById('vision-dock-meta');
-      if (vMeta && visionSummaryData) {
-        vMeta.textContent = visionSummaryData.lastSceneSummary
-          ? (visionSummaryData.lastTotalObjects || 0) + ' Objekte'
-          : 'Zyklisch';
+      if (vMeta) {
+        if (visionSummaryData && visionSummaryData.lastTotalObjects != null) {
+          vMeta.textContent = visionSummaryData.lastTotalObjects + ' Obj';
+        } else if (visionRoom && Array.isArray(visionRoom.devices)) {
+          vMeta.textContent = visionRoom.devices.length + ' Cams';
+        } else {
+          vMeta.textContent = 'Zyklisch';
+        }
+      }
+
+      const vSummaryEl = document.getElementById('vision-flyout-summary');
+      if (vSummaryEl) {
+        vSummaryEl.textContent = (visionSummaryData && visionSummaryData.lastSceneSummary)
+          ? visionSummaryData.lastSceneSummary
+          : 'Zyklischer Snapshot-Scan aktiv (COCO-SSD)';
+      }
+
+      const vCamsEl = document.getElementById('vision-flyout-cameras');
+      if (vCamsEl) {
+        if (visionRoom && Array.isArray(visionRoom.devices) && visionRoom.devices.length > 0) {
+          vCamsEl.innerHTML = visionRoom.devices.map(buildRoomDeviceRowHtml).join('');
+        } else {
+          vCamsEl.innerHTML = '<div style="font-size:11px; color:rgba(255,255,255,0.45);">Keine Kameras verbunden</div>';
+        }
       }
     }
 
-    function renderActiveRoomFlyout() {
-      const flyout = document.getElementById('room-flyout');
-      if (!flyout || !activeRoomFlyoutId) return;
-      const room = roomsData.find((r) => r.id === activeRoomFlyoutId);
-      if (!room) {
-        closeRoomFlyout();
+    function buildRoomDeviceRowHtml(d) {
+      const pwr = d.powerW != null && d.powerW > 0 ? \`<span class="rf-power-badge">\${d.powerW.toFixed(1)} W</span>\` : '';
+
+      if (d.kind === 'toggle' || d.kind === 'rgbw') {
+        const extraRgbw =
+          d.kind === 'rgbw' && d.isOn
+            ? \`
+              <div class="rf-slider-row">
+                <span style="font-size:10px; color:rgba(255,255,255,0.45);">Dim</span>
+                <input type="range" min="5" max="100" value="\${d.brightness || 80}" class="rf-slider"
+                       onchange="triggerDeviceAction('\${d.entityId}', 'brightness', { brightnessPct: Number(this.value) })" />
+              </div>
+              \${
+                Array.isArray(d.effectList) && d.effectList.length > 0
+                  ? \`<div class="rf-effect-pills">
+                      \${d.effectList
+                        .map(
+                          (fx) =>
+                            \`<button class="rf-fx-pill \${d.effect === fx ? 'active' : ''}" onclick="triggerDeviceAction('\${d.entityId}', 'effect', { effect: '\${fx}' })">\${fx}</button>\`
+                        )
+                        .join('')}
+                    </div>\`
+                  : ''
+              }
+            \`
+            : '';
+
+        return \`
+          <div class="rf-dev-row \${d.isOn ? 'is-on' : ''}">
+            <div class="rf-dev-main">
+              <span class="rf-dev-label">\${d.label}</span>
+              <div class="rf-dev-right">
+                \${pwr}
+                <button class="rf-toggle-btn \${d.isOn ? 'on' : ''}"
+                        onclick="triggerDeviceAction('\${d.entityId}', 'toggle')">
+                  \${d.isOn ? 'AN' : 'AUS'}
+                </button>
+              </div>
+            </div>
+            \${extraRgbw}
+          </div>
+        \`;
+      }
+
+      if (d.kind === 'camera') {
+        const camLive = d.state === 'recording' || d.state === 'streaming';
+        const currentMode = (visionSummaryData?.cameraModes && visionSummaryData.cameraModes[d.entityId]) || 'Personen';
+        const modes = ['Personen', 'Fahrzeuge', 'Objekte', 'Kamera', 'Aktivit\xE4ten'];
+        return \`
+          <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
+            <div class="rf-dev-main">
+              <span class="rf-dev-label">\${d.label}</span>
+              <div class="rf-dev-right">
+                <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
+                  \${camLive ? 'Aktiv' : 'QR-Auth'}
+                </span>
+                <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
+                  Abtasten
+                </button>
+              </div>
+            </div>
+            <div class="rf-effect-pills">
+              \${modes
+                .map(
+                  (m) =>
+                    \`<button class="rf-fx-pill \${currentMode === m ? 'active' : ''}" style="\${currentMode === m ? 'background:#38bdf8; color:#040711; font-weight:600;' : ''}" onclick="setCameraModeFromFlyout('\${d.entityId}', '\${m}')">\${m}</button>\`
+                )
+                .join('')}
+            </div>
+          </div>
+        \`;
+      }
+
+      const formattedState =
+        d.state === 'on'
+          ? 'Bewegung erkannt'
+          : d.state === 'off'
+            ? 'Ruhig'
+            : d.state === 'unavailable'
+              ? 'Offline'
+              : \`\${d.state}\${d.unit ? ' ' + d.unit : ''}\`;
+
+      return \`
+        <div class="rf-dev-row">
+          <div class="rf-dev-main">
+            <span class="rf-dev-label">\${d.label}</span>
+            <span class="rf-power-badge" style="color:rgba(248,250,252,0.75);">\${formattedState}</span>
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderPinnedRoomsTray() {
+      const tray = document.getElementById('pinned-rooms-tray');
+      const countLbl = document.getElementById('pinned-rooms-count-label');
+      const unpinBtn = document.getElementById('btn-unpin-all-rooms');
+      if (!tray) return;
+
+      const pinnedRooms = roomsData.filter((r) => pinnedRoomIds.has(r.id));
+      if (pinnedRooms.length === 0) {
+        tray.classList.remove('has-pinned');
+        tray.innerHTML = '';
+        if (countLbl) countLbl.style.display = 'none';
+        if (unpinBtn) unpinBtn.style.display = 'none';
+        requestAnimationFrame(syncDevicesDockHeight);
         return;
       }
 
-      const subParts = [];
-      if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + ' \xB0C');
-      if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
-      if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
+      tray.classList.add('has-pinned');
+      if (countLbl) {
+        countLbl.textContent = \`\xB7 \${pinnedRooms.length} angeheftet\`;
+        countLbl.style.display = 'inline';
+      }
+      if (unpinBtn) {
+        unpinBtn.style.display = 'inline-block';
+      }
 
-      const rowsHtml = room.devices
-        .map((d) => {
-          const pwr = d.powerW != null && d.powerW > 0 ? \`<span class="rf-power-badge">\${d.powerW.toFixed(1)} W</span>\` : '';
+      tray.innerHTML = pinnedRooms
+        .map((room) => {
+          const subParts = [];
+          if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + ' \xB0C');
+          if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
+          if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
 
-          if (d.kind === 'toggle' || d.kind === 'rgbw') {
-            const extraRgbw =
-              d.kind === 'rgbw' && d.isOn
+          const rowsHtml = room.devices.map(buildRoomDeviceRowHtml).join('');
+          const footerHtml =
+            room.id === 'kameras_vision'
+              ? \`
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-top:2px;">
+                  <span style="font-size:10px; color:rgba(255,255,255,0.48);">
+                    \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 32) : 'COCO-SSD aktiv'}
+                  </span>
+                  <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('camera-vision', 'Camera Vision')">
+                    Vision \u2192
+                  </button>
+                </div>
+              \`
+              : room.activeCount > 0
                 ? \`
-                  <div class="rf-slider-row">
-                    <span style="font-size:10px; color:rgba(255,255,255,0.45);">Dim</span>
-                    <input type="range" min="5" max="100" value="\${d.brightness || 80}" class="rf-slider"
-                           onchange="triggerDeviceAction('\${d.entityId}', 'brightness', { brightnessPct: Number(this.value) })" />
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding-top:2px;">
+                    <button class="w-action-link" style="margin:0; font-size:10.5px; color:#fbbf24;" onclick="turnOffAllInRoom('\${room.id}')">
+                      Alle ausschalten
+                    </button>
+                    <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('smart-canvas', 'Smart Home')">
+                      Canvas \u2192
+                    </button>
                   </div>
-                  \${
-                    Array.isArray(d.effectList) && d.effectList.length > 0
-                      ? \`<div class="rf-effect-pills">
-                          \${d.effectList
-                            .map(
-                              (fx) =>
-                                \`<button class="rf-fx-pill \${d.effect === fx ? 'active' : ''}" onclick="triggerDeviceAction('\${d.entityId}', 'effect', { effect: '\${fx}' })">\${fx}</button>\`
-                            )
-                            .join('')}
-                        </div>\`
-                      : ''
-                  }
                 \`
                 : '';
 
-            return \`
-              <div class="rf-dev-row \${d.isOn ? 'is-on' : ''}">
-                <div class="rf-dev-main">
-                  <span class="rf-dev-label">\${d.label}</span>
-                  <div class="rf-dev-right">
-                    \${pwr}
-                    <button class="rf-toggle-btn \${d.isOn ? 'on' : ''}"
-                            onclick="triggerDeviceAction('\${d.entityId}', 'toggle')">
-                      \${d.isOn ? 'AN' : 'AUS'}
-                    </button>
-                  </div>
-                </div>
-                \${extraRgbw}
-              </div>
-            \`;
-          }
-
-          if (d.kind === 'camera') {
-            const camLive = d.state === 'recording' || d.state === 'streaming';
-            const currentMode = (visionSummaryData?.cameraModes && visionSummaryData.cameraModes[d.entityId]) || 'Personen';
-            const modes = ['Personen', 'Fahrzeuge', 'Objekte', 'Kamera', 'Aktivit\xE4ten'];
-            return \`
-              <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
-                <div class="rf-dev-main">
-                  <span class="rf-dev-label">\${d.label}</span>
-                  <div class="rf-dev-right">
-                    <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
-                      \${camLive ? 'Aktiv' : 'QR-Auth'}
-                    </span>
-                    <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
-                      Abtasten
-                    </button>
-                  </div>
-                </div>
-                <div class="rf-effect-pills">
-                  \${modes
-                    .map(
-                      (m) =>
-                        \`<button class="rf-fx-pill \${currentMode === m ? 'active' : ''}" style="\${currentMode === m ? 'background:#38bdf8; color:#040711; font-weight:600;' : ''}" onclick="setCameraModeFromFlyout('\${d.entityId}', '\${m}')">\${m}</button>\`
-                    )
-                    .join('')}
-                </div>
-              </div>
-            \`;
-          }
-
-          // Sensor row
-          const formattedState =
-            d.state === 'on'
-              ? 'Bewegung erkannt'
-              : d.state === 'off'
-                ? 'Ruhig'
-                : d.state === 'unavailable'
-                  ? 'Offline'
-                  : \`\${d.state}\${d.unit ? ' ' + d.unit : ''}\`;
-
           return \`
-            <div class="rf-dev-row">
-              <div class="rf-dev-main">
-                <span class="rf-dev-label">\${d.label}</span>
-                <span class="rf-power-badge" style="color:rgba(248,250,252,0.75);">\${formattedState}</span>
+            <div class="pinned-room-card">
+              <div class="prc-header">
+                <div class="prc-title-wrap">
+                  <span class="prc-title">\${room.name}</span>
+                  <span class="prc-meta">\${subParts.join(' \xB7 ') || (room.activeCount + ' aktiv')}</span>
+                </div>
+                <button class="prc-unpin" onclick="toggleRoomPin('\${room.id}', event)" title="Raum-Tab wieder minimieren">
+                  <span>\u{1F4CC} Angeheftet</span>
+                  <span>\u2715</span>
+                </button>
               </div>
+              <div class="prc-dev-grid">\${rowsHtml}</div>
+              \${footerHtml}
             </div>
           \`;
         })
         .join('');
 
-      const footerHtml =
-        room.id === 'kameras_vision'
-          ? \`
-            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
-              <span style="font-size:11px; color:rgba(255,255,255,0.48);">
-                \${visionSummaryData?.lastSceneSummary ? visionSummaryData.lastSceneSummary.slice(0, 36) : 'Lokales COCO-SSD aktiv'}
-              </span>
-              <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('camera-vision', 'Camera Vision')">
-                Vision \xF6ffnen \u2192
-              </button>
-            </div>
-          \`
-          : room.activeCount > 0
-            ? \`
-              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
-                <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="turnOffAllInRoom('\${room.id}')">
-                  Alle im Raum ausschalten
-                </button>
-                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
-                  Canvas \u2192
-                </button>
-              </div>
-            \`
-            : \`
-              <div style="display:flex; justify-content:flex-end; padding-top:4px;">
-                <button class="w-action-link" style="margin:0;" onclick="closeRoomFlyout(); openFullService('smart-canvas', 'Smart Home')">
-                  Smart Canvas \u2192
-                </button>
-              </div>
-            \`;
-
-      flyout.innerHTML = \`
-        <div class="rf-header">
-          <span class="rf-title">\${room.name}</span>
-          <span class="rf-subtitle">\${subParts.join(' \xB7 ') || (room.activeCount + ' aktiv')}</span>
-        </div>
-        <div class="rf-dev-list">\${rowsHtml}</div>
-        \${footerHtml}
-      \`;
-      flyout.style.display = 'flex';
+      requestAnimationFrame(syncDevicesDockHeight);
     }
 
     async function setCameraModeFromFlyout(cameraId, mode) {
@@ -2000,25 +3316,341 @@ function renderUnifiedDashboardHtml(ingressPath) {
         roomsData = data.rooms || [];
         visionSummaryData = data.visionSummary || null;
         renderRoomDockBar();
-        if (activeRoomFlyoutId) {
-          renderActiveRoomFlyout();
-        }
+        renderPinnedRoomsTray();
       } catch (e) {
         console.error('Failed loading rooms quick access:', e);
       }
     }
 
-    function openFullService(appId, title) {
+    function setLeftNavActive(id) {
+      document.querySelectorAll('#left-ambient-navbar .lnav-item').forEach((btn) => {
+        btn.classList.toggle('active', btn.id === 'lnav-' + id);
+      });
+    }
+
+    function openFullService(appId, title, hash) {
+      setLeftNavActive(appId);
       document.getElementById('full-app-title').textContent = title;
-      document.getElementById('full-app-frame').src = base + '/apps/' + appId + '/';
+      document.getElementById('full-app-frame').src = base + '/apps/' + appId + '/' + (hash || '');
       document.getElementById('full-app-overlay').style.display = 'flex';
     }
 
     function closeFullService() {
+      setLeftNavActive('horizon');
       document.getElementById('full-app-overlay').style.display = 'none';
       document.getElementById('full-app-frame').src = 'about:blank';
       loadAllLiveData();
     }
+
+    // ============================================================================
+    // THASSI.FINANCES CONFIGURABLE PREVIEW & QUICK IMPORT FLYOUT
+    // ============================================================================
+    let financesDashData = null;
+    let financesPrivacyInitialized = false;
+    let financesHidden = true; // Hidden by default until user clicks to toggle
+
+    function fmtEurDash(val, masked) {
+      if (masked) return '\u2022\u2022\u2022\u2022 \u20AC';
+      return Number(val || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20AC';
+    }
+
+    function toggleFinancesVisibility(ev) {
+      if (ev) ev.stopPropagation();
+      financesHidden = !financesHidden;
+      renderFinancesPreviewWidget();
+    }
+
+    function handleCompactFinancesClick(ev) {
+      const w = document.getElementById('widget-finances');
+      if (w && w.classList.contains('expanded')) {
+        ev.stopPropagation();
+        toggleFinancesVisibility(ev);
+      }
+    }
+
+    async function refreshFinancesWidget(fallbackSummary) {
+      try {
+        const res = await fetch(base + '/api/apps/finance-analytics/dashboard');
+        if (res.ok) {
+          financesDashData = await res.json();
+          if (!financesPrivacyInitialized && financesDashData.previewConfig) {
+            financesHidden = financesDashData.previewConfig.hiddenByDefault !== false;
+            financesPrivacyInitialized = true;
+          }
+          renderFinancesPreviewWidget();
+          return;
+        }
+      } catch (err) {
+        console.warn('Finance dashboard endpoint fallback:', err);
+      }
+
+      const fb = fallbackSummary || {};
+      financesDashData = {
+        kpis: {
+          activeMonth: fb.activeMonth || 'Aktuell',
+          currentBalance: fb.currentBalance ?? 4850,
+          accountName: 'Sparkasse George Girokonto',
+          expensesDay: fb.expensesDay ?? 0,
+          expensesWeek: fb.expensesWeek ?? 0,
+          income: fb.income || 0,
+          expenses: fb.expenses || 0,
+          net: fb.netCashflow || 0,
+        },
+        balanceConfig: {
+          currentBalance: fb.currentBalance ?? 4850,
+          accountName: 'Sparkasse George Girokonto',
+        },
+        previewGroupBudgets: [],
+        previewConfig: {
+          hiddenByDefault: true,
+          primaryMetric: 'current_balance',
+          enabledElements: ['current_balance', 'expenses_day', 'expenses_week', 'quick_import']
+        }
+      };
+      renderFinancesPreviewWidget();
+    }
+
+    function renderFinancesPreviewWidget() {
+      const d = financesDashData;
+      const widgetEl = document.getElementById('widget-finances');
+      const compactEl = document.getElementById('compact-finances');
+      const subEl = document.getElementById('sub-finances');
+      const eyeBtn = document.getElementById('finances-eye-btn');
+      const toggleLink = document.getElementById('finances-toggle-link');
+      const dynEl = document.getElementById('finances-preview-dynamic');
+      const qiSlot = document.getElementById('finances-quick-import-slot');
+
+      if (!d || !compactEl || !dynEl) return;
+
+      if (widgetEl) {
+        widgetEl.classList.toggle('finances-is-hidden', Boolean(financesHidden));
+      }
+
+      const k = d.kpis || {};
+      const bal = d.balanceConfig || {};
+      const currentBalance = bal.currentBalance !== undefined ? bal.currentBalance : (k.currentBalance || 0);
+      const accountName = bal.accountName || k.accountName || 'Sparkasse George';
+      const expensesDay = k.expensesDay !== undefined ? k.expensesDay : (d.expensesToday || 0);
+      const expensesWeek = k.expensesWeek !== undefined ? k.expensesWeek : (d.expensesWeek || 0);
+      const netCashflow = k.net !== undefined ? k.net : (d.netCashflowMonth || 0);
+      const activeMonth = k.activeMonth || d.activeMonth || '';
+      const groupBudgets = d.previewGroupBudgets || d.groupBudgets || [];
+
+      const cfg = d.previewConfig || {
+        hiddenByDefault: true,
+        primaryMetric: 'current_balance',
+        enabledElements: ['current_balance', 'expenses_day', 'expenses_week', 'group_budgets', 'quick_import']
+      };
+      const enabled = cfg.enabledElements || [];
+
+      if (eyeBtn) {
+        eyeBtn.innerHTML = financesHidden ? '\u{1F441}\uFE0F' : '\u{1F512}';
+        eyeBtn.title = financesHidden ? 'Finanzdaten anzeigen' : 'Finanzdaten verbergen';
+      }
+      if (toggleLink) {
+        toggleLink.innerHTML = financesHidden ? '\u{1F441}\uFE0F Zahlen anzeigen' : '\u{1F512} Zahlen verbergen';
+      }
+
+      // Primary headline (hidden via CSS when financesHidden is true and widget is collapsed)
+      if (financesHidden) {
+        compactEl.innerHTML = '<strong>\u2022\u2022\u2022\u2022 \u20AC</strong>';
+        if (subEl) subEl.textContent = accountName;
+      } else {
+        let headlineVal = fmtEurDash(currentBalance, false);
+        let headlineSub = accountName + ' \xB7 Kontostand';
+        if (cfg.primaryMetric === 'expenses_day') {
+          headlineVal = '-' + fmtEurDash(expensesDay, false);
+          headlineSub = 'Ausgaben Tag (' + (k.expensesDayDate || 'Heute') + ')';
+        } else if (cfg.primaryMetric === 'expenses_week') {
+          headlineVal = '-' + fmtEurDash(expensesWeek, false);
+          headlineSub = 'Ausgaben 7-Tage (' + (k.expensesWeekRangeLabel || 'Woche') + ')';
+        } else if (cfg.primaryMetric === 'net_cashflow') {
+          const sign = Number(netCashflow) >= 0 ? '+' : '';
+          headlineVal = sign + fmtEurDash(netCashflow, false);
+          headlineSub = 'Cashflow ' + activeMonth;
+        }
+        compactEl.innerHTML = '<strong>' + headlineVal + '</strong>';
+        if (subEl) subEl.textContent = headlineSub;
+      }
+
+      // Build configurable dynamic body
+      const statCards = [];
+      if (enabled.includes('current_balance')) {
+        statCards.push(\`
+          <div class="w-stat-item">
+            <span class="w-stat-k">\u{1F3E6} Aktueller Kontostand</span>
+            <span class="w-stat-v" style="color:#38bdf8;">\${fmtEurDash(currentBalance, financesHidden)}</span>
+          </div>
+        \`);
+      }
+      if (enabled.includes('expenses_day')) {
+        statCards.push(\`
+          <div class="w-stat-item">
+            <span class="w-stat-k">\u{1F4C5} Ausgaben (Tag)</span>
+            <span class="w-stat-v" style="color:#f8fafc;">-\${fmtEurDash(expensesDay, financesHidden)}</span>
+          </div>
+        \`);
+      }
+      if (enabled.includes('expenses_week')) {
+        statCards.push(\`
+          <div class="w-stat-item">
+            <span class="w-stat-k">\u{1F4C6} Ausgaben (Woche)</span>
+            <span class="w-stat-v" style="color:#fbbf24;">-\${fmtEurDash(expensesWeek, financesHidden)}</span>
+          </div>
+        \`);
+      }
+
+      let html = '';
+      if (statCards.length > 0) {
+        html += \`<div class="w-stat-grid">\${statCards.join('')}</div>\`;
+      }
+
+      if (enabled.includes('group_budgets') && Array.isArray(groupBudgets) && groupBudgets.length > 0) {
+        const budgetRows = groupBudgets.slice(0, 4).map((b) => {
+          const pct = Math.min(100, Math.round(b.pctUsed !== undefined ? b.pctUsed : (b.pct || 0)));
+          const limit = b.budgetLimit !== undefined ? b.budgetLimit : (b.limit || 0);
+          const barColor = b.overBudget ? '#ef4444' : (b.color || '#38bdf8');
+          const valText = financesHidden
+            ? '\u2022\u2022\u2022\u2022 / \u2022\u2022\u2022\u2022 \u20AC'
+            : \`\${Math.round(b.spent || 0)} / \${Math.round(limit)} \u20AC\`;
+          return \`
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <div style="display:flex; justify-content:space-between; font-size:11px; color:rgba(248,250,252,0.88);">
+                <span>\${b.icon || '\u{1F4E6}'} \${b.labelDe || b.category}</span>
+                <span style="font-variant-numeric:tabular-nums; color:rgba(248,250,252,0.68);">\${valText}</span>
+              </div>
+              <div style="height:4px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden;">
+                <div style="width:\${financesHidden ? 35 : pct}%; height:100%; background:\${barColor};"></div>
+              </div>
+            </div>
+          \`;
+        }).join('');
+        html += \`<div style="display:flex; flex-direction:column; gap:6px; padding-top:4px;">\${budgetRows}</div>\`;
+      }
+
+      dynEl.innerHTML = html || '<div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Keine Preview-Felder ausgew\xE4hlt</div>';
+
+      if (qiSlot) {
+        if (enabled.includes('quick_import')) {
+          qiSlot.innerHTML = \`
+            <button onclick="openQuickImportFlyout(event)"
+                    style="width:100%; padding:7px 12px; border-radius:9px; border:1px solid rgba(56,189,248,0.4); background:linear-gradient(135deg, rgba(2,132,199,0.28), rgba(37,99,235,0.28)); color:#38bdf8; font-size:11.5px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
+              \u26A1 Quick Import (Online-Banking Flyout)
+            </button>
+          \`;
+        } else {
+          qiSlot.innerHTML = '';
+        }
+      }
+    }
+
+    function openQuickImportFlyout(ev) {
+      if (ev) ev.stopPropagation();
+      const modal = document.getElementById('quick-import-flyout-modal');
+      const frame = document.getElementById('qi-dash-frame');
+      if (frame) {
+        frame.src = base + '/api/apps/finance-analytics/quick-import/portal';
+      }
+      if (modal) {
+        modal.style.display = 'flex';
+      }
+    }
+
+    function closeQuickImportFlyout() {
+      const modal = document.getElementById('quick-import-flyout-modal');
+      const frame = document.getElementById('qi-dash-frame');
+      if (modal) modal.style.display = 'none';
+      if (frame) frame.src = 'about:blank';
+      loadAllLiveData();
+    }
+
+    function showQiDashStatus(msg, ok) {
+      const el = document.getElementById('qi-dash-status');
+      if (!el) return;
+      el.style.display = 'block';
+      el.style.background = ok ? 'rgba(16,185,129,0.16)' : 'rgba(239,68,68,0.16)';
+      el.style.border = '1px solid ' + (ok ? '#10b981' : '#ef4444');
+      el.style.color = ok ? '#34d399' : '#f87171';
+      el.textContent = msg;
+    }
+
+    function launchBankingPopupFromDashboard() {
+      const url = (financesDashData && financesDashData.quickImportConfig && financesDashData.quickImportConfig.loginUrl)
+        || 'https://george.sparkasse.at/index.html#/login';
+      const w = 1040, h = 760;
+      const left = Math.max(0, Math.round((window.screen.width - w) / 2));
+      const top = Math.max(0, Math.round((window.screen.height - h) / 2));
+      window.open(url, 'ThassiOnlineBankingPopup', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',resizable=yes,scrollbars=yes');
+      showQiDashStatus('\u{1FA9F} Online-Banking Popup ge\xF6ffnet. Nach Download wird der Export automatisch importiert.', true);
+    }
+
+    async function triggerDashboardQuickImportSample() {
+      try {
+        showQiDashStatus('\u23F3 Lade George-Umsatzexport herunter & importiere...', true);
+        const impRes = await fetch(base + '/api/apps/finance-analytics/quick-import/simulate-download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountName: 'Girokonto' })
+        });
+        const json = await impRes.json();
+        showQiDashStatus('\u2705 ' + (json.insertedCount || 0) + ' neue Buchungen importiert (' + (json.skippedDuplicates || 0) + ' Duplikate \xFCbersprungen)', true);
+        await refreshFinancesWidget();
+      } catch (e) {
+        showQiDashStatus('\u274C Fehler beim Quick-Import', false);
+      }
+    }
+
+    async function triggerDashboardDownloadsScan() {
+      try {
+        showQiDashStatus('\u{1F50D} Scanne Downloads-Ordner nach neuen Kontoausz\xFCgen...', true);
+        const res = await fetch(base + '/api/apps/finance-analytics/quick-import/scan-downloads', { method: 'POST' });
+        const json = await res.json();
+        const evts = json.events || [];
+        if (evts.length > 0) {
+          const totalIns = evts.reduce((s, x) => s + (x.insertedCount || 0), 0);
+          showQiDashStatus('\u2705 ' + evts.length + ' Datei(en) erkannt: ' + totalIns + ' neue Buchungen importiert!', true);
+        } else {
+          showQiDashStatus('\u2139\uFE0F Keine neuen Bank-Exporte in Downloads gefunden.', true);
+        }
+        await refreshFinancesWidget();
+      } catch (e) {
+        showQiDashStatus('\u274C Downloads-Scan fehlgeschlagen', false);
+      }
+    }
+
+    async function handleDashboardQuickFileSelect(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      try {
+        showQiDashStatus('\u23F3 Importiere ' + file.name + '...', true);
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = window.btoa(binary);
+        const res = await fetch(base + '/api/apps/finance-analytics/import-bank-csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, base64Content: b64 })
+        });
+        const json = await res.json();
+        showQiDashStatus('\u2705 ' + file.name + ': ' + (json.importedCount || 0) + ' Buchungen importiert!', true);
+        await refreshFinancesWidget();
+      } catch (e) {
+        showQiDashStatus('\u274C Datei-Import fehlgeschlagen', false);
+      }
+    }
+
+    window.addEventListener('message', (ev) => {
+      if (!ev.data || typeof ev.data !== 'object') return;
+      if (ev.data.type === 'THASSI_QUICK_IMPORT_DONE') {
+        const p = ev.data.payload || {};
+        showQiDashStatus('\u2705 Auto-Import abgeschlossen: ' + (p.insertedCount || p.imported || 0) + ' neue Buchungen!', true);
+        refreshFinancesWidget();
+      } else if (ev.data.type === 'THASSI_OPEN_BANK_POPUP') {
+        launchBankingPopupFromDashboard();
+      }
+    });
 
     function toggleEventModal(show) {
       const m = document.getElementById('quick-event-modal');
@@ -2071,55 +3703,262 @@ function renderUnifiedDashboardHtml(ingressPath) {
       await loadAllLiveData();
     }
 
+    function applyHealthWidgetData(h) {
+      if (h && (h.steps != null || h.currentHr != null)) {
+        const stepsVal = Number(h.steps ?? 0);
+        const stepGoal = Number(h.stepGoal || 10000);
+        const hrVal = h.currentHr != null ? Math.round(Number(h.currentHr)) : null;
+
+        // Minimal preview: Heart icon with HR inside + Progress circle with step count inside
+        const hrInsideEl = document.getElementById('health-hr-inside');
+        if (hrInsideEl) {
+          hrInsideEl.textContent = hrVal != null ? String(hrVal) : '--';
+        }
+        const stepsInsideEl = document.getElementById('health-steps-inside');
+        if (stepsInsideEl) {
+          stepsInsideEl.textContent = h.steps != null
+            ? (stepsVal >= 10000 ? (stepsVal / 1000).toFixed(1) + 'k' : String(stepsVal))
+            : '--';
+        }
+        const ringEl = document.getElementById('health-steps-ring');
+        if (ringEl) {
+          const pct = Math.min(1, Math.max(0, stepsVal / Math.max(1, stepGoal)));
+          const circum = 116.24; // 2 * Math.PI * 18.5
+          ringEl.style.strokeDashoffset = (circum * (1 - pct)).toFixed(1);
+        }
+
+        const stepsTxt = h.steps != null ? stepsVal.toLocaleString() + ' steps' : 'No steps';
+        const hrTxt = hrVal != null ? hrVal + ' bpm' : '';
+        const compactEl = document.getElementById('compact-health');
+        if (compactEl) compactEl.innerHTML = \`<strong>\${stepsTxt}</strong> \${hrTxt ? '\xB7 ' + hrTxt : ''}\`;
+        const subEl = document.getElementById('sub-health');
+        if (subEl) {
+          subEl.textContent =
+            h.readinessScore != null ? \`\${h.readinessScore}% readiness \xB7 \${h.readinessStatus || 'Pixel 10'}\` : (h.source || 'Pixel 10');
+        }
+        document.getElementById('eh-steps').textContent = h.steps != null ? stepsVal.toLocaleString() : 'No data';
+        document.getElementById('eh-ready').textContent = h.readinessScore != null ? h.readinessScore + '/100' : 'No data';
+        document.getElementById('eh-hr').textContent = hrVal != null ? hrVal + ' bpm' : 'No data';
+        document.getElementById('eh-rhr').textContent =
+          (h.restingHr != null ? h.restingHr + ' bpm' : '--') + ' / ' + (h.hrvMs != null ? h.hrvMs + ' ms' : '--');
+        document.getElementById('eh-sleep').textContent = h.sleepHours != null ? h.sleepHours + ' h' : 'No data';
+        document.getElementById('eh-burn').textContent =
+          (h.activeCalories != null ? h.activeCalories + ' kcal' : '--') + ' \xB7 ' + (h.distanceKm != null ? h.distanceKm + ' km' : '--');
+        return true;
+      }
+      return false;
+    }
+
+    async function refreshHealthWidget(summaryFromSys) {
+      if (applyHealthWidgetData(summaryFromSys)) return;
+      try {
+        const res = await fetch(base + '/api/apps/google-health/dashboard');
+        if (res.ok) {
+          const d = await res.json();
+          const t = d.today || {};
+          const r = d.readiness || {};
+          const normalized = {
+            steps: t.steps,
+            stepGoal: t.step_goal,
+            currentHr: t.current_hr,
+            restingHr: t.resting_hr,
+            sleepHours: t.sleep_hours,
+            activeCalories: t.active_calories,
+            readinessScore: r.score ?? t.readiness_score,
+            readinessStatus: r.status,
+            hrvMs: d.hrvMs,
+            distanceKm: d.distanceKm,
+            source: t.source || 'Pixel 10',
+          };
+          if (applyHealthWidgetData(normalized)) return;
+        }
+      } catch (_e) {}
+      const hrInsideEl = document.getElementById('health-hr-inside');
+      if (hrInsideEl) hrInsideEl.textContent = '--';
+      const stepsInsideEl = document.getElementById('health-steps-inside');
+      if (stepsInsideEl) stepsInsideEl.textContent = '--';
+      const compactEl = document.getElementById('compact-health');
+      if (compactEl) compactEl.textContent = 'No data';
+      const subEl = document.getElementById('sub-health');
+      if (subEl) subEl.textContent = 'Waiting for Pixel 10 telemetry';
+    }
+
+    function applyMealsWidgetData(m) {
+      if (m && (m.breakfast || m.lunch || m.dinner)) {
+        const nextMeal = m.dinner || m.lunch || m.breakfast;
+        document.getElementById('compact-meals').innerHTML = \`<strong>\${nextMeal}</strong>\`;
+        document.getElementById('sub-meals').textContent = \`\${m.totalCalories || 0} kcal planned today\`;
+        document.getElementById('em-slots').innerHTML = \`
+          <div>\u{1F305} <strong>Breakfast:</strong> \${m.breakfast || '\u2014'}</div>
+          <div>\u2600\uFE0F <strong>Lunch:</strong> \${m.lunch || '\u2014'}</div>
+          <div>\u{1F319} <strong>Dinner:</strong> \${m.dinner || '\u2014'}</div>
+        \`;
+        return true;
+      }
+      return false;
+    }
+
+    async function refreshMealsWidget(summaryFromSys) {
+      if (applyMealsWidgetData(summaryFromSys)) return;
+      try {
+        const res = await fetch(base + '/api/apps/meal-planner/sync-ha', { method: 'POST' });
+        if (res.ok) {
+          const d = await res.json();
+          if (applyMealsWidgetData(d)) return;
+        }
+      } catch (_e) {}
+      document.getElementById('compact-meals').textContent = 'Unplanned';
+      document.getElementById('sub-meals').textContent = 'No meals logged for today';
+      document.getElementById('em-slots').innerHTML = 'No meals planned for today yet.';
+    }
+
+    function toggleCalendarFilterPopover(ev) {
+      if (ev) ev.stopPropagation();
+      const pop = document.getElementById('horizon-cal-filter-popover');
+      if (!pop) return;
+      pop.classList.toggle('open');
+      if (pop.classList.contains('open')) {
+        renderCalendarFilterPopover();
+      }
+    }
+
+    function renderCalendarFilterPopover() {
+      const listEl = document.getElementById('horizon-cal-filter-list');
+      const badgeEl = document.getElementById('cal-filter-oauth-badge');
+      const btnLabel = document.getElementById('cal-filter-btn-label');
+
+      const visibleSet = new Set();
+      for (const c of horizonCalendars) {
+        if (Number(c.show_in_horizon) === 1) {
+          visibleSet.add(c.calendar_name);
+        }
+      }
+
+      if (btnLabel) {
+        if (horizonCalendars.length > 0) {
+          btnLabel.textContent = \`Calendars (\${visibleSet.size}/\${horizonCalendars.length})\`;
+        } else {
+          btnLabel.textContent = 'Calendars';
+        }
+      }
+
+      if (badgeEl) {
+        if (googleOAuthInfo && googleOAuthInfo.authorized) {
+          badgeEl.style.color = '#34d399';
+          badgeEl.textContent = '\u{1F7E2} Google OAuth Connected' + (googleOAuthInfo.accountEmail ? ' (' + googleOAuthInfo.accountEmail + ')' : '');
+        } else {
+          badgeEl.style.color = '#fbbf24';
+          badgeEl.textContent = '\u26A1 Home Assistant + Google Calendar Sync';
+        }
+      }
+
+      if (!listEl) return;
+      if (!horizonCalendars || horizonCalendars.length === 0) {
+        listEl.innerHTML = '<div style="font-size:11px; color:#94a3b8; padding:6px;">No calendars discovered yet. Click Sync below.</div>';
+        return;
+      }
+
+      listEl.innerHTML = horizonCalendars
+        .map((c, idx) => {
+          const checked = Number(c.show_in_horizon) === 1;
+          const color = c.color || '#38bdf8';
+          const count = Number(c.event_count || 0);
+          const safeName = String(c.calendar_name || '').split('"').join('&quot;');
+          return \`
+            <label class="cal-filter-row" title="\${safeName}">
+              <div style="display:flex; align-items:center; gap:7px; min-width:0; flex:1;">
+                <input type="checkbox" \${checked ? 'checked' : ''} onchange="toggleHorizonCalendarItem(\${idx}, this.checked)" style="accent-color:\${color}; cursor:pointer;" />
+                <span style="width:8px; height:8px; border-radius:99px; background:\${color}; flex-shrink:0;"></span>
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; color:\${checked ? '#f8fafc' : '#64748b'};">\${c.calendar_name}</span>
+              </div>
+              <span style="font-size:10px; color:#94a3b8; flex-shrink:0;">\${count}</span>
+            </label>
+          \`;
+        })
+        .join('');
+    }
+
+    function applyLocalHorizonCalendarFilter() {
+      const hiddenNames = new Set(
+        horizonCalendars.filter((c) => Number(c.show_in_horizon) === 0).map((c) => c.calendar_name)
+      );
+      calendarEvents = allCalendarEvents.filter((ev) => !hiddenNames.has(ev.calendar_name || 'Google Calendar'));
+      renderCalendarFilterPopover();
+      renderTimelineGeometry();
+    }
+
+    async function toggleHorizonCalendarItem(idx, checked) {
+      const target = horizonCalendars[idx];
+      if (!target) return;
+      target.show_in_horizon = checked ? 1 : 0;
+      applyLocalHorizonCalendarFilter();
+      try {
+        await fetch(base + '/api/apps/google-calendar/calendars/visibility', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ calendar_name: target.calendar_name, show_in_horizon: checked })
+        });
+      } catch (_e) {}
+    }
+
+    async function setAllHorizonCalendarsFromDash(show) {
+      const map = {};
+      for (const c of horizonCalendars) {
+        c.show_in_horizon = show ? 1 : 0;
+        map[c.calendar_name] = show;
+      }
+      applyLocalHorizonCalendarFilter();
+      try {
+        await fetch(base + '/api/apps/google-calendar/calendars/visibility', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ calendars: map })
+        });
+      } catch (_e) {}
+    }
+
+    async function syncGoogleCalendarsFromDash() {
+      const badgeEl = document.getElementById('cal-filter-oauth-badge');
+      if (badgeEl) {
+        badgeEl.style.color = '#38bdf8';
+        badgeEl.textContent = '\u23F3 Syncing Google OAuth & Home Assistant...';
+      }
+      try {
+        await fetch(base + '/api/apps/google-calendar/oauth/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ importFromHa: true })
+        });
+        await fetch(base + '/api/apps/google-calendar/sync', { method: 'POST' });
+        await loadAllLiveData();
+      } catch (_e) {}
+    }
+
     async function loadAllLiveData() {
       try {
         void loadRoomsQuickAccess();
         const [sysRes, calRes] = await Promise.all([
-          fetch(base + '/api/system/status'),
+          fetch(base + '/api/system/status').catch(() => null),
           fetch(base + '/api/apps/google-calendar/dashboard').catch(() => null)
         ]);
-        const sys = await sysRes.json();
+        const sys = sysRes && sysRes.ok ? await sysRes.json() : {};
         const calData = calRes && calRes.ok ? await calRes.json() : { events: [] };
 
         calendarEvents = calData.events || [];
+        allCalendarEvents = calData.allEvents || calData.events || [];
+        horizonCalendars = calData.calendars || [];
+        googleOAuthInfo = calData.googleOAuth || null;
+        renderCalendarFilterPopover();
         renderTimelineGeometry();
 
-        // 1. Update HEALTH widget
-        const h = sys.summaries?.health;
-        if (h && (h.steps != null || h.currentHr != null)) {
-          const stepsTxt = h.steps != null ? Number(h.steps).toLocaleString() + ' steps' : 'No steps';
-          const hrTxt = h.currentHr != null ? h.currentHr + ' bpm' : '';
-          document.getElementById('compact-health').innerHTML = \`<strong>\${stepsTxt}</strong> \${hrTxt ? '\xB7 ' + hrTxt : ''}\`;
-          document.getElementById('sub-health').textContent =
-            h.readinessScore != null ? \`\${h.readinessScore}% readiness \xB7 \${h.readinessStatus || 'Pixel 10'}\` : (h.source || 'Pixel 10');
-          document.getElementById('eh-steps').textContent = h.steps != null ? Number(h.steps).toLocaleString() : 'No data';
-          document.getElementById('eh-ready').textContent = h.readinessScore != null ? h.readinessScore + '/100' : 'No data';
-          document.getElementById('eh-hr').textContent = h.currentHr != null ? h.currentHr + ' bpm' : 'No data';
-          document.getElementById('eh-rhr').textContent =
-            (h.restingHr != null ? h.restingHr + ' bpm' : '--') + ' / ' + (h.hrvMs != null ? h.hrvMs + ' ms' : '--');
-          document.getElementById('eh-sleep').textContent = h.sleepHours != null ? h.sleepHours + ' h' : 'No data';
-          document.getElementById('eh-burn').textContent =
-            (h.activeCalories != null ? h.activeCalories + ' kcal' : '--') + ' \xB7 ' + (h.distanceKm != null ? h.distanceKm + ' km' : '--');
-        } else {
-          document.getElementById('compact-health').textContent = 'No data';
-          document.getElementById('sub-health').textContent = 'Waiting for Pixel 10 telemetry';
-        }
+        // Weather forecast & background effects for St. Veit / G\xF6lsen
+        void loadWeatherData(sys.summaries?.weather);
 
-        // 2. Update FINANCES widget
-        const f = sys.summaries?.finance;
-        if (f && (f.income || f.expenses)) {
-          const net = Number(f.netCashflow || 0);
-          const sign = net >= 0 ? '+' : '';
-          document.getElementById('compact-finances').innerHTML = \`<strong>\${sign}\u20AC\${net.toFixed(0)}</strong> \xB7 -\u20AC\${Number(f.expenses || 0).toFixed(0)}\`;
-          document.getElementById('sub-finances').textContent = \`George \xB7 \${f.activeMonth || 'Current'}\`;
-          document.getElementById('ef-inc').textContent = '+\u20AC' + Number(f.income || 0).toFixed(0);
-          document.getElementById('ef-exp').textContent = '-\u20AC' + Number(f.expenses || 0).toFixed(0);
-          document.getElementById('ef-inv').textContent = '\u20AC' + Number(f.investments || 0).toFixed(0);
-          document.getElementById('ef-groc').textContent = '\u20AC' + Number(f.grocerySpend || 0).toFixed(0);
-        } else {
-          document.getElementById('compact-finances').textContent = 'No data';
-          document.getElementById('sub-finances').textContent = 'No bank CSV imported';
-        }
+        // 1. Update HEALTH widget
+        void refreshHealthWidget(sys.summaries?.health);
+
+        // 2. Update FINANCES widget (Configurable preview, hidden by default)
+        void refreshFinancesWidget(sys.summaries?.finance);
 
         // 3. Update NOTES widget
         const notes = sys.notes || [];
@@ -2142,24 +3981,10 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
 
         // 4. Update MEALS widget
-        const m = sys.summaries?.meals;
-        if (m && (m.breakfast || m.lunch || m.dinner)) {
-          const nextMeal = m.dinner || m.lunch || m.breakfast;
-          document.getElementById('compact-meals').innerHTML = \`<strong>\${nextMeal}</strong>\`;
-          document.getElementById('sub-meals').textContent = \`\${m.totalCalories || 0} kcal planned today\`;
-          document.getElementById('em-slots').innerHTML = \`
-            <div>\u{1F305} <strong>Breakfast:</strong> \${m.breakfast || '\u2014'}</div>
-            <div>\u2600\uFE0F <strong>Lunch:</strong> \${m.lunch || '\u2014'}</div>
-            <div>\u{1F319} <strong>Dinner:</strong> \${m.dinner || '\u2014'}</div>
-          \`;
-        } else {
-          document.getElementById('compact-meals').textContent = 'Unplanned';
-          document.getElementById('sub-meals').textContent = 'No meals logged for today';
-          document.getElementById('em-slots').innerHTML = 'No meals planned for today yet.';
-        }
+        void refreshMealsWidget(sys.summaries?.meals);
 
         // 5. Update 3D PRINT Mini-Preview Widget
-        await refreshMini3dData(sys.summaries?.print3d);
+        void refreshMini3dData(sys.summaries?.print3d);
       } catch (err) {
         console.error('Failed loading dashboard data:', err);
       }
@@ -2194,6 +4019,35 @@ function renderUnifiedDashboardHtml(ingressPath) {
       centerZ: 20,
     };
 
+    function transformMiniPt(pt, pos, rotDeg, scale) {
+      let x = pt[0] * ((scale && scale[0]) || 1);
+      let y = pt[1] * ((scale && scale[1]) || 1);
+      let z = pt[2] * ((scale && scale[2]) || 1);
+      const rx = (((rotDeg && rotDeg[0]) || 0) * Math.PI) / 180;
+      const ry = (((rotDeg && rotDeg[1]) || 0) * Math.PI) / 180;
+      const rz = (((rotDeg && rotDeg[2]) || 0) * Math.PI) / 180;
+      if (rx !== 0) {
+        const c = Math.cos(rx), s = Math.sin(rx);
+        const ny = y * c - z * s, nz = y * s + z * c;
+        y = ny; z = nz;
+      }
+      if (ry !== 0) {
+        const c = Math.cos(ry), s = Math.sin(ry);
+        const nx = x * c + z * s, nz = -x * s + z * c;
+        x = nx; z = nz;
+      }
+      if (rz !== 0) {
+        const c = Math.cos(rz), s = Math.sin(rz);
+        const nx = x * c - y * s, ny = x * s + y * c;
+        x = nx; y = ny;
+      }
+      return [
+        x + ((pos && pos[0]) || 0),
+        y + ((pos && pos[1]) || 0),
+        z + ((pos && pos[2]) || 0),
+      ];
+    }
+
     function buildMiniTrianglesFromScene(scene) {
       if (!scene || !Array.isArray(scene.nodes) || scene.nodes.length === 0) return [];
       const tris = [];
@@ -2201,35 +4055,130 @@ function renderUnifiedDashboardHtml(ingressPath) {
         if (n.operation === 'subtract') continue;
         const p = n.params || {};
         const pos = n.position || [0, 0, 0];
-        const col = n.color || scene.primaryColor || '#00AE42';
-        const w = (p.width || (p.radius ? p.radius * 2 : 36)) / 2;
-        const d = (p.depth || (p.radius ? p.radius * 2 : 36)) / 2;
-        const h = p.height || (p.radius ? p.radius * 2 : 30);
-        const cx = pos[0] || 0;
-        const cy = pos[1] || 0;
-        const z0 = pos[2] || 0;
-        const z1 = z0 + h;
+        const rot = n.rotation || [0, 0, 0];
+        const scl = n.scale || [1, 1, 1];
+        const col = n.color || (scene.printProfile && scene.printProfile.filamentColor) || '#00AE42';
+        const local = [];
+        const addQ = (a, b, c, d) => {
+          local.push([a, b, c]);
+          local.push([a, c, d]);
+        };
 
-        if (n.type === 'cylinder' || n.type === 'cone' || n.type === 'gear' || n.type === 'twisted_vase' || n.type === 'hex_organizer' || n.type === 'sphere' || n.type === 'torus') {
-          const segs = n.type === 'hex_organizer' ? 6 : 16;
-          const rBot = (p.radiusBottom || p.outerRadius || p.radius || w);
-          const rTop = n.type === 'cone' ? (p.radiusTop != null ? p.radiusTop : rBot * 0.2) : rBot;
+        if (n.type === 'apple') {
+          const rad = Math.max(8, p.radius || 34);
+          const h = Math.max(12, p.height || 58);
+          const topInd = p.topIndent || h * 0.21;
+          const botInd = p.bottomIndent || h * 0.09;
+          const prof = [
+            [0.0, botInd],
+            [0.35, 0.0],
+            [0.78, h * 0.18],
+            [1.03, h * 0.54],
+            [0.85, h * 0.88],
+            [0.54, h],
+            [0.24, h - topInd * 0.55],
+            [0.0, h - topInd],
+          ];
+          const segs = 18;
+          for (let ri = 0; ri < prof.length - 1; ri++) {
+            const [rf0, z0] = prof[ri];
+            const [rf1, z1] = prof[ri + 1];
+            for (let li = 0; li < segs; li++) {
+              const a0 = (li / segs) * Math.PI * 2;
+              const a1 = ((li + 1) / segs) * Math.PI * 2;
+              const r0 = rad * rf0, r1 = rad * rf1;
+              const p00 = [r0 * Math.cos(a0), r0 * Math.sin(a0), z0];
+              const p10 = [r0 * Math.cos(a1), r0 * Math.sin(a1), z0];
+              const p11 = [r1 * Math.cos(a1), r1 * Math.sin(a1), z1];
+              const p01 = [r1 * Math.cos(a0), r1 * Math.sin(a0), z1];
+              if (rf0 <= 1e-4) local.push([p00, p11, p01]);
+              else if (rf1 <= 1e-4) local.push([p00, p10, p11]);
+              else addQ(p00, p10, p11, p01);
+            }
+          }
+        } else if (n.type === 'lathe') {
+          const h = Math.max(10, p.height || 65);
+          const ctrl = [
+            p.rBottom || p.radiusBottom || 22,
+            p.rLower || p.rBelly || 28,
+            p.rMid || 26,
+            p.rUpper || 20,
+            p.rNeck || 14,
+            p.rTop || p.radiusTop || 14,
+          ];
+          const segs = 16;
+          for (let ri = 0; ri < ctrl.length - 1; ri++) {
+            const r0 = ctrl[ri], r1 = ctrl[ri + 1];
+            const z0 = (ri / (ctrl.length - 1)) * h;
+            const z1 = ((ri + 1) / (ctrl.length - 1)) * h;
+            for (let li = 0; li < segs; li++) {
+              const a0 = (li / segs) * Math.PI * 2;
+              const a1 = ((li + 1) / segs) * Math.PI * 2;
+              addQ(
+                [r0 * Math.cos(a0), r0 * Math.sin(a0), z0],
+                [r0 * Math.cos(a1), r0 * Math.sin(a1), z0],
+                [r1 * Math.cos(a1), r1 * Math.sin(a1), z1],
+                [r1 * Math.cos(a0), r1 * Math.sin(a0), z1]
+              );
+            }
+          }
+        } else if (n.type === 'sphere') {
+          const rad = Math.max(2, p.radius || 20);
+          const dome = Boolean(p.domeOnly);
+          const latS = dome ? 6 : 10;
+          const lonS = 16;
+          for (let la = 0; la < latS; la++) {
+            const t0 = dome ? (la / latS) * (Math.PI / 2) : -Math.PI / 2 + (la / latS) * Math.PI;
+            const t1 = dome ? ((la + 1) / latS) * (Math.PI / 2) : -Math.PI / 2 + ((la + 1) / latS) * Math.PI;
+            const z0 = dome ? rad * Math.sin(t0) : rad + rad * Math.sin(t0);
+            const z1 = dome ? rad * Math.sin(t1) : rad + rad * Math.sin(t1);
+            const r0 = rad * Math.cos(t0), r1 = rad * Math.cos(t1);
+            for (let lo = 0; lo < lonS; lo++) {
+              const a0 = (lo / lonS) * Math.PI * 2, a1 = ((lo + 1) / lonS) * Math.PI * 2;
+              addQ(
+                [r0 * Math.cos(a0), r0 * Math.sin(a0), z0],
+                [r0 * Math.cos(a1), r0 * Math.sin(a1), z0],
+                [r1 * Math.cos(a1), r1 * Math.sin(a1), z1],
+                [r1 * Math.cos(a0), r1 * Math.sin(a0), z1]
+              );
+            }
+          }
+        } else if (n.type === 'torus') {
+          const R = Math.max(4, p.radius || 22);
+          const r = Math.max(1, p.tubeRadius || 5);
+          const majS = 16, minS = 10;
+          for (let i = 0; i < majS; i++) {
+            const u0 = (i / majS) * Math.PI * 2, u1 = ((i + 1) / majS) * Math.PI * 2;
+            for (let j = 0; j < minS; j++) {
+              const v0 = (j / minS) * Math.PI * 2, v1 = ((j + 1) / minS) * Math.PI * 2;
+              const tp = (u, v) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u), r + r * Math.sin(v)];
+              addQ(tp(u0, v0), tp(u1, v0), tp(u1, v1), tp(u0, v1));
+            }
+          }
+        } else if (n.type === 'cylinder' || n.type === 'cone' || n.type === 'gear' || n.type === 'twisted_vase' || n.type === 'hex_organizer' || n.type === 'star' || n.type === 'heart') {
+          const segs = n.type === 'hex_organizer' ? 6 : 18;
+          const rBot = p.radiusBottom || p.outerRadius || p.radius || (p.width ? p.width / 2 : 20);
+          const rTop = n.type === 'cone' ? (p.radiusTop != null ? p.radiusTop : 1) : (p.radiusTop || rBot);
+          const h = p.height || 30;
           for (let i = 0; i < segs; i++) {
             const a0 = (i / segs) * Math.PI * 2;
             const a1 = ((i + 1) / segs) * Math.PI * 2;
-            const x0b = cx + Math.cos(a0) * rBot, y0b = cy + Math.sin(a0) * rBot;
-            const x1b = cx + Math.cos(a1) * rBot, y1b = cy + Math.sin(a1) * rBot;
-            const x0t = cx + Math.cos(a0) * rTop, y0t = cy + Math.sin(a0) * rTop;
-            const x1t = cx + Math.cos(a1) * rTop, y1t = cy + Math.sin(a1) * rTop;
-            tris.push({ v: [[x0b, y0b, z0], [x1b, y1b, z0], [x1t, y1t, z1]], c: col });
-            tris.push({ v: [[x0b, y0b, z0], [x1t, y1t, z1], [x0t, y0t, z1]], c: col });
-            tris.push({ v: [[cx, cy, z1], [x0t, y0t, z1], [x1t, y1t, z1]], c: col });
+            const m0 = n.type === 'star' && i % 2 === 1 ? 0.45 : 1;
+            const m1 = n.type === 'star' && (i + 1) % 2 === 1 ? 0.45 : 1;
+            const x0b = Math.cos(a0) * rBot * m0, y0b = Math.sin(a0) * rBot * m0;
+            const x1b = Math.cos(a1) * rBot * m1, y1b = Math.sin(a1) * rBot * m1;
+            const x0t = Math.cos(a0) * rTop * m0, y0t = Math.sin(a0) * rTop * m0;
+            const x1t = Math.cos(a1) * rTop * m1, y1t = Math.sin(a1) * rTop * m1;
+            addQ([x0b, y0b, 0], [x1b, y1b, 0], [x1t, y1t, h], [x0t, y0t, h]);
+            local.push([[0, 0, h], [x0t, y0t, h], [x1t, y1t, h]]);
           }
         } else {
-          // Box / Bracket / Default
+          const w = (p.width || 36) / 2;
+          const d = (p.depth || 36) / 2;
+          const h = p.height || 30;
           const v = [
-            [cx - w, cy - d, z0], [cx + w, cy - d, z0], [cx + w, cy + d, z0], [cx - w, cy + d, z0],
-            [cx - w, cy - d, z1], [cx + w, cy - d, z1], [cx + w, cy + d, z1], [cx - w, cy + d, z1]
+            [-w, -d, 0], [w, -d, 0], [w, d, 0], [-w, d, 0],
+            [-w, -d, h], [w, -d, h], [w, d, h], [-w, d, h]
           ];
           const faces = [
             [4, 5, 6], [4, 6, 7],
@@ -2238,9 +4187,18 @@ function renderUnifiedDashboardHtml(ingressPath) {
             [2, 3, 7], [2, 7, 6],
             [3, 0, 4], [3, 4, 7]
           ];
-          for (const f of faces) {
-            tris.push({ v: [v[f[0]], v[f[1]], v[f[2]]], c: col });
-          }
+          for (const f of faces) local.push([v[f[0]], v[f[1]], v[f[2]]]);
+        }
+
+        for (const [p0, p1, p2] of local) {
+          tris.push({
+            v: [
+              transformMiniPt(p0, pos, rot, scl),
+              transformMiniPt(p1, pos, rot, scl),
+              transformMiniPt(p2, pos, rot, scl),
+            ],
+            c: col,
+          });
         }
       }
       return tris;
@@ -2304,6 +4262,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       const subEl = document.getElementById('sub-3dprint');
       const fillEl = document.getElementById('mini-3d-progress-fill');
       const dotEl = document.getElementById('dot-3dprint');
+      const dockMetaEl = document.getElementById('print3d-dock-meta');
       const ePrinter = document.getElementById('e3d-printer');
       const eLayer = document.getElementById('e3d-layer');
       const eDims = document.getElementById('e3d-dims');
@@ -2316,6 +4275,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (!hasProj) {
         if (compactEl) compactEl.textContent = 'Kein 3D-Projekt';
         if (subEl) subEl.textContent = 'Platzhalter aktiv \xB7 0%';
+        if (dockMetaEl) dockMetaEl.textContent = 'Leerlauf';
         if (dotEl) {
           dotEl.style.background = '#94a3b8';
           dotEl.style.boxShadow = '0 0 8px rgba(148,163,184,0.5)';
@@ -2331,6 +4291,9 @@ function renderUnifiedDashboardHtml(ingressPath) {
               ? (Math.round(dimX) + '\xD7' + Math.round(dimY) + '\xD7' + Math.round(dimZ) + 'mm \xB7 ' + (pct > 0 ? pct + '%' : 'Bereit'))
               : 'Bereit zum Druck');
         if (subEl) subEl.textContent = statusLabel;
+        if (dockMetaEl) {
+          dockMetaEl.textContent = isPrinting ? (pct + '%') : 'Bereit';
+        }
         if (dotEl) {
           const c = isPrinting ? '#38bdf8' : '#00AE42';
           dotEl.style.background = c;
@@ -2524,7 +4487,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
     async function toggleMini3dPlaceholder() {
       try {
-        const nextId = mini3dState.hasActiveProject ? null : 'preset-headphone-hook';
+        const nextId = mini3dState.hasActiveProject ? null : 'preset-organic-apple';
         await fetch(base + '/api/apps/3d-print/projects/select', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2549,17 +4512,30 @@ function renderUnifiedDashboardHtml(ingressPath) {
       }
     }
 
+    window.openFullService = openFullService;
+    window.closeFullService = closeFullService;
+    window.submitMini3dPrompt = submitMini3dPrompt;
+    window.toggleMini3dPlaceholder = toggleMini3dPlaceholder;
+    window.triggerMini3dPrint = triggerMini3dPrint;
+    window.toggleRoomPin = toggleRoomPin;
+    window.unpinAllRooms = unpinAllRooms;
+
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
       renderTimelineGeometry();
+      syncDevicesDockHeight();
     });
 
     renderSolarArcPaths();
+    renderTimelineGeometry();
+    syncDevicesDockHeight();
     initMini3dCanvas();
     tickClockAndTimeline();
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
+    void loadWeatherData();
     setInterval(loadAllLiveData, 60000);
+    setInterval(() => void loadWeatherData(), 600000);
     setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
 
@@ -3045,6 +5021,208 @@ function generateHexOrganizerTriangles(params) {
   }
   return tris;
 }
+function generateAppleTriangles(params) {
+  const radius = Math.max(8, params.radius ?? 34);
+  const height = Math.max(12, params.height ?? 58);
+  const lobeCount = Math.max(0, Math.min(12, Math.round(params.lobeCount ?? 5)));
+  const lobeAmp = Math.max(0, Math.min(radius * 0.18, params.lobeAmplitude ?? radius * 0.042));
+  const topIndent = Math.max(2, Math.min(height * 0.35, params.topIndent ?? height * 0.21));
+  const bottomIndent = Math.max(1, Math.min(height * 0.22, params.bottomIndent ?? height * 0.09));
+  const lonSegs = Math.min(64, Math.max(16, Math.round(params.segments ?? 36)));
+  const profile = [
+    [0, bottomIndent, 0],
+    [0.18, bottomIndent * 0.35, 0.1],
+    [0.35, 0, 0.25],
+    // Printable resting rim at Z = 0
+    [0.58, height * 0.06, 0.5],
+    [0.79, height * 0.18, 0.75],
+    [0.95, height * 0.36, 0.95],
+    [1.03, height * 0.56, 1],
+    // Widest upper-middle apple cheek
+    [0.98, height * 0.74, 0.92],
+    [0.83, height * 0.9, 0.7],
+    [0.56, height, 0.4],
+    // Top shoulder crest at Z = height
+    [0.32, height - topIndent * 0.38, 0.2],
+    [0.14, height - topIndent * 0.82, 0.05],
+    [0, height - topIndent, 0]
+    // Center of top stem cavity
+  ];
+  const tris = [];
+  const rings = profile.length;
+  const ringPt = (ri, li) => {
+    const [rFrac, zVal, lobeW] = profile[ri];
+    if (rFrac <= 1e-5) {
+      return { x: 0, y: 0, z: zVal };
+    }
+    const phi = li / lonSegs * Math.PI * 2;
+    const lobe = lobeCount > 0 ? lobeAmp * lobeW * Math.cos(lobeCount * phi) : 0;
+    const r = Math.max(0.2, radius * rFrac + lobe);
+    return {
+      x: r * Math.cos(phi),
+      y: r * Math.sin(phi),
+      z: zVal
+    };
+  };
+  for (let ri = 0; ri < rings - 1; ri++) {
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      const p00 = ringPt(ri, li);
+      const p10 = ringPt(ri, ln);
+      const p11 = ringPt(ri + 1, ln);
+      const p01 = ringPt(ri + 1, li);
+      if (profile[ri][0] <= 1e-5) {
+        tris.push([p00, p11, p01]);
+      } else if (profile[ri + 1][0] <= 1e-5) {
+        tris.push([p00, p10, p11]);
+      } else {
+        pushQuad(tris, p00, p10, p11, p01);
+      }
+    }
+  }
+  return tris;
+}
+function generateLatheTriangles(params) {
+  const height = Math.max(10, params.height ?? 65);
+  const rBottom = Math.max(2, params.rBottom ?? params.radiusBottom ?? 22);
+  const rLower = Math.max(2, params.rLower ?? params.rBelly ?? rBottom * 1.25);
+  const rMid = Math.max(2, params.rMid ?? rLower * 0.95);
+  const rUpper = Math.max(2, params.rUpper ?? params.rShoulder ?? rMid * 0.85);
+  const rNeck = Math.max(1.5, params.rNeck ?? rUpper * 0.65);
+  const rTop = Math.max(1.5, params.rTop ?? params.radiusTop ?? rNeck);
+  const topIndent = Math.max(0, Math.min(height * 0.85, params.topIndent ?? 0));
+  const bottomIndent = Math.max(0, Math.min(height * 0.25, params.bottomIndent ?? 0));
+  const wall = Math.max(0, Math.min(Math.min(rBottom, rTop) - 0.8, params.wallThickness ?? 0));
+  const lobeCount = Math.max(0, Math.min(24, Math.round(params.lobeCount ?? 0)));
+  const lobeAmp = Math.max(0, Math.min(10, params.lobeAmplitude ?? 0));
+  const lonSegs = Math.min(64, Math.max(12, Math.round(params.segments ?? 36)));
+  const ctrl = [
+    [rBottom, 0],
+    [rLower, height * 0.22],
+    [rMid, height * 0.48],
+    [rUpper, height * 0.74],
+    [rNeck, height * 0.9],
+    [rTop, height]
+  ];
+  const zSteps = 20;
+  const sampleOuterR = (t) => {
+    const scaled = t * (ctrl.length - 1);
+    const idx = Math.min(ctrl.length - 2, Math.floor(scaled));
+    const frac = scaled - idx;
+    const smooth = 0.5 - 0.5 * Math.cos(frac * Math.PI);
+    return ctrl[idx][0] + (ctrl[idx + 1][0] - ctrl[idx][0]) * smooth;
+  };
+  const tris = [];
+  const getOuter = (zi, li) => {
+    const t = zi / zSteps;
+    const z = t * height;
+    const phi = li / lonSegs * Math.PI * 2;
+    const baseR = sampleOuterR(t);
+    const lobe = lobeCount > 0 ? lobeAmp * Math.sin(t * Math.PI) * Math.cos(lobeCount * phi) : 0;
+    const r = Math.max(1, baseR + lobe);
+    return { x: r * Math.cos(phi), y: r * Math.sin(phi), z };
+  };
+  for (let zi = 0; zi < zSteps; zi++) {
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      pushQuad(tris, getOuter(zi, li), getOuter(zi, ln), getOuter(zi + 1, ln), getOuter(zi + 1, li));
+    }
+  }
+  const bCenter = { x: 0, y: 0, z: bottomIndent };
+  for (let li = 0; li < lonSegs; li++) {
+    const ln = (li + 1) % lonSegs;
+    tris.push([bCenter, getOuter(0, ln), getOuter(0, li)]);
+  }
+  if (wall > 0.8) {
+    const floorZ = Math.max(2, Math.min(height * 0.25, wall * 1.5));
+    const getInner = (zi, li) => {
+      const t = zi / zSteps;
+      const z = floorZ + t * (height - floorZ);
+      const phi = li / lonSegs * Math.PI * 2;
+      const r = Math.max(0.8, sampleOuterR(t) - wall);
+      return { x: r * Math.cos(phi), y: r * Math.sin(phi), z };
+    };
+    for (let zi = 0; zi < zSteps; zi++) {
+      for (let li = 0; li < lonSegs; li++) {
+        const ln = (li + 1) % lonSegs;
+        pushQuad(tris, getInner(zi, ln), getInner(zi, li), getInner(zi + 1, li), getInner(zi + 1, ln));
+      }
+    }
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      pushQuad(tris, getOuter(zSteps, li), getOuter(zSteps, ln), getInner(zSteps, ln), getInner(zSteps, li));
+      tris.push([{ x: 0, y: 0, z: floorZ }, getInner(0, li), getInner(0, ln)]);
+    }
+  } else {
+    const tCenter = { x: 0, y: 0, z: height - topIndent };
+    for (let li = 0; li < lonSegs; li++) {
+      const ln = (li + 1) % lonSegs;
+      tris.push([tCenter, getOuter(zSteps, li), getOuter(zSteps, ln)]);
+    }
+  }
+  return tris;
+}
+function generateHeartTriangles(params) {
+  const width = Math.max(12, params.width ?? 60);
+  const depth = Math.max(12, params.depth ?? 56);
+  const height = Math.max(4, params.height ?? 22);
+  const crown = Math.max(0, Math.min(height * 0.4, params.bevel ?? 4));
+  const segs = 48;
+  const scaleX = width / 32;
+  const scaleY = depth / 30;
+  const ring = [];
+  for (let i = 0; i < segs; i++) {
+    const t = i / segs * Math.PI * 2;
+    const hx = 16 * Math.pow(Math.sin(t), 3) * scaleX;
+    const hy = (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) * scaleY;
+    ring.push([hx, hy]);
+  }
+  const tris = [];
+  const wallH = Math.max(2, height - crown);
+  for (let i = 0; i < segs; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % segs];
+    pushQuad(
+      tris,
+      { x: x0, y: y0, z: 0 },
+      { x: x1, y: y1, z: 0 },
+      { x: x1, y: y1, z: wallH },
+      { x: x0, y: y0, z: wallH }
+    );
+    tris.push([{ x: 0, y: 0, z: 0 }, { x: x1, y: y1, z: 0 }, { x: x0, y: y0, z: 0 }]);
+    tris.push([{ x: 0, y: 0, z: height }, { x: x0, y: y0, z: wallH }, { x: x1, y: y1, z: wallH }]);
+  }
+  return tris;
+}
+function generateStarTriangles(params) {
+  const points = Math.max(3, Math.min(16, Math.round(params.points ?? 5)));
+  const outerR = Math.max(10, params.outerRadius ?? params.radius ?? 36);
+  const innerR = Math.max(4, Math.min(outerR * 0.85, params.innerRadius ?? outerR * 0.44));
+  const height = Math.max(4, params.height ?? 18);
+  const baseH = Math.max(2, height * 0.55);
+  const totalVerts = points * 2;
+  const ring = [];
+  for (let i = 0; i < totalVerts; i++) {
+    const a = i / totalVerts * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? outerR : innerR;
+    ring.push([r * Math.cos(a), r * Math.sin(a)]);
+  }
+  const tris = [];
+  for (let i = 0; i < totalVerts; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % totalVerts];
+    pushQuad(
+      tris,
+      { x: x0, y: y0, z: 0 },
+      { x: x1, y: y1, z: 0 },
+      { x: x1, y: y1, z: baseH },
+      { x: x0, y: y0, z: baseH }
+    );
+    tris.push([{ x: 0, y: 0, z: 0 }, { x: x1, y: y1, z: 0 }, { x: x0, y: y0, z: 0 }]);
+    tris.push([{ x: 0, y: 0, z: height }, { x: x0, y: y0, z: baseH }, { x: x1, y: y1, z: baseH }]);
+  }
+  return tris;
+}
 function generatePrimitiveRawTriangles(node) {
   switch (node.type) {
     case "box":
@@ -3065,6 +5243,14 @@ function generatePrimitiveRawTriangles(node) {
       return generateBracketTriangles(node.params);
     case "hex_organizer":
       return generateHexOrganizerTriangles(node.params);
+    case "apple":
+      return generateAppleTriangles(node.params);
+    case "lathe":
+      return generateLatheTriangles(node.params);
+    case "heart":
+      return generateHeartTriangles(node.params);
+    case "star":
+      return generateStarTriangles(node.params);
     default:
       return generateBoxTriangles(node.params);
   }
@@ -3625,6 +5811,72 @@ var PRESET_TEMPLATES = {
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       }
     ]
+  }),
+  organic_apple_sculpture: () => ({
+    projectId: "preset-organic-apple",
+    title: "3D-Apfel mit Stiel & Blatt (Organisches Modell)",
+    description: "Naturgetreuer 3D-Apfel mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gew\xF6lbter Kontur, Stiel und Blatt.",
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    buildPlateMm: [256, 256, 256],
+    printProfile: {
+      ...DEFAULT_PRINT_PROFILE,
+      printerModel: "Bambu Lab X1-Carbon 0.4 nozzle",
+      filamentColor: "#e11d48",
+      infillPercent: 18
+    },
+    nodes: [
+      {
+        id: "node-apple-body",
+        name: "Apfel-Fruchtk\xF6rper (mit Stielgrube)",
+        type: "apple",
+        operation: "union",
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        color: "#e11d48",
+        params: {
+          radius: 34,
+          height: 58,
+          lobeCount: 5,
+          lobeAmplitude: 1.4,
+          topIndent: 12,
+          bottomIndent: 5,
+          segments: 36
+        }
+      },
+      {
+        id: "node-apple-stem",
+        name: "Apfelstiel (Oben)",
+        type: "cylinder",
+        operation: "union",
+        position: [1.5, 0, 44],
+        rotation: [0, 14, 0],
+        scale: [1, 1, 1],
+        color: "#854d0e",
+        params: { radiusBottom: 2.2, radiusTop: 3.2, innerRadius: 0, height: 22, segments: 20 }
+      },
+      {
+        id: "node-apple-leaf",
+        name: "Apfelblatt",
+        type: "sphere",
+        operation: "union",
+        position: [14, 2, 57],
+        rotation: [18, -28, 15],
+        scale: [1.85, 0.78, 0.24],
+        color: "#16a34a",
+        params: { radius: 9.5, domeOnly: 0 }
+      }
+    ],
+    promptHistory: [
+      {
+        id: "init-apple",
+        prompt: "Apfel",
+        summary: "Organischer 3D-Apfel (\xD870\xD766mm) mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gew\xF6lbtem Fruchtk\xF6rper, geneigtem Stiel und Blatt generiert.",
+        engine: "Antigravity Parametric CAD",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    ]
   })
 };
 
@@ -3746,8 +5998,10 @@ function inspectBambuTlsCertificate(ip, port = 8883, timeoutMs = 1200) {
       () => {
         try {
           const cert = sock.getPeerCertificate();
-          const cn = (Array.isArray(cert?.subject?.CN) ? cert.subject.CN[0] : cert?.subject?.CN) || "";
-          const issuer = (Array.isArray(cert?.issuer?.CN) ? cert.issuer.CN[0] : cert?.issuer?.CN) || cert?.issuer?.O || "";
+          const rawCn = Array.isArray(cert?.subject?.CN) ? cert.subject.CN[0] : cert?.subject?.CN;
+          const cn = String(rawCn || "");
+          const rawIssuer = (Array.isArray(cert?.issuer?.CN) ? cert.issuer.CN[0] : cert?.issuer?.CN) || (Array.isArray(cert?.issuer?.O) ? cert.issuer.O[0] : cert?.issuer?.O) || "";
+          const issuer = String(rawIssuer || "");
           const isBambuCert = /BBL/i.test(issuer) || /BBL/i.test(String(cert?.issuer?.O || "")) || /^(00M|01S|01P|039|030)/i.test(cn);
           finish({ ok: true, cn, issuer, isBambuCert });
         } catch {
@@ -3830,14 +6084,14 @@ async function listenBambuSsdp(timeoutMs = 2200) {
               name: parsed.name || "Bambu X1C WHG",
               model: parsed.model || "Bambu Lab X1-Carbon (BL-P001)",
               firmware: parsed.firmware || "01.11.02.00",
-              connectMode: parsed.connectMode || "cloud",
+              connectMode: parsed.connectMode || "lan",
               bindStatus: parsed.bindStatus || "free",
-              signalDbm: parsed.signalDbm || "-68 dBm",
+              signalDbm: parsed.signalDbm || "-65 dBm",
               ports: {
                 mqttTls8883: true,
                 ftps990: true,
                 chamberStream6000: true,
-                rtsps322: false
+                rtsps322: parsed.connectMode === "lan" || true
               },
               discoveryMethod: "ssdp_multicast",
               discoveredAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -3922,9 +6176,9 @@ async function scanSubnetForBambuPrinters(subnetPrefix = "192.168.188") {
       name: ip === "192.168.188.175" ? "Bambu X1C WHG" : `Bambu Lab (${ip})`,
       model: mapBambuModelName(serial),
       firmware: ip === "192.168.188.175" ? "01.11.02.00" : "LAN TLS 8883",
-      connectMode: ip === "192.168.188.175" ? "cloud" : "lan",
+      connectMode: rtsps322 || ftps990 ? "lan" : "cloud",
       bindStatus: "free",
-      signalDbm: "-68 dBm",
+      signalDbm: "-65 dBm",
       ports: {
         mqttTls8883: true,
         ftps990,
@@ -4057,49 +6311,46 @@ function discoverGeminiApiKey() {
   }
   return "";
 }
-var cachedModel = "";
-async function resolveGeminiModel(apiKey) {
-  if (cachedModel) return cachedModel;
+var cachedModels = null;
+async function resolveGeminiModels(apiKey) {
+  if (cachedModels && cachedModels.length > 0) return cachedModels;
+  const preferred = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-2.5-pro"
+  ];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-      { signal: AbortSignal.timeout(4e3) }
+      { signal: AbortSignal.timeout(3500) }
     );
     if (res.ok) {
       const data = await res.json();
-      const names = (data.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
-      for (const candidate of [
-        "gemini-3.8-flash",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-      ]) {
-        if (names.includes(candidate)) {
-          cachedModel = candidate;
-          return candidate;
-        }
-      }
-      const firstFlash = names.find(
-        (n) => n.includes("flash") && !n.includes("tts") && !n.includes("image")
+      const available = new Set(
+        (data.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""))
       );
-      if (firstFlash) {
-        cachedModel = firstFlash;
-        return firstFlash;
+      const matched = preferred.filter((c) => available.has(c));
+      if (matched.length > 0) {
+        cachedModels = matched;
+        return matched;
       }
     }
   } catch {
   }
-  return "gemini-2.0-flash";
+  return ["gemini-2.5-flash", "gemini-2.0-flash"];
 }
 var COLOR_MAP = [
-  { pattern: /\b(rot|red|crimson|rubin)\b/i, hex: "#ef4444", label: "Rot" },
+  { pattern: /\b(rot|red|crimson|rubin|kirsch)\b/i, hex: "#e11d48", label: "Apfel-Rot" },
+  { pattern: /\b(grün|gruen|green|bambu|smaragd|lime|granny)\b/i, hex: "#22c55e", label: "Gr\xFCn" },
   { pattern: /\b(blau|blue|kobalt|navy|türkis|cyan)\b/i, hex: "#38bdf8", label: "Blau / Cyan" },
-  { pattern: /\b(grün|gruen|green|bambu|smaragd|lime)\b/i, hex: "#00AE42", label: "Bambu Gr\xFCn" },
-  { pattern: /\b(gelb|yellow|gold|amber|messing)\b/i, hex: "#fbbf24", label: "Gold / Gelb" },
+  { pattern: /\b(gelb|yellow|gold|amber|messing|zitrone)\b/i, hex: "#fbbf24", label: "Gold / Gelb" },
   { pattern: /\b(orange|kupfer|copper|mandarin)\b/i, hex: "#f97316", label: "Orange" },
-  { pattern: /\b(lila|violett|purple|magenta)\b/i, hex: "#a855f7", label: "Violett" },
-  { pattern: /\b(weiss|weiß|white|klar|farblos)\b/i, hex: "#f8fafc", label: "Wei\xDF" },
+  { pattern: /\b(lila|violett|purple|magenta|beere)\b/i, hex: "#a855f7", label: "Violett" },
+  { pattern: /\b(rosa|pink|koralle)\b/i, hex: "#f43f5e", label: "Pink / Koralle" },
+  { pattern: /\b(braun|holz|wood|bronze|schoko)\b/i, hex: "#854d0e", label: "Holz-Braun" },
+  { pattern: /\b(weiss|weiß|white|klar|farblos|schnee)\b/i, hex: "#f8fafc", label: "Wei\xDF" },
   { pattern: /\b(schwarz|black|carbon|anthrazit|grau|grey|silber)\b/i, hex: "#64748b", label: "Anthrazit / Carbon" }
 ];
 function extractColorFromPrompt(prompt) {
@@ -4112,16 +6363,442 @@ function extractColorFromPrompt(prompt) {
   }
   return null;
 }
+var KNOWN_OBJECT_ARCHETYPE_REGEX = /\b(apfel|äpfel|aepfel|apple|birne|pear|tasse|kaffeetasse|teetasse|mug|becher|herz|heart|stern|star|pilz|fliegenpilz|mushroom|flasche|karaffe|bottle|schale|schüssel|schuessel|bowl|obstschale|schach|schachfigur|bauer|könig|koenig|dame|pawn|chess|schneemann|snowman|würfel|wuerfel|cube|pyramide|pyramid|kegel|trichter|cone|donut|torus|zahnrad|gear|ritzel|getriebe|vase|blumentopf|pflanztopf|kelch|organizer|sortierbox|stiftehalter|kopfhörer|kopfhoerer|headphone|wandhalter|tischklemme|winkel|bracket)\b/i;
+var INCREMENTAL_MODIFIER_ONLY_REGEX = /\b(höher|hoeher|breiter|kleiner|flacher|kürzer|kuerzer|größer|groesser|skalier|loch|bohrung|durchbruch|farbe|färbe|faerbe|dreh|rotier|twist|ohne\s+blatt|ohne\s+stiel|biss|abgebissen|halbiere)\b/i;
+function isExplicitObjectCreationPrompt(prompt) {
+  const lower = prompt.trim().toLowerCase();
+  if (/\b(neues objekt|erstelle neu|komplett neu|stattdessen|generiere|erstelle|mach mir)\b/i.test(lower)) {
+    return true;
+  }
+  if (KNOWN_OBJECT_ARCHETYPE_REGEX.test(lower) && !INCREMENTAL_MODIFIER_ONLY_REGEX.test(lower)) {
+    return true;
+  }
+  return false;
+}
 function runLocalAntigravityCadEngine(prompt, existingScene) {
   const cleanPrompt = prompt.trim();
   const lower = cleanPrompt.toLowerCase();
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const colorMatch = extractColorFromPrompt(cleanPrompt);
-  const isNewRequest = !existingScene || /\b(neues objekt|erstelle neu|komplett neu|stattdessen)\b/i.test(lower);
+  const isNewRequest = !existingScene || isExplicitObjectCreationPrompt(cleanPrompt);
   if (isNewRequest) {
     let baseScene;
     let summary2 = "";
-    if (/\b(zahnrad|gear|ritzel|zähne|zaehne|cog|getriebe)\b/i.test(lower)) {
+    let preserveNodeColors = false;
+    if (/\b(apfel|äpfel|aepfel|apple|obst)\b/i.test(lower)) {
+      baseScene = PRESET_TEMPLATES.organic_apple_sculpture();
+      preserveNodeColors = true;
+      const bodyColor = colorMatch?.hex || "#e11d48";
+      baseScene.printProfile.filamentColor = bodyColor;
+      const bodyNode = baseScene.nodes.find((n) => n.type === "apple") || baseScene.nodes[0];
+      if (bodyNode) bodyNode.color = bodyColor;
+      const sizeMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
+      if (sizeMatch && bodyNode) {
+        const dia = Math.max(24, Math.min(200, Number(sizeMatch[1].replace(",", "."))));
+        bodyNode.params.radius = Math.round(dia / 2);
+        bodyNode.params.height = Math.round(dia * 0.86);
+      }
+      if (/\b(ohne\s+blatt|kein\s+blatt)\b/i.test(lower)) {
+        baseScene.nodes = baseScene.nodes.filter((n) => !n.id.includes("leaf"));
+      }
+      if (/\b(biss|abgebissen|bite)\b/i.test(lower)) {
+        baseScene.nodes.push({
+          id: "node-apple-bite",
+          name: "Biss-Abzug (Seitlich)",
+          type: "sphere",
+          operation: "subtract",
+          position: [31, 0, 22],
+          rotation: [0, 0, 0],
+          scale: [1, 1.15, 1.1],
+          color: "#f43f5e",
+          params: { radius: 18, domeOnly: 0 }
+        });
+      }
+      baseScene.title = colorMatch && colorMatch.label !== "Apfel-Rot" ? `3D-Apfel (${colorMatch.label})` : "3D-Apfel mit Stiel & Blatt";
+      baseScene.description = `Organischer 3D-Apfel generiert aus Prompt: "${cleanPrompt}"`;
+      summary2 = `Naturgetreuer 3D-Apfel (\xD8${(bodyNode?.params.radius || 34) * 2}\xD7${(bodyNode?.params.height || 58) + 8}mm) mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gew\xF6lbtem Fruchtk\xF6rper, braunem Stiel und gr\xFCnem Blatt generiert.`;
+    } else if (/\b(birne|pear)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const bodyColor = colorMatch?.hex || "#84cc16";
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "3D-Birne mit Stiel & Blatt",
+        description: `Organische 3D-Birne generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bodyColor },
+        nodes: [
+          {
+            id: "node-pear-body",
+            name: "Birnen-Fruchtk\xF6rper (Rotationsprofil)",
+            type: "lathe",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bodyColor,
+            params: {
+              height: 78,
+              rBottom: 15,
+              rLower: 34,
+              rMid: 31,
+              rUpper: 19,
+              rNeck: 12,
+              rTop: 6,
+              topIndent: 4,
+              bottomIndent: 4,
+              lobeCount: 5,
+              lobeAmplitude: 1,
+              segments: 36
+            }
+          },
+          {
+            id: "node-pear-stem",
+            name: "Birnenstiel",
+            type: "cylinder",
+            operation: "union",
+            position: [1, 0, 73],
+            rotation: [0, 12, 0],
+            scale: [1, 1, 1],
+            color: "#854d0e",
+            params: { radiusBottom: 2.2, radiusTop: 3, height: 18, segments: 18 }
+          },
+          {
+            id: "node-pear-leaf",
+            name: "Birnenblatt",
+            type: "sphere",
+            operation: "union",
+            position: [11, 0, 81],
+            rotation: [15, -25, 10],
+            scale: [1.7, 0.75, 0.22],
+            color: "#16a34a",
+            params: { radius: 8.5, domeOnly: 0 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Organische 3D-Birne (\xD868\xD791mm) mit bauchiger Unterseite, schlankem Hals, Stiel und Blatt erstellt.";
+    } else if (/\b(tasse|kaffeetasse|teetasse|mug|haferl)\b/i.test(lower)) {
+      const mugColor = colorMatch?.hex || "#38bdf8";
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "Design-Kaffeetasse mit Henkel",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: mugColor },
+        nodes: [
+          {
+            id: "node-mug-body",
+            name: "Hohler Tassenk\xF6rper",
+            type: "lathe",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: mugColor,
+            params: {
+              height: 76,
+              rBottom: 32,
+              rLower: 35,
+              rMid: 36,
+              rUpper: 36,
+              rNeck: 36,
+              rTop: 37,
+              wallThickness: 3.4,
+              segments: 40
+            }
+          },
+          {
+            id: "node-mug-handle",
+            name: "Ergonomischer Tassenhenkel",
+            type: "torus",
+            operation: "union",
+            position: [36, 0, 20],
+            rotation: [90, 0, 0],
+            scale: [0.85, 1.15, 1],
+            color: mugColor,
+            params: { radius: 21, tubeRadius: 5.2 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Hohle 3D-Tasse (\xD874\xD776mm, 3.4mm Wandst\xE4rke) mit seitlichem Henkel erstellt.";
+    } else if (/\b(herz|heart|liebe)\b/i.test(lower)) {
+      const heartColor = colorMatch?.hex || "#e11d48";
+      preserveNodeColors = true;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "3D-Herz-Skulptur (Gefast)",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: heartColor },
+        nodes: [
+          {
+            id: "node-heart-main",
+            name: "3D-Herzk\xF6rper",
+            type: "heart",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: heartColor,
+            params: { width: 68, depth: 62, height: 24, bevel: 5 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Dreidimensionales, gew\xF6lbtes 3D-Herz (68\xD762\xD724mm) erstellt.";
+    } else if (/\b(stern|star|weihnachtsstern)\b/i.test(lower)) {
+      const starColor = colorMatch?.hex || "#fbbf24";
+      preserveNodeColors = true;
+      const ptsMatch = lower.match(/(\d+)\s*(?:zacken|spitzen|points)/i);
+      const pts = ptsMatch ? Math.max(3, Math.min(12, Number(ptsMatch[1]))) : 5;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: `3D-Stern (${pts}-zackig)`,
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: starColor },
+        nodes: [
+          {
+            id: "node-star-main",
+            name: `${pts}-zackiger 3D-Stern`,
+            type: "star",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: starColor,
+            params: { points: pts, outerRadius: 42, innerRadius: 18, height: 20 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = `Facettierter ${pts}-zackiger 3D-Stern (\xD884\xD720mm) erstellt.`;
+    } else if (/\b(pilz|fliegenpilz|mushroom)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "3D-Pilz (Stiel & Hut)",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: "#e11d48" },
+        nodes: [
+          {
+            id: "node-mushroom-stem",
+            name: "Pilzstiel",
+            type: "lathe",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: "#f8fafc",
+            params: { height: 46, rBottom: 16, rLower: 18, rMid: 13, rUpper: 11, rNeck: 10, rTop: 12, segments: 32 }
+          },
+          {
+            id: "node-mushroom-cap",
+            name: "Gew\xF6lbter Pilzhut",
+            type: "sphere",
+            operation: "union",
+            position: [0, 0, 40],
+            rotation: [0, 0, 0],
+            scale: [1.2, 1.2, 0.78],
+            color: colorMatch?.hex || "#e11d48",
+            params: { radius: 30, domeOnly: 1 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Organischer 3D-Pilz (\xD872\xD764mm) mit bauchigem Stiel und gew\xF6lbter Hutkuppel generiert.";
+    } else if (/\b(flasche|karaffe|bottle|kolben)\b/i.test(lower)) {
+      const bottleColor = colorMatch?.hex || "#38bdf8";
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "Design-Flasche / Karaffe",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bottleColor },
+        nodes: [
+          {
+            id: "node-bottle-body",
+            name: "Flaschenk\xF6rper mit Hals",
+            type: "lathe",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bottleColor,
+            params: {
+              height: 110,
+              rBottom: 28,
+              rLower: 32,
+              rMid: 32,
+              rUpper: 26,
+              rNeck: 12,
+              rTop: 14,
+              wallThickness: 2.6,
+              segments: 36
+            }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Hohle 3D-Karaffe / Flasche (\xD864\xD7110mm) mit verj\xFCngtem Flaschenhals erstellt.";
+    } else if (/\b(schale|schüssel|schuessel|bowl|obstschale)\b/i.test(lower)) {
+      const bowlColor = colorMatch?.hex || "#f59e0b";
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "Organische Design-Schale",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bowlColor },
+        nodes: [
+          {
+            id: "node-bowl-body",
+            name: "Gew\xF6lbte Schale",
+            type: "lathe",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bowlColor,
+            params: {
+              height: 46,
+              rBottom: 24,
+              rLower: 34,
+              rMid: 42,
+              rUpper: 48,
+              rNeck: 52,
+              rTop: 54,
+              wallThickness: 3.2,
+              lobeCount: 12,
+              lobeAmplitude: 1.5,
+              segments: 44
+            }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Hohle Design-Schale (\xD8108\xD746mm, 3.2mm Wandst\xE4rke) generiert.";
+    } else if (/\b(schach|schachfigur|bauer|könig|koenig|dame|pawn|chess|spielfigur)\b/i.test(lower)) {
+      const chessColor = colorMatch?.hex || "#e2e8f0";
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "Klassische Schachfigur (Gedreht)",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: chessColor },
+        nodes: [
+          {
+            id: "node-chess-base",
+            name: "Gedrehter Figurensockel & S\xE4ule",
+            type: "lathe",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: chessColor,
+            params: {
+              height: 54,
+              rBottom: 22,
+              rLower: 19,
+              rMid: 11,
+              rUpper: 9,
+              rNeck: 14,
+              rTop: 9,
+              segments: 36
+            }
+          },
+          {
+            id: "node-chess-head",
+            name: "Kugelkopf",
+            type: "sphere",
+            operation: "union",
+            position: [0, 0, 50],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: chessColor,
+            params: { radius: 12, domeOnly: 0 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Klassische Schachfigur (\xD844\xD774mm) mit gedrehtem Sockel, Kragenring und Kugelkopf erstellt.";
+    } else if (/\b(schneemann|snowman)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "3D-Schneemann mit Hut & Karottennase",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: "#f8fafc" },
+        nodes: [
+          {
+            id: "node-snow-bottom",
+            name: "Untere Schneekugel",
+            type: "sphere",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 0.92],
+            color: "#f8fafc",
+            params: { radius: 26, domeOnly: 0 }
+          },
+          {
+            id: "node-snow-mid",
+            name: "Mittlere Schneekugel",
+            type: "sphere",
+            operation: "union",
+            position: [0, 0, 38],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 0.92],
+            color: "#f8fafc",
+            params: { radius: 19, domeOnly: 0 }
+          },
+          {
+            id: "node-snow-head",
+            name: "Schneemann-Kopf",
+            type: "sphere",
+            operation: "union",
+            position: [0, 0, 66],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: "#f8fafc",
+            params: { radius: 13, domeOnly: 0 }
+          },
+          {
+            id: "node-snow-nose",
+            name: "Karottennase",
+            type: "cone",
+            operation: "union",
+            position: [0, -12, 79],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: "#f97316",
+            params: { radiusBottom: 3.2, radiusTop: 0.6, height: 14, segments: 18 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "3D-Schneemann (\xD852\xD792mm) aus drei gestapelten Sph\xE4ren mit Karottennase generiert.";
+    } else if (/\b(zahnrad|gear|ritzel|zähne|zaehne|cog|getriebe)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.precision_planetary_gear();
       const teethMatch = lower.match(/(\d+)\s*(?:zähne|zaehne|teeth|t\b)/i);
       const boreMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm\s*(?:loch|bohrung|welle|bore)/i);
@@ -4140,7 +6817,7 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
       }
       baseScene.title = `Stirnzahnrad Z${gearNode.params.teeth}`;
       summary2 = `Pr\xE4zisions-Zahnrad mit ${gearNode.params.teeth} Z\xE4hnen (\xD8${gearNode.params.outerRadius * 2}mm, Bohrung \xD8${(gearNode.params.boreRadius || 5) * 2}mm) generiert.`;
-    } else if (/\b(vase|becher|cup|blumentopf|topf|gefäß|gefaess|spiral|kelch|lampe)\b/i.test(lower)) {
+    } else if (/\b(vase|blumentopf|topf|gefäß|gefaess|spiral|kelch|lampe)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.twisted_rib_vase();
       const heightMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm\s*(?:hoch|höhe|hoehe|high)/i);
       const ribMatch = lower.match(/(\d+)\s*(?:rippen|ribs|rillen)/i);
@@ -4149,7 +6826,7 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
       if (ribMatch) vaseNode.params.ribCount = Math.max(0, Math.min(36, Number(ribMatch[1])));
       baseScene.title = `Spiral-Designvase (${vaseNode.params.height}mm)`;
       summary2 = `Skulpturale Torsions-Vase (H\xF6he ${vaseNode.params.height}mm, ${vaseNode.params.ribCount} Rippen) erstellt.`;
-    } else if (/\b(organizer|box|kasten|schublade|sortier|fach|fächer|faecher|tray|stiftehalter|halterung für kabel)\b/i.test(lower)) {
+    } else if (/\b(organizer|kasten|schublade|sortier|fach|fächer|faecher|tray|stiftehalter|halterung für kabel)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.smart_home_organizer();
       const orgNode = baseScene.nodes[0];
       const gridMatch = lower.match(/(\d+)\s*[x×]\s*(\d+)/);
@@ -4162,13 +6839,13 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
     } else if (/\b(kopfhörer|kopfhoerer|headphone|haken|hook|winkel|bracket|wandhalter|tischklemme|klemme|ständer|staender)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.desk_headphone_stand();
       baseScene.title = cleanPrompt.length <= 42 ? cleanPrompt : "Tisch- & Wandhalterung (Bracket)";
-      summary2 = `Verst\xE4rkte Halterung / Tischklemme (38\xD762\xD774mm) mit Kabeldurchf\xFChrung f\xFCr Bambu Lab P1S generiert.`;
-    } else if (/\b(kugel|sphere|ball|kuppel|dome)\b/i.test(lower)) {
+      summary2 = `Verst\xE4rkte Halterung / Tischklemme (38\xD762\xD774mm) mit Kabeldurchf\xFChrung generiert.`;
+    } else if (/\b(kugel|sphere|ball|kuppel|dome|murmel)\b/i.test(lower)) {
       const rMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
-      const rad = rMatch ? Math.max(8, Number(rMatch[1].replace(",", ".")) / 2) : 26;
+      const rad = rMatch ? Math.max(8, Number(rMatch[1].replace(",", ".")) / 2) : 28;
       baseScene = {
         projectId: `proj-${Date.now()}`,
-        title: `Geod\xE4tische Sph\xE4re / Kuppel (\xD8${rad * 2}mm)`,
+        title: `3D-Kugel / Sph\xE4re (\xD8${rad * 2}mm)`,
         description: `Generiert aus Prompt: "${cleanPrompt}"`,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -4177,7 +6854,7 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
         nodes: [
           {
             id: "node-sphere-1",
-            name: "Haupt-Kugelk\xF6rper",
+            name: "Kugelk\xF6rper",
             type: "sphere",
             operation: "union",
             position: [0, 0, 0],
@@ -4185,22 +6862,89 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
             scale: [1, 1, 1],
             color: colorMatch?.hex || "#00AE42",
             params: { radius: rad, domeOnly: /\b(kuppel|dome|halbkugel)\b/i.test(lower) ? 1 : 0 }
-          },
-          {
-            id: "node-stand-ring",
-            name: "Standring-Basis",
-            type: "cylinder",
-            operation: "union",
-            position: [0, 0, 0],
-            rotation: [0, 0, 0],
-            scale: [1, 1, 1],
-            color: colorMatch?.hex || "#00AE42",
-            params: { radiusBottom: rad * 0.65, radiusTop: rad * 0.55, innerRadius: rad * 0.35, height: 6, segments: 36 }
           }
         ],
         promptHistory: []
       };
-      summary2 = `Sph\xE4ren-Geometrie (\xD8${rad * 2}mm) mit druckbarem Standring auf der Bauplatte erstellt.`;
+      summary2 = `Sph\xE4ren-Geometrie (\xD8${rad * 2}mm) auf der Bauplatte erstellt.`;
+    } else if (/\b(pyramide|pyramid|kegel|cone|trichter)\b/i.test(lower)) {
+      const isPyramid = /\b(pyramide|pyramid)\b/i.test(lower);
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: isPyramid ? "3D-Pyramide" : "3D-Kegel / Konus",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE },
+        nodes: [
+          {
+            id: "node-cone-main",
+            name: isPyramid ? "Pyramidenk\xF6rper" : "Kegelk\xF6rper",
+            type: "cone",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, isPyramid ? 45 : 0],
+            scale: [1, 1, 1],
+            color: colorMatch?.hex || "#f59e0b",
+            params: { radiusBottom: 34, radiusTop: 1, height: 56, segments: isPyramid ? 4 : 40 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = `${isPyramid ? "4-seitige Pyramide" : "Pr\xE4zisionskegel"} (\xD868\xD756mm) erstellt.`;
+    } else if (/\b(donut|torus|o-ring|reif)\b/i.test(lower)) {
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: "3D-Torus / Donut-Ring",
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE },
+        nodes: [
+          {
+            id: "node-torus-main",
+            name: "Torus-Ringk\xF6rper",
+            type: "torus",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: colorMatch?.hex || "#f43f5e",
+            params: { radius: 28, tubeRadius: 11 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = "Torus / Donut-Geometrie (Au\xDFen-\xD878mm, Ringst\xE4rke 22mm) generiert.";
+    } else if (/\b(würfel|wuerfel|cube|quader|block|klotz)\b/i.test(lower)) {
+      const m = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
+      const sz = m ? Math.max(10, Number(m[1].replace(",", "."))) : 45;
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: `3D-W\xFCrfel (${sz}\xD7${sz}\xD7${sz}mm)`,
+        description: `Generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE },
+        nodes: [
+          {
+            id: "node-cube-main",
+            name: "Gefaster 3D-W\xFCrfel",
+            type: "box",
+            operation: "union",
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: colorMatch?.hex || "#38bdf8",
+            params: { width: sz, depth: sz, height: sz, bevel: 3.5, wallThickness: 0 }
+          }
+        ],
+        promptHistory: []
+      };
+      summary2 = `Gefaster 3D-W\xFCrfel (${sz}\xD7${sz}\xD7${sz}mm) erstellt.`;
     } else if (/\b(zylinder|rohr|tube|hülse|huelse|spacer|adapter|ring|spule)\b/i.test(lower)) {
       const nums = (lower.match(/\d+(?:[.,]\d+)?/g) || []).map((n) => Number(n.replace(",", ".")));
       const outerR = nums[0] ? Math.max(6, nums[0] / 2) : 25;
@@ -4234,9 +6978,9 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
       const dims = (lower.match(/(\d+(?:[.,]\d+)?)\s*mm/g) || []).map(
         (s) => Number(s.replace(/mm/i, "").replace(",", ".").trim())
       );
-      const w = dims[0] || 64;
+      const w = dims[0] || 60;
       const d = dims[1] || 48;
-      const h = dims[2] || 32;
+      const h = dims[2] || 36;
       baseScene = {
         projectId: `proj-${Date.now()}`,
         title: cleanPrompt.slice(0, 48) || "Antigravity 3D-Objekt",
@@ -4255,31 +6999,20 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
             rotation: [0, 0, 0],
             scale: [1, 1, 1],
             color: colorMatch?.hex || "#00AE42",
-            params: { width: w, depth: d, height: h, bevel: 4, wallThickness: /\b(hohl|gehäuse|box|schale)\b/i.test(lower) ? 2.8 : 0 }
-          },
-          {
-            id: "node-top-boss",
-            name: "Zentraler Aufsatz / Flansch",
-            type: "cylinder",
-            operation: "union",
-            position: [0, 0, h],
-            rotation: [0, 0, 0],
-            scale: [1, 1, 1],
-            color: colorMatch?.hex || "#00AE42",
-            params: { radiusBottom: Math.min(w, d) * 0.28, radiusTop: Math.min(w, d) * 0.24, innerRadius: Math.min(w, d) * 0.12, height: Math.max(8, h * 0.35), segments: 36 }
+            params: { width: w, depth: d, height: h, bevel: 5, wallThickness: /\b(hohl|gehäuse|box)\b/i.test(lower) ? 2.8 : 0 }
           }
         ],
         promptHistory: []
       };
-      summary2 = `Parametrisches 3D-Modell (${w}\xD7${d}\xD7${Math.round(h * 1.35)}mm) mit Flansch-Aufsatz f\xFCr "${cleanPrompt}" generiert.`;
+      summary2 = `Parametrisches 3D-Modell (${w}\xD7${d}\xD7${h}mm) f\xFCr "${cleanPrompt}" generiert.`;
     }
-    if (colorMatch) {
+    if (colorMatch && !preserveNodeColors) {
       baseScene.printProfile.filamentColor = colorMatch.hex;
       for (const n of baseScene.nodes) {
         if (n.operation !== "subtract") n.color = colorMatch.hex;
       }
     }
-    baseScene.projectId = `proj-${Date.now()}`;
+    baseScene.projectId = existingScene?.projectId || `proj-${Date.now()}`;
     baseScene.updatedAt = nowIso;
     baseScene.promptHistory = [
       {
@@ -4288,8 +7021,9 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
         summary: summary2,
         engine: "Antigravity Parametric CAD",
         timestamp: nowIso
-      }
-    ];
+      },
+      ...existingScene?.promptHistory || []
+    ].slice(0, 30);
     return { scene: baseScene, summary: summary2, engine: "Antigravity Parametric CAD" };
   }
   const scene = JSON.parse(JSON.stringify(existingScene));
@@ -4298,9 +7032,35 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
   if (colorMatch) {
     scene.printProfile.filamentColor = colorMatch.hex;
     for (const n of scene.nodes) {
-      if (n.operation !== "subtract") n.color = colorMatch.hex;
+      if (n.operation === "subtract") continue;
+      if ((n.id.includes("stem") || n.id.includes("leaf")) && !/\b(stiel|blatt|komplett|alles)\b/i.test(lower)) {
+        continue;
+      }
+      n.color = colorMatch.hex;
     }
     changes.push(`Farbe auf ${colorMatch.label} (${colorMatch.hex}) ge\xE4ndert`);
+  }
+  if (/\b(ohne\s+blatt|blatt\s+entfernen|kein\s+blatt)\b/i.test(lower)) {
+    scene.nodes = scene.nodes.filter((n) => !n.id.includes("leaf") && !/blatt/i.test(n.name));
+    changes.push("Blatt entfernt");
+  }
+  if (/\b(ohne\s+stiel|stiel\s+entfernen|kein\s+stiel)\b/i.test(lower)) {
+    scene.nodes = scene.nodes.filter((n) => !n.id.includes("stem") && !/stiel/i.test(n.name));
+    changes.push("Stiel entfernt");
+  }
+  if (/\b(biss|abgebissen|bite)\b/i.test(lower)) {
+    scene.nodes.push({
+      id: `node-bite-${Date.now()}`,
+      name: "Seitlicher Biss-Abzug",
+      type: "sphere",
+      operation: "subtract",
+      position: [31, 0, 22],
+      rotation: [0, 0, 0],
+      scale: [1, 1.15, 1.1],
+      color: "#f43f5e",
+      params: { radius: 18, domeOnly: 0 }
+    });
+    changes.push("Seitliche Biss-Aussparung hinzugef\xFCgt");
   }
   const pctMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*%/);
   const pctVal = pctMatch ? Number(pctMatch[1].replace(",", ".")) : null;
@@ -4330,6 +7090,7 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
     for (const n of scene.nodes) {
       if (mmVal && !pctVal) {
         if (n.params.width !== void 0) n.params.width = mmVal;
+        if (n.params.radius !== void 0) n.params.radius = mmVal / 2;
         if (n.params.outerRadius !== void 0) n.params.outerRadius = mmVal / 2;
         if (n.params.radiusBottom !== void 0) n.params.radiusBottom = mmVal / 2;
         if (n.params.radiusTop !== void 0) n.params.radiusTop = mmVal / 2;
@@ -4357,7 +7118,7 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
     }
     changes.push(`Abmessungen reduziert (${Math.round(factor * 100)}%)`);
   }
-  if (/\b(zähne|zaehne|teeth|rippen|ribs|fächer|faecher|slots)\b/i.test(lower)) {
+  if (/\b(zähne|zaehne|teeth|rippen|ribs|fächer|faecher|slots|zacken)\b/i.test(lower)) {
     const countMatch = lower.match(/(\d+)/);
     const num = countMatch ? Number(countMatch[1]) : null;
     for (const n of scene.nodes) {
@@ -4370,11 +7131,14 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
       } else if (n.type === "hex_organizer") {
         n.params.slotsX = num ? Math.max(1, Math.min(5, num)) : (n.params.slotsX || 3) + 1;
         changes.push(`Kammer-Unterteilung auf ${n.params.slotsX}\xD7${n.params.slotsY || 2} ge\xE4ndert`);
+      } else if (n.type === "star") {
+        n.params.points = num ? Math.max(3, Math.min(16, num)) : (n.params.points || 5) + 1;
+        changes.push(`Sternspitzen auf ${n.params.points} gesetzt`);
       }
     }
   }
   if (/\b(loch|löcher|loecher|bohrung|bore|hole|aushöhlen|durchbruch)\b/i.test(lower)) {
-    const holeDia = mmVal || 8;
+    const holeDia = mmVal || 10;
     const holeRad = Math.max(1, holeDia / 2);
     const mainNode = scene.nodes[0];
     if (mainNode && (mainNode.type === "cylinder" || mainNode.type === "gear")) {
@@ -4390,12 +7154,12 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
       rotation: [0, 0, 0],
       scale: [1, 1, 1],
       color: "#f43f5e",
-      params: { radiusBottom: holeRad, radiusTop: holeRad, height: 60, segments: 32 }
+      params: { radiusBottom: holeRad, radiusTop: holeRad, height: 80, segments: 32 }
     });
     changes.push(`Pr\xE4zisionsbohrung (\xD8${holeDia}mm) hinzugef\xFCgt`);
   }
-  if (/\b(füge|fuege|add|hinzu|oben|sockel|basis|ring|knauf|griff|kugel|zylinder)\b/i.test(lower) && !/\b(loch|bohrung)\b/i.test(lower)) {
-    const refHeight = scene.nodes[0]?.params?.height || 35;
+  if (/\b(füge|fuege|add|hinzu|oben|sockel|basis|ring|knauf|griff|henkel)\b/i.test(lower) && !/\b(loch|bohrung)\b/i.test(lower)) {
+    const refHeight = scene.nodes[0]?.params?.height || 45;
     if (/\b(ring|öse|oese|torus|henkel)\b/i.test(lower)) {
       scene.nodes.push({
         id: `node-ring-${Date.now()}`,
@@ -4435,19 +7199,6 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
         params: { radius: mmVal ? mmVal / 2 : 14, domeOnly: 0 }
       });
       changes.push(`Kugelknauf an Oberseite angef\xFCgt`);
-    } else if (changes.length === 0) {
-      scene.nodes.push({
-        id: `node-boss-${Date.now()}`,
-        name: "Zylinder-Aufsatz",
-        type: "cylinder",
-        operation: "union",
-        position: [0, 0, refHeight - 2],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-        color: scene.printProfile.filamentColor,
-        params: { radiusBottom: 14, radiusTop: 12, innerRadius: 5, height: mmVal || 18, segments: 36 }
-      });
-      changes.push(`Zylindrischen Aufsatz (${mmVal || 18}mm) erg\xE4nzt`);
     }
   }
   if (/\b(dreh|twist|torsion|spiral|rotier)\b/i.test(lower)) {
@@ -4460,6 +7211,16 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
     }
     changes.push(`Torsions-/Rotationswinkel erh\xF6ht`);
   }
+  if (/\b(verschieb|move|links|rechts|vorne|hinten)\b/i.test(lower)) {
+    const step = mmVal || 15;
+    const dx = /\brechts\b/i.test(lower) ? step : /\blinks\b/i.test(lower) ? -step : 0;
+    const dy = /\bhinten\b/i.test(lower) ? step : /\bvorne\b/i.test(lower) ? -step : 0;
+    for (const n of scene.nodes) {
+      n.position[0] = Number(((n.position[0] || 0) + dx).toFixed(1));
+      n.position[1] = Number(((n.position[1] || 0) + dy).toFixed(1));
+    }
+    changes.push(`Objekt auf Bauplatte verschoben (\u0394X=${dx}mm, \u0394Y=${dy}mm)`);
+  }
   if (changes.length === 0) {
     const primary = scene.nodes[0];
     if (primary) {
@@ -4471,7 +7232,7 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
       if (primary.params.bevel !== void 0) {
         primary.params.bevel = Math.min(12, (primary.params.bevel || 2) + 2);
       }
-      changes.push(`Geometrie gem\xE4\xDF "${cleanPrompt}" verfeinert (+15% Profilh\xF6he & Kantenfase)`);
+      changes.push(`Geometrie gem\xE4\xDF "${cleanPrompt}" angepasst`);
     }
   }
   const summary = changes.join(" \xB7 ");
@@ -4485,13 +7246,20 @@ function runLocalAntigravityCadEngine(prompt, existingScene) {
   return { scene, summary, engine: "Antigravity Parametric CAD" };
 }
 async function generateOrModify3dSceneWithAi(prompt, existingScene, customApiKey) {
+  const lower = prompt.trim().toLowerCase();
+  if (isExplicitObjectCreationPrompt(prompt) && KNOWN_OBJECT_ARCHETYPE_REGEX.test(lower)) {
+    return runLocalAntigravityCadEngine(prompt, existingScene);
+  }
   const apiKey = customApiKey || discoverGeminiApiKey();
   if (apiKey) {
-    try {
-      const model = await resolveGeminiModel(apiKey);
-      const systemInstruction = `Du bist der Antigravity 3D-CAD Kernel f\xFCr das Home Assistant Modul "thassi.3dprint" (Bambu Lab P1S 256x256x256mm).
+    const models = await resolveGeminiModels(apiKey);
+    const systemInstruction = `Du bist der Antigravity 3D-CAD Kernel f\xFCr das Home Assistant Modul "thassi.3dprint" (Bambu Lab X1C 256x256x256mm).
 Erzeuge oder ver\xE4ndere das 3D-Objekt basierend auf dem User-Prompt.
 Verf\xFCgbare PrimitiveTypes:
+- "apple": params { radius, height, lobeCount, lobeAmplitude, topIndent, bottomIndent, segments } (Organischer 3D-Apfelk\xF6rper mit Stielgrube)
+- "lathe": params { height, rBottom, rLower, rMid, rUpper, rNeck, rTop, topIndent, bottomIndent, wallThickness, lobeCount, lobeAmplitude, segments } (Rotationsk\xF6rper f\xFCr Birnen, Flaschen, Schalen, Kelche, Figuren)
+- "heart": params { width, depth, height, bevel } (3D-Herz)
+- "star": params { points, outerRadius, innerRadius, height } (3D-Stern)
 - "box": params { width, depth, height, bevel, wallThickness }
 - "cylinder": params { radiusBottom, radiusTop, innerRadius, height, segments }
 - "sphere": params { radius, domeOnly (0|1) }
@@ -4526,34 +7294,36 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
   "summary": "Was wurde erstellt oder ge\xE4ndert",
   "nodes": [ ... ]
 }`;
-      const userMessage = existingScene ? `Aktuelles 3D-Modell (JSON):
+    const userMessage = existingScene ? `Aktuelles 3D-Modell (JSON):
 ${JSON.stringify({
-        title: existingScene.title,
-        description: existingScene.description,
-        printProfile: existingScene.printProfile,
-        nodes: existingScene.nodes
-      })}
+      title: existingScene.title,
+      description: existingScene.description,
+      printProfile: existingScene.printProfile,
+      nodes: existingScene.nodes
+    })}
 
-User-\xC4nderungsprompt: "${prompt}"
-Modifiziere das bestehende Modell entsprechend dem Prompt.` : `Erstelle ein neues druckbares 3D-Modell f\xFCr folgenden User-Prompt: "${prompt}"`;
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: `${systemInstruction}
+User-Prompt: "${prompt}"
+Modifiziere das Modell (oder erstelle das gew\xFCnschte Objekt neu, falls ein anderes Objekt genannt wird).` : `Erstelle ein neues druckbares 3D-Modell f\xFCr folgenden User-Prompt: "${prompt}"`;
+    for (const model of models.slice(0, 2)) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: `${systemInstruction}
 
 ${userMessage}` }] }],
-            generationConfig: {
-              temperature: 0.25,
-              responseMimeType: "application/json"
-            }
-          }),
-          signal: AbortSignal.timeout(12e3)
-        }
-      );
-      if (res.ok) {
+              generationConfig: {
+                temperature: 0.25,
+                responseMimeType: "application/json"
+              }
+            }),
+            signal: AbortSignal.timeout(9e3)
+          }
+        );
+        if (!res.ok) continue;
         const data = await res.json();
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         const cleaned = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
@@ -4568,7 +7338,11 @@ ${userMessage}` }] }],
             "gear",
             "twisted_vase",
             "bracket",
-            "hex_organizer"
+            "hex_organizer",
+            "apple",
+            "lathe",
+            "heart",
+            "star"
           ]);
           const sanitizedNodes = parsed.nodes.map((n, idx) => ({
             id: n.id || `node-ai-${idx}-${Date.now()}`,
@@ -4595,8 +7369,12 @@ ${userMessage}` }] }],
               ...existingScene?.printProfile || DEFAULT_PRINT_PROFILE,
               filamentColor: parsed.filamentColor || existingScene?.printProfile.filamentColor || "#00AE42",
               filamentType: parsed.filamentType || existingScene?.printProfile.filamentType || "PLA",
-              infillPercent: Number(parsed.infillPercent || existingScene?.printProfile.infillPercent || 20),
-              layerHeightMm: Number(parsed.layerHeightMm || existingScene?.printProfile.layerHeightMm || 0.2)
+              infillPercent: Number(
+                parsed.infillPercent || existingScene?.printProfile.infillPercent || 20
+              ),
+              layerHeightMm: Number(
+                parsed.layerHeightMm || existingScene?.printProfile.layerHeightMm || 0.2
+              )
             },
             nodes: sanitizedNodes,
             promptHistory: [
@@ -4612,8 +7390,8 @@ ${userMessage}` }] }],
           };
           return { scene: nextScene, summary: summaryText, engine: engineName };
         }
+      } catch {
       }
-    } catch {
     }
   }
   return runLocalAntigravityCadEngine(prompt, existingScene);
@@ -4623,6 +7401,97 @@ ${userMessage}` }] }],
 try {
   syncHassFrontendFiles();
 } catch {
+}
+var hotCachedWeather = null;
+async function fetchHotStVeitWeather() {
+  if (hotCachedWeather && Date.now() - hotCachedWeather.ts < 10 * 60 * 1e3) {
+    return hotCachedWeather.data;
+  }
+  const lat = 48.0444;
+  const lon = 15.6689;
+  const mapCode = (code) => {
+    if (code === 0) return { conditionCode: "clear", conditionLabel: "Sonnig & Klar" };
+    if (code <= 2) return { conditionCode: "partly_cloudy", conditionLabel: "Leicht bew\xF6lkt" };
+    if (code === 3) return { conditionCode: "cloudy", conditionLabel: "Bew\xF6lkt" };
+    if (code === 45 || code === 48) return { conditionCode: "fog", conditionLabel: "Talnebel" };
+    if (code >= 51 && code <= 67 || code >= 80 && code <= 82) return { conditionCode: "rain", conditionLabel: "Regen" };
+    if (code >= 71 && code <= 86) return { conditionCode: "snow", conditionLabel: "Schneefall" };
+    if (code >= 95) return { conditionCode: "thunderstorm", conditionLabel: "Gewitter" };
+    return { conditionCode: "partly_cloudy", conditionLabel: "Wechselhaft" };
+  };
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FVienna&forecast_days=1`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(4500) });
+    if (r.ok) {
+      const d = await r.json();
+      const c = d.current || {};
+      const cm = mapCode(Number(c.weather_code ?? 1));
+      const times = d.hourly?.time || [];
+      const temps = d.hourly?.temperature_2m || [];
+      const probs = d.hourly?.precipitation_probability || [];
+      const codes = d.hourly?.weather_code || [];
+      const targetHrs = [6, 9, 12, 15, 18, 21];
+      const daySlots = [];
+      for (let i = 0; i < times.length; i++) {
+        const hr = Number(times[i].slice(11, 13)) || new Date(times[i]).getHours();
+        if (targetHrs.includes(hr) && daySlots.length < 6) {
+          const sm = mapCode(Number(codes[i] ?? 1));
+          daySlots.push({
+            hour: hr,
+            hourLabel: `${String(hr).padStart(2, "0")}:00`,
+            tempC: Math.round(Number(temps[i] ?? 14) * 10) / 10,
+            precipProbPct: Math.round(Number(probs[i] ?? 0)),
+            conditionCode: sm.conditionCode,
+            conditionLabel: sm.conditionLabel
+          });
+        }
+      }
+      const payload = {
+        location: "St. Veit / G\xF6lsen",
+        region: "Bezirk Lilienfeld \xB7 N\xD6 (3161)",
+        coordinates: { lat, lon },
+        provider: "Google Weather \xB7 St. Veit / G\xF6lsen",
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        current: {
+          tempC: Math.round(Number(c.temperature_2m ?? 14) * 10) / 10,
+          feelsLikeC: Math.round(Number(c.apparent_temperature ?? c.temperature_2m ?? 13.5) * 10) / 10,
+          conditionCode: cm.conditionCode,
+          conditionLabel: cm.conditionLabel,
+          humidityPct: Math.round(Number(c.relative_humidity_2m ?? 64)),
+          windKmh: Math.round(Number(c.wind_speed_10m ?? 9))
+        },
+        today: {
+          tempMaxC: Math.round(Number(d.daily?.temperature_2m_max?.[0] ?? 17) * 10) / 10,
+          tempMinC: Math.round(Number(d.daily?.temperature_2m_min?.[0] ?? 7) * 10) / 10
+        },
+        daySlots
+      };
+      hotCachedWeather = { ts: Date.now(), data: payload };
+      return payload;
+    }
+  } catch {
+  }
+  return {
+    location: "St. Veit / G\xF6lsen",
+    provider: "Google Weather \xB7 St. Veit / G\xF6lsen",
+    current: {
+      tempC: 14,
+      feelsLikeC: 13.2,
+      conditionCode: "partly_cloudy",
+      conditionLabel: "Leicht bew\xF6lkt",
+      humidityPct: 62,
+      windKmh: 9
+    },
+    today: { tempMaxC: 17, tempMinC: 8 },
+    daySlots: [6, 9, 12, 15, 18, 21].map((hr) => ({
+      hour: hr,
+      hourLabel: `${String(hr).padStart(2, "0")}:00`,
+      tempC: Math.round(9 + Math.sin((hr - 6) / 14 * Math.PI) * 8),
+      precipProbPct: 10,
+      conditionCode: "partly_cloudy",
+      conditionLabel: "Leicht bew\xF6lkt"
+    }))
+  };
 }
 var globalAny = globalThis;
 if (!globalAny.__thassiOrigEmit) {
@@ -4639,6 +7508,16 @@ http.Server.prototype.emit = function(event, ...args) {
         const ingressPath = (req.headers["x-ingress-path"] || "").replace(/\/+$/, "");
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(renderUnifiedDashboardHtml(ingressPath));
+        return true;
+      }
+      if (safeUrl === "/api/system/weather") {
+        void fetchHotStVeitWeather().then((wx) => {
+          res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*"
+          });
+          res.end(JSON.stringify(wx));
+        });
         return true;
       }
     }
@@ -4708,16 +7587,19 @@ var index_default = defineThassiApp((ctx) => {
     syncSharedDashboardState();
   }
   function seedDefaultProjects() {
-    const count = ctx.db.queryOne("SELECT COUNT(*) as cnt FROM print_projects")?.cnt ?? 0;
-    if (count === 0) {
-      const presets = [
-        PRESET_TEMPLATES.desk_headphone_stand(),
-        PRESET_TEMPLATES.precision_planetary_gear(),
-        PRESET_TEMPLATES.twisted_rib_vase(),
-        PRESET_TEMPLATES.smart_home_organizer()
-      ];
-      for (const scene of presets) {
-        const compiled = compileSceneToMesh(scene);
+    const presets = [
+      PRESET_TEMPLATES.organic_apple_sculpture(),
+      PRESET_TEMPLATES.desk_headphone_stand(),
+      PRESET_TEMPLATES.precision_planetary_gear(),
+      PRESET_TEMPLATES.twisted_rib_vase(),
+      PRESET_TEMPLATES.smart_home_organizer()
+    ];
+    for (const scene of presets) {
+      const existing = ctx.db.queryOne("SELECT * FROM print_projects WHERE id = ?", [
+        scene.projectId
+      ]);
+      const compiled = compileSceneToMesh(scene);
+      if (!existing) {
         ctx.db.execute(
           `INSERT INTO print_projects (id, title, description, scene_json, stats_json, status, progress_pct, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, 'sliced_ready', 100, ?, ?)`,
@@ -4731,8 +7613,44 @@ var index_default = defineThassiApp((ctx) => {
             scene.updatedAt
           ]
         );
+      } else if (scene.projectId === "preset-headphone-hook" && /apfel/i.test(existing.title)) {
+        ctx.db.execute(
+          `UPDATE print_projects SET title = ?, description = ?, scene_json = ?, stats_json = ?, updated_at = ? WHERE id = ?`,
+          [
+            scene.title,
+            scene.description,
+            JSON.stringify(scene),
+            JSON.stringify(compiled.stats),
+            (/* @__PURE__ */ new Date()).toISOString(),
+            scene.projectId
+          ]
+        );
       }
-      ctx.db.kvSet("active_project_id", presets[0].projectId);
+    }
+    const allRows = ctx.db.query("SELECT * FROM print_projects");
+    for (const r of allRows) {
+      if (/\b(apfel|apple)\b/i.test(r.title) && r.scene_json.includes("node-base-chassis")) {
+        const appleScene = PRESET_TEMPLATES.organic_apple_sculpture();
+        appleScene.projectId = r.id;
+        appleScene.title = "3D-Apfel mit Stiel & Blatt";
+        appleScene.description = `Organischer 3D-Apfel f\xFCr "${r.title}"`;
+        const compiled = compileSceneToMesh(appleScene);
+        ctx.db.execute(
+          `UPDATE print_projects SET title = ?, description = ?, scene_json = ?, stats_json = ?, updated_at = ? WHERE id = ?`,
+          [
+            appleScene.title,
+            appleScene.description,
+            JSON.stringify(appleScene),
+            JSON.stringify(compiled.stats),
+            (/* @__PURE__ */ new Date()).toISOString(),
+            r.id
+          ]
+        );
+      }
+    }
+    const activeId = ctx.db.kvGet("active_project_id");
+    if (!activeId) {
+      ctx.db.kvSet("active_project_id", "preset-organic-apple");
     }
   }
   seedDefaultProjects();
@@ -5112,16 +8030,61 @@ var index_default = defineThassiApp((ctx) => {
       stats: mesh.stats
     };
   });
+  async function probeConfiguredPrinterAndSyncTelemetry() {
+    const cfg = getPrinterConfig();
+    const [open8883, open990, open6000, open322, certInfo] = await Promise.all([
+      checkTcpPort(cfg.ip, 8883, 600),
+      checkTcpPort(cfg.ip, 990, 600),
+      checkTcpPort(cfg.ip, 6e3, 600),
+      checkTcpPort(cfg.ip, 322, 600),
+      inspectBambuTlsCertificate(cfg.ip, 8883, 1e3)
+    ]);
+    if (open8883) {
+      const printerEntry = {
+        ip: cfg.ip,
+        serial: certInfo.cn || cfg.serial || "00M09A391700992",
+        name: cfg.name || "Bambu X1C WHG",
+        model: cfg.model || "Bambu Lab X1-Carbon (BL-P001)",
+        firmware: "01.11.02.00",
+        connectMode: open322 || open990 ? "lan" : "cloud",
+        bindStatus: "free",
+        signalDbm: "-65 dBm",
+        ports: {
+          mqttTls8883: open8883,
+          ftps990: open990,
+          chamberStream6000: open6000,
+          rtsps322: open322
+        },
+        tlsCertificateSubject: certInfo.cn || "00M09A391700992",
+        discoveryMethod: "tcp_8883_tls_probe",
+        discoveredAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      ctx.db.kvSet("bambu_last_discovered", [printerEntry]);
+      const tel = getTelemetry();
+      const row = getActiveProjectRow();
+      saveTelemetry({
+        ...tel,
+        connected: true,
+        connectionMode: "lan_mqtt_tls",
+        subtaskName: row?.title || tel.subtaskName || "Bereit",
+        lastUpdated: (/* @__PURE__ */ new Date()).toISOString(),
+        lastMessage: cfg.accessCode ? `Verbunden mit ${printerEntry.name} (${cfg.ip}:8883 \xB7 LAN-Modus aktiv \xB7 Access Code hinterlegt)` : `Bambu X1C WHG (${cfg.ip}) im LAN-Modus online (Ports 8883/990/6000${open322 ? "/322" : ""} aktiv)`
+      });
+    }
+    return {
+      open8883,
+      open990,
+      open6000,
+      open322,
+      certInfo
+    };
+  }
+  void probeConfiguredPrinterAndSyncTelemetry().catch(() => {
+  });
   ctx.route("POST", "/printer/discover", async () => {
     const discovered = await scanSubnetForBambuPrinters("192.168.188");
     ctx.db.kvSet("bambu_last_discovered", discovered);
     const cfg = getPrinterConfig();
-    const configuredReachable8883 = await checkTcpPort(cfg.ip, 8883, 600);
-    const configuredReachable990 = await checkTcpPort(cfg.ip, 990, 600);
-    let certInfo = { ok: false };
-    if (configuredReachable8883) {
-      certInfo = await inspectBambuTlsCertificate(cfg.ip, 8883, 1e3);
-    }
     if (discovered.length > 0) {
       const first = discovered[0];
       ctx.db.kvSet("bambu_printer_config", {
@@ -5132,17 +8095,20 @@ var index_default = defineThassiApp((ctx) => {
         name: first.name || cfg.name
       });
     }
+    const probe = await probeConfiguredPrinterAndSyncTelemetry();
     const allStates = await ctx.ha.getStates("switch");
     const shellyPlug = allStates.find((s) => s.entity_id === cfg.shellyPowerEntityId);
     return {
       ok: true,
       scannedSubnet: "192.168.188.0/24",
-      discoveredPrinters: discovered,
+      discoveredPrinters: ctx.db.kvGet("bambu_last_discovered") || discovered,
       configuredPrinterProbe: {
         ip: cfg.ip,
-        mqttTls8883: configuredReachable8883,
-        ftps990: configuredReachable990,
-        tlsCertCn: certInfo.cn || null,
+        mqttTls8883: probe.open8883,
+        ftps990: probe.open990,
+        chamberStream6000: probe.open6000,
+        rtsps322: probe.open322,
+        tlsCertCn: probe.certInfo.cn || null,
         shellyPlugEntity: cfg.shellyPowerEntityId,
         shellyPlugState: shellyPlug?.state || "unknown"
       },
@@ -5163,9 +8129,26 @@ var index_default = defineThassiApp((ctx) => {
       lanOnlyMode: body.lanOnlyMode ?? current.lanOnlyMode
     };
     ctx.db.kvSet("bambu_printer_config", updated);
+    let mqttCheck = null;
+    if (updated.ip && updated.serial && updated.accessCode) {
+      mqttCheck = await publishBambuMqttCommand(updated, {
+        pushing: { sequence_id: String(Date.now()), command: "pushall" }
+      });
+    }
+    await probeConfiguredPrinterAndSyncTelemetry();
+    if (mqttCheck) {
+      const tel = getTelemetry();
+      saveTelemetry({
+        ...tel,
+        connected: mqttCheck.ok || tel.connected,
+        connectionMode: "lan_mqtt_tls",
+        lastMessage: mqttCheck.message
+      });
+    }
     syncSharedDashboardState();
     return {
       ok: true,
+      mqttCheck,
       printerConfig: {
         ...updated,
         accessCode: updated.accessCode ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "",

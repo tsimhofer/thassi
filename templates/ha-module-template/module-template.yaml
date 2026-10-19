@@ -1,0 +1,56 @@
+# =============================================================================
+# Thassi — Generisches Home Assistant Modul-Template (Formularvorgabe)
+# =============================================================================
+# Dieses Template definiert die verbindliche Struktur für die n8n-basierte
+# Python-Code-Generierung (Gemini API), Unit-Test-Verifikation, Git-Versionierung
+# und SSH/Samba-Bereitstellung auf Home Assistant OS (192.168.188.92).
+
+objectives:
+  slug: "shelly_energy_guard"
+  name: "Shelly Energy & Anomaly Guard"
+  domain: "sensor"
+  description: >
+    Analysiert Leistungs- und Temperaturwerte von Shelly-Sensoren in Büro OG und Wohnküche,
+    berechnet den gleitenden Durchschnittsverbrauch (W), erkennt Lastspitzen/Standby-Anomalien
+    und publiziert einen strukturierten Home Assistant Status-Sensor inklusive Effizienz-Score.
+  targetEntities:
+    - "sensor.shellyplugsg3_e4b063e4bfd8_power"
+    - "sensor.links_power"
+    - "sensor.shellyhtg3_e4b32331dde0_temperatur"
+  unitOfMeasurement: "W"
+  icon: "mdi:lightning-bolt-circle"
+  pollingIntervalSeconds: 60
+
+dependencies:
+  pythonVersion: ">=3.12"
+  pipPackages: []
+  haIntegrations:
+    - "http"
+    - "sensor"
+    - "mqtt"
+  requiredEnvVars:
+    - "HA_URL"
+    - "HA_TOKEN"
+    - "GEMINI_API_KEY"
+
+testWorkflow:
+  framework: "unittest"
+  astSyntaxCheck: true
+  verifyErrorHandling: true
+  requiredTestCases:
+    - "test_module_initialization"
+    - "test_sensor_state_calculation"
+    - "test_api_error_and_timeout_handling"
+    - "test_ha_entity_payload_contract"
+  minPassRatePercent: 100
+
+deploymentStrategy:
+  transport: "samba_and_bridge"
+  hassHost: "192.168.188.92"
+  sambaShare: "\\\\192.168.188.92\\config"
+  sshPort: 22
+  targetPath: "/config/custom_components/shelly_energy_guard"
+  gitBranch: "main"
+  autoCommitPush: false
+  rollbackOnTestFailure: true
+  publishHaSensor: true

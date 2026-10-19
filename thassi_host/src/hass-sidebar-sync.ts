@@ -9,157 +9,82 @@ import path from 'node:path';
 export function getHassSidebarStylerScript(): string {
   return `
   (function initThassiHassSidebarStyler() {
-    const LABEL_MAP = {
-      'Main Dashboard': 'Horizon',
-      'Thassi Main Dashboard': 'Horizon',
-      'Thassi Unified Dashboard': 'Horizon',
-      'Google Calendar & Time Analytics': 'Calendar',
-      'Google Health & Readiness': 'Health',
-      'Finance & Budget': 'Finances',
-      'Meal Planner': 'Meals',
-      'Smart Control Canvas': 'Smart Home',
-      'Camera Vision & Object Detection': 'Vision'
-    };
+    const SUBTLE_BAR_BG = '#161f2e';
 
     const ROOT_THEME_CSS = \`
       :root, html, body, home-assistant {
         --primary-background-color: #040711 !important;
-        --secondary-background-color: #060a17 !important;
+        --secondary-background-color: #161f2e !important;
         --card-background-color: rgba(8, 13, 26, 0.72) !important;
         --ha-card-background: rgba(8, 13, 26, 0.72) !important;
-        --sidebar-background-color: transparent !important;
-        --sidebar-text-color: rgba(248, 250, 252, 0.58) !important;
-        --sidebar-icon-color: rgba(148, 163, 184, 0.58) !important;
-        --sidebar-selected-text-color: #ffffff !important;
+        --sidebar-background-color: \${SUBTLE_BAR_BG} !important;
+        --sidebar-text-color: #cbd5e1 !important;
+        --sidebar-icon-color: #94a3b8 !important;
+        --sidebar-selected-text-color: #f8fafc !important;
         --sidebar-selected-icon-color: #38bdf8 !important;
         --primary-color: #38bdf8 !important;
         --accent-color: #38bdf8 !important;
-        --divider-color: rgba(255, 255, 255, 0.0) !important;
-        --app-header-background-color: #040711 !important;
+        --divider-color: rgba(255, 255, 255, 0.08) !important;
+        --app-header-background-color: \${SUBTLE_BAR_BG} !important;
         --app-header-text-color: #f8fafc !important;
         --mdc-theme-primary: #38bdf8 !important;
-        --mdc-theme-surface: #040711 !important;
-        --mdc-drawer-width: 208px !important;
+        --mdc-theme-surface: \${SUBTLE_BAR_BG} !important;
         background-color: #040711 !important;
       }
     \`;
 
     const DRAWER_SHADOW_CSS = \`
-      .mdc-drawer, aside.mdc-drawer {
-        background: var(--thassi-sidebar-bg, linear-gradient(180deg, rgba(4, 7, 17, 0.94) 0%, rgba(7, 13, 29, 0.92) 55%, rgba(3, 6, 15, 0.96) 100%)) !important;
-        backdrop-filter: blur(30px) saturate(140%) !important;
-        -webkit-backdrop-filter: blur(30px) saturate(140%) !important;
-        border-right: none !important;
-        box-shadow: 16px 0 48px rgba(0, 0, 0, 0.35) !important;
-        transition: background 1.2s cubic-bezier(0.22, 1, 0.36, 1) !important;
+      .mdc-drawer,
+      aside.mdc-drawer {
+        background: \${SUBTLE_BAR_BG} !important;
+        background-color: \${SUBTLE_BAR_BG} !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.07) !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
-      .mdc-drawer.mdc-drawer--open:not(.mdc-drawer--closing) + .mdc-drawer-app-content {
-        background: #040711 !important;
-      }
-      .mdc-drawer-app-content {
-        background: #040711 !important;
+      .mdc-drawer__content {
+        background: \${SUBTLE_BAR_BG} !important;
+        background-color: \${SUBTLE_BAR_BG} !important;
       }
     \`;
 
     const SIDEBAR_SHADOW_CSS = \`
       :host {
-        background: transparent !important;
-        color: rgba(248, 250, 252, 0.62) !important;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        background: \${SUBTLE_BAR_BG} !important;
+        background-color: \${SUBTLE_BAR_BG} !important;
+        color: #cbd5e1 !important;
         border-right: none !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
       .menu {
-        background: transparent !important;
-        border-bottom: none !important;
-        height: 68px !important;
-        padding: 0 14px !important;
-        display: flex !important;
-        align-items: center !important;
-      }
-      .menu .title {
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
-        font-size: 11px !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.28em !important;
-        text-transform: uppercase !important;
-        color: rgba(248, 250, 252, 0.72) !important;
-        margin-left: 6px !important;
-      }
-      .menu ha-icon-button {
-        color: rgba(248, 250, 252, 0.55) !important;
-      }
-      /* Hide sidebar edit button, dividers, notifications & non-Thassi items */
-      .divider,
-      div.divider,
-      .notifications-container,
-      .notifications,
-      ha-md-list-item.notifications,
-      a[data-panel="lovelace"],
-      a[data-panel="developer-tools"],
-      a[data-panel="config"],
-      a[data-panel="44ec3c40_thassi_system_monitor"],
-      a[data-panel="44ec3c40_thassi_fuege_neue"],
-      ha-md-list-item[href="/lovelace"],
-      ha-md-list-item[href="/developer-tools"],
-      ha-md-list-item[href="/44ec3c40_thassi_system_monitor"],
-      ha-md-list-item[href="/44ec3c40_thassi_fuege_neue"] {
-        display: none !important;
+        background: \${SUBTLE_BAR_BG} !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+        box-shadow: none !important;
       }
       ha-md-list,
-      paper-listbox {
-        padding: 4px 10px !important;
+      paper-listbox,
+      .ha-scrollbar {
         background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
       }
       ha-md-list-item,
       paper-icon-item,
       a[role="option"] {
-        border-radius: 14px !important;
-        margin: 4px 0 !important;
-        min-height: 42px !important;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
-        font-size: 12.5px !important;
-        font-weight: 400 !important;
-        letter-spacing: 0.04em !important;
-        color: rgba(248, 250, 252, 0.56) !important;
-        transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
-        --md-list-item-leading-icon-color: rgba(148, 163, 184, 0.56) !important;
-        --md-list-item-label-text-color: rgba(248, 250, 252, 0.56) !important;
-        --md-list-item-label-text-font: "Inter", system-ui, sans-serif !important;
-        --md-list-item-label-text-size: 12.5px !important;
-        --md-list-item-label-text-weight: 400 !important;
+        transition: none !important;
+        transform: none !important;
+        box-shadow: none !important;
       }
       ha-md-list-item:hover,
       a[role="option"]:hover {
-        background: rgba(255, 255, 255, 0.04) !important;
-        color: rgba(248, 250, 252, 0.92) !important;
-        transform: translateX(3px) !important;
-        --md-list-item-leading-icon-color: rgba(248, 250, 252, 0.92) !important;
-        --md-list-item-label-text-color: rgba(248, 250, 252, 0.92) !important;
-      }
-      ha-md-list-item[selected],
-      ha-md-list-item.selected,
-      a.iron-selected,
-      a[aria-selected="true"] {
-        background: rgba(56, 189, 248, 0.11) !important;
-        color: #ffffff !important;
-        box-shadow: inset 2px 0 0 #38bdf8, 0 8px 24px rgba(0, 0, 0, 0.22) !important;
-        --md-list-item-leading-icon-color: #38bdf8 !important;
-        --md-list-item-label-text-color: #ffffff !important;
-        --md-list-item-label-text-weight: 500 !important;
-      }
-      .item-text {
-        font-size: 12.5px !important;
-        letter-spacing: 0.04em !important;
-      }
-      /* Subtle profile footer */
-      .profile,
-      ha-md-list-item.user {
-        opacity: 0.55 !important;
-        transition: opacity 0.2s ease !important;
-      }
-      .profile:hover,
-      ha-md-list-item.user:hover {
-        opacity: 0.95 !important;
+        transform: none !important;
+        box-shadow: none !important;
       }
     \`;
 
@@ -208,54 +133,19 @@ export function getHassSidebarStylerScript(): string {
         const drawer = main.shadowRoot.querySelector('ha-drawer');
         if (drawer && drawer.shadowRoot) {
           ensureStyleTag(drawer.shadowRoot, 'thassi-drawer-style', DRAWER_SHADOW_CSS);
+          drawer.style.removeProperty('--mdc-drawer-width');
+          const appContent = drawer.shadowRoot.querySelector('.mdc-drawer-app-content');
+          if (appContent) {
+            appContent.style.removeProperty('margin-inline-start');
+            appContent.style.removeProperty('width');
+          }
         }
 
         const sidebar = main.shadowRoot.querySelector('ha-sidebar');
         if (sidebar && sidebar.shadowRoot) {
           ensureStyleTag(sidebar.shadowRoot, 'thassi-sidebar-style', SIDEBAR_SHADOW_CSS);
-
-          const titleEl = sidebar.shadowRoot.querySelector('.menu .title');
-          if (titleEl && titleEl.textContent !== 'THASSI') {
-            titleEl.textContent = 'THASSI';
-          }
-
-          const items = sidebar.shadowRoot.querySelectorAll('.item-text, span[slot="headline"]');
-          let has3dPrintItem = false;
-          items.forEach((el) => {
-            const raw = (el.textContent || '').trim();
-            if (raw === '3D Druck' || raw === '3D Print') has3dPrintItem = true;
-            if (LABEL_MAP[raw]) {
-              el.textContent = LABEL_MAP[raw];
-            }
-          });
-
-          // Ensure "3D Druck" appears in the Home Assistant sidebar even before standalone add-on install
-          const list = sidebar.shadowRoot.querySelector('ha-md-list, paper-listbox');
-          if (list && !has3dPrintItem && !list.querySelector('#thassi-sidebar-3dprint')) {
-            const item = document.createElement('a');
-            item.id = 'thassi-sidebar-3dprint';
-            item.setAttribute('role', 'option');
-            item.href = '/44ec3c40_thassi_host#3d-print';
-            item.style.cssText = 'display:flex;align-items:center;gap:16px;padding:0 16px;min-height:42px;border-radius:14px;margin:4px 0;text-decoration:none;color:rgba(248,250,252,0.56);font-family:Inter,system-ui,sans-serif;font-size:12.5px;cursor:pointer;transition:all 0.25s ease;';
-            item.innerHTML = '<ha-icon icon="mdi:printer-3d-nozzle" style="color:rgba(148,163,184,0.56);"></ha-icon><span class="item-text">3D Druck</span>';
-            item.addEventListener('click', (ev) => {
-              ev.preventDefault();
-              try {
-                if (typeof window.openFullService === 'function') {
-                  window.openFullService('3d-print', '3D Druck Studio');
-                  return;
-                }
-                if (window.top) {
-                  window.top.history.pushState(null, '', '/44ec3c40_thassi_host#3d-print');
-                  window.top.dispatchEvent(new CustomEvent('location-changed'));
-                }
-              } catch (_e) {}
-            });
-            list.appendChild(item);
-          }
         }
 
-        // Also strip Lovelace top header if currently on /lovelace
         const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
         const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');
         if (huiRoot && huiRoot.shadowRoot) {
@@ -266,16 +156,21 @@ export function getHassSidebarStylerScript(): string {
       }
     }
 
-    window.syncThassiSidebarSky = function(skyOverlayGradient) {
+    window.syncThassiSidebarSky = function(_skyOverlayGradient) {
+      // No-op: keep sidebar solid subtle non-black background with no effects
+    };
+
+    window.toggleHassMobileSidebar = function() {
       try {
-        if (!window.top || window.top === window) return;
+        if (!window.top || window.top === window) return false;
         const ha = window.top.document.querySelector('home-assistant');
         const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector('home-assistant-main');
-        const drawer = main && main.shadowRoot && main.shadowRoot.querySelector('ha-drawer');
-        if (drawer) {
-          drawer.style.setProperty('--thassi-sidebar-bg', skyOverlayGradient);
+        if (main) {
+          main.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
+          return true;
         }
       } catch (_e) {}
+      return false;
     };
 
     applyThassiChromeToParent();

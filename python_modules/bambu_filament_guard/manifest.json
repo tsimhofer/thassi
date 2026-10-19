@@ -1,0 +1,16 @@
+{
+  "domain": "bambu_filament_guard",
+  "name": "Bambu X1C Power & Thermal Guard",
+  "version": "1.0.0",
+  "documentation": "https://github.com/tsimhofer/thassi",
+  "requirements": [],
+  "dependencies": [
+    "http",
+    "sensor",
+    "mqtt"
+  ],
+  "codeowners": [
+    "@tsimhofer"
+  ],
+  "iot_class": "local_polling"
+}

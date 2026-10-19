@@ -1,0 +1,169 @@
+{
+  "name": "Thassi — Home Assistant Python Modul-Workflow (Gemini + Git + SSH/Samba)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ha-module-generator",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "node-webhook-trigger",
+      "name": "1. Webhook Trigger (Template Input)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [180, 320],
+      "webhookId": "thassi-ha-module-webhook"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $input.first()?.json?.body || $input.first()?.json || {};\nconst objectives = body.objectives || {};\nconst dependencies = body.dependencies || {};\nconst testWorkflow = body.testWorkflow || {};\nconst deploymentStrategy = body.deploymentStrategy || {};\n\nconst slug = String(objectives.slug || 'shelly_energy_guard').toLowerCase().replace(/[^a-z0-9_]/g, '_');\nconst name = String(objectives.name || 'Shelly Energy Guard');\nconst domain = String(objectives.domain || 'sensor');\nconst description = String(objectives.description || 'Home Assistant Python Sensor Module');\nconst targetEntities = Array.isArray(objectives.targetEntities) ? objectives.targetEntities : ['sensor.shellyplugsg3_e4b063e4bfd8_power'];\n\nconst systemPrompt = [\n  'You are a Senior Home Assistant Python Developer.',\n  'Generate a production-grade Python module (sensor.py) and unittest suite (test_' + slug + '.py) following the Thassi Module Template.',\n  'Include resilient error handling for urllib.error.HTTPError, TimeoutError, and invalid sensor states (unavailable/unknown).',\n  'Return valid JSON with keys: sensorPy, initPy, manifestJson, testPy.'\n].join(' ');\n\nreturn [{\n  json: {\n    slug,\n    name,\n    domain,\n    description,\n    targetEntities,\n    unitOfMeasurement: objectives.unitOfMeasurement || 'W',\n    icon: objectives.icon || 'mdi:lightning-bolt-circle',\n    pollingIntervalSeconds: Number(objectives.pollingIntervalSeconds || 60),\n    dependencies,\n    testWorkflow,\n    deploymentStrategy,\n    geminiRequest: {\n      systemInstruction: { parts: [{ text: systemPrompt }] },\n      contents: [{\n        role: 'user',\n        parts: [{ text: JSON.stringify({ objectives, dependencies, testWorkflow, deploymentStrategy }) }]\n      }],\n      generationConfig: {\n        temperature: 0.2,\n        responseMimeType: 'application/json'\n      }\n    }\n  }\n}];"
+      },
+      "id": "node-template-validator",
+      "name": "2. Template Validator & Prompt Builder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiRequest) }}",
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "node-gemini-http",
+      "name": "3. Gemini API Code Generator (HTTP Request)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 320],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "gemini-api-key-cred",
+          "name": "Google Gemini API Key (?key=)"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "command": "python -m unittest discover -s \"python_modules/{{ $node['2. Template Validator & Prompt Builder'].json.slug }}\" -p \"test_*.py\" -v"
+      },
+      "id": "node-python-unittest",
+      "name": "4. Python AST & Unit-Test Runner",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1000, 320]
+    },
+    {
+      "parameters": {
+        "operation": "commit",
+        "repositoryPath": "c:/Users/thoma/source/repos/thassi",
+        "message": "=feat({{ $node['2. Template Validator & Prompt Builder'].json.slug }}): n8n generated & verified Home Assistant Python module",
+        "options": {
+          "files": "=python_modules/{{ $node['2. Template Validator & Prompt Builder'].json.slug }}"
+        }
+      },
+      "id": "node-git-vcs",
+      "name": "5. Git Version Control (Commit & Push)",
+      "type": "n8n-nodes-base.git",
+      "typeVersion": 1,
+      "position": [1280, 320]
+    },
+    {
+      "parameters": {
+        "authentication": "password",
+        "resource": "command",
+        "operation": "execute",
+        "command": "=mkdir -p /config/custom_components/{{ $node['2. Template Validator & Prompt Builder'].json.slug }} && cp -r ./python_modules/{{ $node['2. Template Validator & Prompt Builder'].json.slug }}/* /config/custom_components/{{ $node['2. Template Validator & Prompt Builder'].json.slug }}/",
+        "cwd": "/config"
+      },
+      "id": "node-ssh-samba-deploy",
+      "name": "6. SSH / Samba Home Assistant Deploy (192.168.188.92)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [1560, 320],
+      "credentials": {
+        "sshPassword": {
+          "id": "hass-ssh-samba-cred",
+          "name": "Home Assistant OS SSH / Samba (192.168.188.92)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "1. Webhook Trigger (Template Input)": {
+      "main": [
+        [
+          {
+            "node": "2. Template Validator & Prompt Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Template Validator & Prompt Builder": {
+      "main": [
+        [
+          {
+            "node": "3. Gemini API Code Generator (HTTP Request)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Gemini API Code Generator (HTTP Request)": {
+      "main": [
+        [
+          {
+            "node": "4. Python AST & Unit-Test Runner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Python AST & Unit-Test Runner": {
+      "main": [
+        [
+          {
+            "node": "5. Git Version Control (Commit & Push)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Git Version Control (Commit & Push)": {
+      "main": [
+        [
+          {
+            "node": "6. SSH / Samba Home Assistant Deploy (192.168.188.92)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "thassi-n8n-ha-module-workflow-v1"
+  }
+}

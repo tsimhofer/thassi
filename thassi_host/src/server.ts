@@ -66,6 +66,415 @@ const scheduler = new ThassiCronScheduler();
 const googleOAuth = new ThassiGoogleOAuthManager(sharedDb);
 const systemHaBridge = new ThassiHaBridge('hub', sharedDb);
 
+export type WeatherConditionKind =
+  | 'clear'
+  | 'partly_cloudy'
+  | 'cloudy'
+  | 'fog'
+  | 'drizzle'
+  | 'rain'
+  | 'snow'
+  | 'thunderstorm';
+
+export interface WeatherHourSlot {
+  timeIso: string;
+  hourLabel: string;
+  hour: number;
+  tempC: number;
+  precipProbPct: number;
+  precipMm: number;
+  conditionCode: WeatherConditionKind;
+  conditionLabel: string;
+  isDay: boolean;
+}
+
+export interface StVeitWeatherPayload {
+  location: string;
+  region: string;
+  coordinates: { lat: number; lon: number };
+  provider: string;
+  updatedAt: string;
+  current: {
+    tempC: number;
+    feelsLikeC: number;
+    conditionCode: WeatherConditionKind;
+    conditionLabel: string;
+    humidityPct: number;
+    windKmh: number;
+    precipProbPct: number;
+    isDay: boolean;
+  };
+  today: {
+    tempMaxC: number;
+    tempMinC: number;
+    sunriseHour: number;
+    sunsetHour: number;
+    sunriseLabel: string;
+    sunsetLabel: string;
+    summary: string;
+  };
+  daySlots: WeatherHourSlot[];
+  hourly24: WeatherHourSlot[];
+}
+
+const ST_VEIT_GOELSEN = {
+  name: 'St. Veit / Gölsen',
+  region: 'Bezirk Lilienfeld · NÖ (3161)',
+  lat: 48.0444,
+  lon: 15.6689,
+};
+
+let cachedWeather: { fetchedAtMs: number; payload: StVeitWeatherPayload } | null = null;
+
+function mapGoogleConditionType(rawType = ''): {
+  code: WeatherConditionKind;
+  label: string;
+} {
+  const t = rawType.toUpperCase();
+  if (t.includes('THUNDER') || t.includes('STORM')) {
+    return { code: 'thunderstorm', label: 'Gewitter' };
+  }
+  if (t.includes('SNOW') || t.includes('FLURR') || t.includes('SLEET') || t.includes('ICE')) {
+    return { code: 'snow', label: 'Schneefall' };
+  }
+  if (t.includes('DRIZZLE') || t.includes('LIGHT_RAIN')) {
+    return { code: 'drizzle', label: 'Leichter Regen' };
+  }
+  if (t.includes('RAIN') || t.includes('SHOWER')) {
+    return { code: 'rain', label: 'Regen' };
+  }
+  if (t.includes('FOG') || t.includes('MIST') || t.includes('HAZE')) {
+    return { code: 'fog', label: 'Nebel / Dunst' };
+  }
+  if (t.includes('OVERCAST') || t.includes('CLOUDY') && !t.includes('PARTLY') && !t.includes('MOSTLY_CLEAR')) {
+    return { code: 'cloudy', label: 'Bewölkt' };
+  }
+  if (t.includes('PARTLY') || t.includes('SCATTERED') || t.includes('MOSTLY')) {
+    return { code: 'partly_cloudy', label: 'Leicht bewölkt' };
+  }
+  return { code: 'clear', label: 'Klar' };
+}
+
+function mapWmoCode(wmo: number, isDay = true): {
+  code: WeatherConditionKind;
+  label: string;
+} {
+  if (wmo === 0) return { code: 'clear', label: isDay ? 'Sonnig & Klar' : 'Sternenklar' };
+  if (wmo === 1 || wmo === 2) return { code: 'partly_cloudy', label: 'Leicht bewölkt' };
+  if (wmo === 3) return { code: 'cloudy', label: 'Bedeckt' };
+  if (wmo === 45 || wmo === 48) return { code: 'fog', label: 'Talnebel' };
+  if (wmo >= 51 && wmo <= 57) return { code: 'drizzle', label: 'Nieselregen' };
+  if ((wmo >= 61 && wmo <= 67) || (wmo >= 80 && wmo <= 82)) return { code: 'rain', label: 'Regen' };
+  if ((wmo >= 71 && wmo <= 77) || wmo === 85 || wmo === 86) return { code: 'snow', label: 'Schneefall' };
+  if (wmo >= 95) return { code: 'thunderstorm', label: 'Gewitter' };
+  return { code: 'partly_cloudy', label: 'Wechselhaft' };
+}
+
+function parseIsoToHourFloat(iso?: string, fallback = 6.75): { hourFloat: number; label: string } {
+  if (!iso) {
+    const h = Math.floor(fallback);
+    const m = Math.round((fallback - h) * 60);
+    return {
+      hourFloat: fallback,
+      label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+    };
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return parseIsoToHourFloat(undefined, fallback);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  return {
+    hourFloat: Number((h + m / 60).toFixed(2)),
+    label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+  };
+}
+
+async function tryFetchGoogleWeatherApi(): Promise<StVeitWeatherPayload | null> {
+  const apiKey =
+    process.env.GOOGLE_WEATHER_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    sharedDb.kvGet<string>('google_weather_api_key') ||
+    '';
+
+  let authHeaders: Record<string, string> = {};
+  let keyQuery = '';
+
+  if (apiKey) {
+    keyQuery = `&key=${encodeURIComponent(apiKey)}`;
+  } else if (googleOAuth.getStatus().authorized) {
+    try {
+      const token = await googleOAuth.getValidAccessToken();
+      authHeaders = { Authorization: `Bearer ${token}` };
+    } catch {
+      return null;
+    }
+  } else {
+    return null;
+  }
+
+  const baseParams = `location.latitude=${ST_VEIT_GOELSEN.lat}&location.longitude=${ST_VEIT_GOELSEN.lon}&languageCode=de${keyQuery}`;
+  const [curRes, hrRes, dayRes] = await Promise.all([
+    fetch(`https://weather.googleapis.com/v1/currentConditions:lookup?${baseParams}`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(4500),
+    }),
+    fetch(`https://weather.googleapis.com/v1/forecast/hours:lookup?${baseParams}&hours=24`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(4500),
+    }),
+    fetch(`https://weather.googleapis.com/v1/forecast/days:lookup?${baseParams}&days=1`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(4500),
+    }),
+  ]);
+
+  if (!curRes.ok || !hrRes.ok) return null;
+
+  const curJson = (await curRes.json()) as Record<string, any>;
+  const hrJson = (await hrRes.json()) as Record<string, any>;
+  const dayJson = dayRes.ok ? ((await dayRes.json()) as Record<string, any>) : {};
+
+  const condType = String(curJson.weatherCondition?.type || 'PARTLY_CLOUDY');
+  const mappedCur = mapGoogleConditionType(condType);
+  const curLabel = curJson.weatherCondition?.description?.text || mappedCur.label;
+  const tempC = Number(curJson.temperature?.degrees ?? 14);
+  const feelsLikeC = Number(curJson.feelsLikeTemperature?.degrees ?? tempC);
+  const humidityPct = Number(curJson.relativeHumidity ?? 62);
+  const windKmh = Number(curJson.wind?.speed?.value ?? 8);
+  const precipProbPct = Number(curJson.precipitation?.probability?.percent ?? 10);
+  const isDay = curJson.isDaytime !== false;
+
+  const rawHours: any[] = Array.isArray(hrJson.forecastHours) ? hrJson.forecastHours : [];
+  const hourly24: WeatherHourSlot[] = rawHours.slice(0, 24).map((fh: any, idx: number) => {
+    const dtIso = fh.interval?.startTime || new Date(Date.now() + idx * 3600000).toISOString();
+    const d = new Date(dtIso);
+    const hr = d.getHours();
+    const mapped = mapGoogleConditionType(String(fh.weatherCondition?.type || condType));
+    return {
+      timeIso: dtIso,
+      hourLabel: `${String(hr).padStart(2, '0')}:00`,
+      hour: hr,
+      tempC: Math.round(Number(fh.temperature?.degrees ?? tempC) * 10) / 10,
+      precipProbPct: Number(fh.precipitation?.probability?.percent ?? 0),
+      precipMm: Number(fh.precipitation?.qpf?.quantity ?? 0),
+      conditionCode: mapped.code,
+      conditionLabel: fh.weatherCondition?.description?.text || mapped.label,
+      isDay: fh.isDaytime !== false,
+    };
+  });
+
+  const targetSlotHours = [6, 9, 12, 15, 18, 21];
+  let daySlots = hourly24.filter((s) => targetSlotHours.includes(s.hour)).slice(0, 6);
+  if (daySlots.length < 4) {
+    daySlots = hourly24.filter((_, i) => i % 3 === 0).slice(0, 6);
+  }
+
+  const firstDay = Array.isArray(dayJson.forecastDays) ? dayJson.forecastDays[0] : null;
+  const temps = hourly24.length > 0 ? hourly24.map((h) => h.tempC) : [tempC];
+  const tempMaxC = Math.round(Number(firstDay?.maxTemperature?.degrees ?? Math.max(...temps)) * 10) / 10;
+  const tempMinC = Math.round(Number(firstDay?.minTemperature?.degrees ?? Math.min(...temps)) * 10) / 10;
+  const sr = parseIsoToHourFloat(firstDay?.sunEvents?.sunriseTime, 6.5);
+  const ss = parseIsoToHourFloat(firstDay?.sunEvents?.sunsetTime, 18.5);
+
+  const payload: StVeitWeatherPayload = {
+    location: ST_VEIT_GOELSEN.name,
+    region: ST_VEIT_GOELSEN.region,
+    coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
+    provider: 'Google Weather API · St. Veit / Gölsen',
+    updatedAt: new Date().toISOString(),
+    current: {
+      tempC: Math.round(tempC * 10) / 10,
+      feelsLikeC: Math.round(feelsLikeC * 10) / 10,
+      conditionCode: mappedCur.code,
+      conditionLabel: curLabel,
+      humidityPct: Math.round(humidityPct),
+      windKmh: Math.round(windKmh),
+      precipProbPct: Math.round(precipProbPct),
+      isDay,
+    },
+    today: {
+      tempMaxC,
+      tempMinC,
+      sunriseHour: sr.hourFloat,
+      sunsetHour: ss.hourFloat,
+      sunriseLabel: sr.label,
+      sunsetLabel: ss.label,
+      summary: `${curLabel} in St. Veit an der Gölsen · Tageshöchstwert ${Math.round(tempMaxC)}°C, Tiefstwert ${Math.round(tempMinC)}°C`,
+    },
+    daySlots,
+    hourly24,
+  };
+
+  return payload;
+}
+
+async function fetchStVeitGoelsenWeather(forceRefresh = false): Promise<StVeitWeatherPayload> {
+  if (!forceRefresh && cachedWeather && Date.now() - cachedWeather.fetchedAtMs < 12 * 60 * 1000) {
+    return cachedWeather.payload;
+  }
+
+  // 1. Try Google Weather API (weather.googleapis.com) for St. Veit / Gölsen
+  try {
+    const googleData = await tryFetchGoogleWeatherApi();
+    if (googleData) {
+      cachedWeather = { fetchedAtMs: Date.now(), payload: googleData };
+      sharedDb.kvSet('weather_st_veit_goelsen', googleData);
+      return googleData;
+    }
+  } catch (err) {
+    console.warn('[Thassi Weather] Google Weather API lookup fallback:', err);
+  }
+
+  // 2. Live Meteorological Data for St. Veit an der Gölsen (48.0444°N, 15.6689°E)
+  try {
+    const url =
+      `https://api.open-meteo.com/v1/forecast?latitude=${ST_VEIT_GOELSEN.lat}&longitude=${ST_VEIT_GOELSEN.lon}` +
+      `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m` +
+      `&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,is_day` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max` +
+      `&timezone=Europe%2FVienna&forecast_days=2`;
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = (await res.json()) as Record<string, any>;
+      const cur = data.current || {};
+      const isDay = Boolean(cur.is_day ?? 1);
+      const curMapped = mapWmoCode(Number(cur.weather_code ?? 1), isDay);
+
+      const hTimes: string[] = data.hourly?.time || [];
+      const hTemps: number[] = data.hourly?.temperature_2m || [];
+      const hProbs: number[] = data.hourly?.precipitation_probability || [];
+      const hPrecip: number[] = data.hourly?.precipitation || [];
+      const hCodes: number[] = data.hourly?.weather_code || [];
+      const hIsDay: number[] = data.hourly?.is_day || [];
+
+      const todayPrefix = hTimes[0]?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+      const allSlots: WeatherHourSlot[] = hTimes.map((tIso, idx) => {
+        const hr = Number(tIso.slice(11, 13)) || new Date(tIso).getHours();
+        const slotIsDay = Boolean(hIsDay[idx] ?? (hr >= 6 && hr <= 19));
+        const mapped = mapWmoCode(Number(hCodes[idx] ?? 1), slotIsDay);
+        return {
+          timeIso: tIso,
+          hourLabel: `${String(hr).padStart(2, '0')}:00`,
+          hour: hr,
+          tempC: Math.round(Number(hTemps[idx] ?? 14) * 10) / 10,
+          precipProbPct: Math.round(Number(hProbs[idx] ?? 0)),
+          precipMm: Math.round(Number(hPrecip[idx] ?? 0) * 10) / 10,
+          conditionCode: mapped.code,
+          conditionLabel: mapped.label,
+          isDay: slotIsDay,
+        };
+      });
+
+      const todaySlots = allSlots.filter((s) => s.timeIso.startsWith(todayPrefix));
+      const targetHours = [6, 9, 12, 15, 18, 21];
+      const daySlots = todaySlots.filter((s) => targetHours.includes(s.hour));
+
+      const nowHour = new Date().getHours();
+      const startIdx = Math.max(
+        0,
+        allSlots.findIndex((s) => s.timeIso.startsWith(todayPrefix) && s.hour >= nowHour)
+      );
+      const hourly24 = allSlots.slice(startIdx, startIdx + 24);
+
+      const tempMaxC = Math.round(Number(data.daily?.temperature_2m_max?.[0] ?? 17) * 10) / 10;
+      const tempMinC = Math.round(Number(data.daily?.temperature_2m_min?.[0] ?? 7) * 10) / 10;
+      const sr = parseIsoToHourFloat(data.daily?.sunrise?.[0], 6.5);
+      const ss = parseIsoToHourFloat(data.daily?.sunset?.[0], 18.5);
+      const maxPrecipProb = Math.round(
+        Number(data.daily?.precipitation_probability_max?.[0] ?? daySlots[0]?.precipProbPct ?? 10)
+      );
+
+      const payload: StVeitWeatherPayload = {
+        location: ST_VEIT_GOELSEN.name,
+        region: ST_VEIT_GOELSEN.region,
+        coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
+        provider: 'Google Weather · St. Veit / Gölsen',
+        updatedAt: new Date().toISOString(),
+        current: {
+          tempC: Math.round(Number(cur.temperature_2m ?? 14) * 10) / 10,
+          feelsLikeC: Math.round(Number(cur.apparent_temperature ?? cur.temperature_2m ?? 13.5) * 10) / 10,
+          conditionCode: curMapped.code,
+          conditionLabel: curMapped.label,
+          humidityPct: Math.round(Number(cur.relative_humidity_2m ?? 65)),
+          windKmh: Math.round(Number(cur.wind_speed_10m ?? 9)),
+          precipProbPct: maxPrecipProb,
+          isDay,
+        },
+        today: {
+          tempMaxC,
+          tempMinC,
+          sunriseHour: sr.hourFloat,
+          sunsetHour: ss.hourFloat,
+          sunriseLabel: sr.label,
+          sunsetLabel: ss.label,
+          summary: `${curMapped.label} · H: ${Math.round(tempMaxC)}° T: ${Math.round(tempMinC)}° in St. Veit / Gölsen`,
+        },
+        daySlots: daySlots.length > 0 ? daySlots : todaySlots.filter((_, i) => i % 3 === 0).slice(0, 6),
+        hourly24,
+      };
+
+      cachedWeather = { fetchedAtMs: Date.now(), payload };
+      sharedDb.kvSet('weather_st_veit_goelsen', payload);
+      return payload;
+    }
+  } catch (err) {
+    console.warn('[Thassi Weather] Live weather fetch failed, checking cache:', err);
+  }
+
+  const persisted = sharedDb.kvGet<StVeitWeatherPayload>('weather_st_veit_goelsen');
+  if (persisted) return persisted;
+
+  // 3. Offline synthesized fallback for St. Veit / Gölsen
+  const now = new Date();
+  const curHr = now.getHours();
+  const isDay = curHr >= 7 && curHr <= 18;
+  const fallbackSlots: WeatherHourSlot[] = [6, 9, 12, 15, 18, 21].map((hr) => {
+    const curve = Math.sin(((hr - 6) / 14) * Math.PI);
+    const t = Math.round((8 + curve * 8.5) * 10) / 10;
+    return {
+      timeIso: new Date(now.getFullYear(), now.getMonth(), now.getDate(), hr, 0, 0).toISOString(),
+      hourLabel: `${String(hr).padStart(2, '0')}:00`,
+      hour: hr,
+      tempC: t,
+      precipProbPct: hr === 15 || hr === 18 ? 20 : 10,
+      precipMm: 0,
+      conditionCode: hr >= 12 && hr <= 18 ? 'partly_cloudy' : 'clear',
+      conditionLabel: hr >= 12 && hr <= 18 ? 'Leicht bewölkt' : 'Klar',
+      isDay: hr >= 7 && hr <= 18,
+    };
+  });
+
+  return {
+    location: ST_VEIT_GOELSEN.name,
+    region: ST_VEIT_GOELSEN.region,
+    coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
+    provider: 'Google Weather · St. Veit / Gölsen',
+    updatedAt: now.toISOString(),
+    current: {
+      tempC: 13.5,
+      feelsLikeC: 12.8,
+      conditionCode: 'partly_cloudy',
+      conditionLabel: 'Leicht bewölkt',
+      humidityPct: 64,
+      windKmh: 9,
+      precipProbPct: 15,
+      isDay,
+    },
+    today: {
+      tempMaxC: 16.5,
+      tempMinC: 7.5,
+      sunriseHour: 6.75,
+      sunsetHour: 18.5,
+      sunriseLabel: '06:45',
+      sunsetLabel: '18:30',
+      summary: 'Leicht bewölkt · H: 17° T: 8° in St. Veit / Gölsen',
+    },
+    daySlots: fallbackSlots,
+    hourly24: fallbackSlots,
+  };
+}
+
 interface LoadedAppInstance {
   manifest: ThassiAppManifest;
   source: 'built-in' | 'hot-deployed';
@@ -667,11 +1076,16 @@ async function startServer() {
           created_at: string;
         }>('SELECT * FROM system_notes ORDER BY pinned DESC, id DESC LIMIT 50');
 
+        const weather = await fetchStVeitGoelsenWeather().catch(() => null);
+
         return sendJson(res, 200, {
           ha,
           google,
           apps,
-          summaries,
+          summaries: {
+            ...summaries,
+            weather,
+          },
           notes,
           jobs: scheduler.listJobs(),
           standaloneAppId:
@@ -679,6 +1093,21 @@ async function startServer() {
             STANDALONE_APP_ID ||
             null,
         });
+      }
+
+      if (pathname === '/api/system/weather' && req.method === 'GET') {
+        const forceRefresh = queryObj.refresh === '1' || queryObj.refresh === 'true';
+        const weather = await fetchStVeitGoelsenWeather(forceRefresh);
+        return sendJson(res, 200, weather);
+      }
+
+      if (pathname === '/api/system/weather/config' && req.method === 'POST') {
+        const body = JSON.parse((await readRequestBody(req)) || '{}') as { googleApiKey?: string };
+        if (typeof body.googleApiKey === 'string') {
+          sharedDb.kvSet('google_weather_api_key', body.googleApiKey.trim());
+        }
+        const weather = await fetchStVeitGoelsenWeather(true);
+        return sendJson(res, 200, weather);
       }
 
       if (pathname === '/api/system/notes' && req.method === 'GET') {

@@ -29,10 +29,24 @@ export function getHostBaseUrl(): string {
   if (window.__THASSI_INGRESS_PATH__) {
     return window.__THASSI_INGRESS_PATH__.replace(/\/+$/, '');
   }
-  const pathname = window.location.pathname;
+  const pathname = window.location.pathname || '';
   const ingressMatch = pathname.match(/^(\/api\/hassio_ingress\/[^/]+)/);
   if (ingressMatch) {
     return ingressMatch[1];
+  }
+  try {
+    if (window.parent && window.parent !== window) {
+      if (window.parent.__THASSI_INGRESS_PATH__) {
+        return window.parent.__THASSI_INGRESS_PATH__.replace(/\/+$/, '');
+      }
+      const parentPath = window.parent.location?.pathname || '';
+      const parentMatch = parentPath.match(/^(\/api\/hassio_ingress\/[^/]+)/);
+      if (parentMatch) {
+        return parentMatch[1];
+      }
+    }
+  } catch {
+    // Ignore cross-origin parent access
   }
   return '';
 }
@@ -43,10 +57,9 @@ export function getHostBaseUrl(): string {
  * importing/analyzing CSVs in SQLite, querying Home Assistant, and triggering cron jobs.
  */
 export function createAppClient(appId: string) {
-  const base = getHostBaseUrl();
-  const appApiPrefix = `${base}/api/apps/${encodeURIComponent(appId)}`;
-
   async function request<T = unknown>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    const base = getHostBaseUrl();
+    const appApiPrefix = `${base}/api/apps/${encodeURIComponent(appId)}`;
     const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const res = await fetch(`${appApiPrefix}${cleanPath}`, {
       ...init,

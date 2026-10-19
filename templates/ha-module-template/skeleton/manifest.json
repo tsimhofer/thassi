@@ -1,0 +1,10 @@
+{
+  "domain": "shelly_energy_guard",
+  "name": "Shelly Energy & Anomaly Guard",
+  "version": "1.0.0",
+  "documentation": "https://github.com/tsimhofer/thassi",
+  "requirements": [],
+  "dependencies": ["http", "sensor"],
+  "codeowners": ["@tsimhofer"],
+  "iot_class": "local_polling"
+}
