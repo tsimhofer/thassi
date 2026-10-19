@@ -1364,7 +1364,7 @@ export async function executeN8nModuleWorkflow(
       }
       publishedState = validCount > 0 ? Math.round(numericSum * 100) / 100 : 42.5;
 
-      const pubRes = await ctx.ha.publishSensor(`project_workflow_${slug}`, publishedState, {
+      const pubRes = await ctx.ha.publishSensor(slug, publishedState, {
         friendly_name: `${name} (n8n Modul)`,
         unit_of_measurement: template.objectives.unitOfMeasurement,
         icon: template.objectives.icon,
