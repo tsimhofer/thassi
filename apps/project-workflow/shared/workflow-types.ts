@@ -178,12 +178,104 @@ export interface EcosystemCompatibilityReport {
   adjustmentsApplied: string[];
 }
 
+export interface ProjectGoalItem {
+  id: string;
+  title: string;
+  category: 'Feature' | 'Architecture' | 'Testing' | 'Deployment';
+  status: 'done' | 'in_progress' | 'todo';
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface MonitoredThassiProject {
+  id: string;
+  name: string;
+  repoFullName: string;
+  category: 'Core Monorepo' | 'Thassi Modul-Repo' | 'Home Assistant Add-on' | 'Companion App';
+  description: string;
+  htmlUrl: string;
+  language: string;
+  branch: string;
+  lastCommitSha: string;
+  lastCommitMessage: string;
+  updatedAt: string;
+  sizeKb: number;
+  devStatus: 'LIVE_PRODUCTION' | 'ACTIVE_DEV' | 'QA_TESTING' | 'ARCHIVE_STABLE';
+  devStatusLabel: string;
+  signalColor: SignalColor;
+  statusFlag: string;
+  progressPercent: number;
+  goals: ProjectGoalItem[];
+  testSummary: {
+    framework: string;
+    passed: number;
+    total: number;
+    passRatePercent: number;
+    status: 'PASS' | 'WARN' | 'FAIL';
+    command: string;
+    details: string[];
+  };
+  n8nPipelineNodes: N8nWorkflowNodeState[];
+  linkedPresetId?: string;
+}
+
 export const MODULE_TEMPLATE_PRESETS: Array<{
   id: string;
   label: string;
   badge: string;
   template: ModuleTemplateForm;
 }> = [
+  {
+    id: 'thassi_projects_monitor',
+    label: 'Thassi Projekte & GitHub Portfolio Monitor',
+    badge: 'Admin & GitHub CI/CD',
+    template: {
+      objectives: {
+        slug: 'thassi_projects_monitor',
+        name: 'Thassi Projekte & GitHub Portfolio Monitor',
+        domain: 'sensor',
+        description:
+          'Überwacht alle auf GitHub verfügbaren tsimhofer/thassi-Repositories, aggregiert Entwicklungsstatus, Meilenstein-Ziele, Python/TypeScript Unit-Tests und Gesamtfortschritt (%) für die n8n-Workflow-Visualisierung.',
+        targetEntities: [
+          'sensor.thassi_project_workflow_shelly_energy_guard',
+          'sensor.backup_backup_manager_state',
+          'sensor.shellyhtg3_e4b32331dde0_temperatur',
+        ],
+        unitOfMeasurement: '%',
+        icon: 'mdi:source-repository-multiple',
+        pollingIntervalSeconds: 60,
+        anomalyThreshold: 100,
+      },
+      dependencies: {
+        pythonVersion: '>=3.12',
+        pipPackages: [],
+        haIntegrations: ['http', 'sensor'],
+        requiredEnvVars: ['HA_URL', 'HA_TOKEN', 'GITHUB_TOKEN', 'GEMINI_API_KEY'],
+      },
+      testWorkflow: {
+        framework: 'unittest',
+        astSyntaxCheck: true,
+        verifyErrorHandling: true,
+        requiredTestCases: [
+          'test_module_initialization',
+          'test_sensor_state_calculation',
+          'test_api_error_and_timeout_handling',
+          'test_ha_entity_payload_contract',
+        ],
+        minPassRatePercent: 100,
+      },
+      deploymentStrategy: {
+        transport: 'samba_and_bridge',
+        hassHost: '192.168.188.92',
+        sambaShare: '\\\\192.168.188.92\\config',
+        sshPort: 22,
+        targetPath: '/config/custom_components/thassi_projects_monitor',
+        gitBranch: 'main',
+        autoCommitPush: false,
+        rollbackOnTestFailure: true,
+        publishHaSensor: true,
+      },
+    },
+  },
   {
     id: 'shelly_energy_guard',
     label: 'Shelly Energy & Anomaly Guard',

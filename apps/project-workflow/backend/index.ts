@@ -2,9 +2,11 @@ import { defineThassiApp } from '@thassi/sdk';
 import {
   MODULE_TEMPLATE_PRESETS,
   type ModuleTemplateForm,
+  type ProjectGoalItem,
   type WorkflowExecutionRecord,
 } from '../shared/workflow-types.js';
 import { fetchGitHubRepositorySnapshot } from './github-client.js';
+import { buildMonitoredProjectsPortfolio } from './projects-monitor.js';
 import {
   checkEcosystemCompatibility,
   createInitialNodeStates,
@@ -138,7 +140,7 @@ export default defineThassiApp((ctx) => {
       .catch(() => {});
   }
 
-  // 1. Dashboard Overview Endpoint (Ecosystem + Presets + Latest Runs + N8n Definition)
+  // 1. Dashboard Overview Endpoint (Ecosystem + Presets + Monitored Projects + Latest Runs + N8n Definition)
   ctx.route('GET', '/overview', async (req) => {
     const customGeminiKey = ctx.db.kvGet<string>('gemini_api_key') || '';
     const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
@@ -151,15 +153,64 @@ export default defineThassiApp((ctx) => {
     ]);
     const runs = listRunRecords(15);
     const latestRun = runs[0] || null;
+    const savedGoals = ctx.db.kvGet<Record<string, ProjectGoalItem[]>>('project_goals', {}) || {};
+    const monitoredProjects = buildMonitoredProjectsPortfolio(github, savedGoals, runs);
 
     return {
       ecosystem,
       presets: MODULE_TEMPLATE_PRESETS,
+      monitoredProjects,
       latestRun,
       runs,
       defaultNodes: createInitialNodeStates(),
       n8nWorkflowJson: EMBEDDED_N8N_WORKFLOW_JSON,
       github,
+    };
+  });
+
+  // 1b. Update or Add Project Goals / Milestones
+  ctx.route('POST', '/projects/goal', async (req) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+      projectId?: string;
+      goalId?: string;
+      nextStatus?: 'done' | 'in_progress' | 'todo';
+      newGoalTitle?: string;
+      newGoalCategory?: ProjectGoalItem['category'];
+      newGoalPriority?: ProjectGoalItem['priority'];
+    };
+
+    const projectId = String(body.projectId || 'thassi').trim();
+    const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
+    const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
+    const runs = listRunRecords(15);
+    const savedGoals = ctx.db.kvGet<Record<string, ProjectGoalItem[]>>('project_goals', {}) || {};
+    const currentPortfolio = buildMonitoredProjectsPortfolio(github, savedGoals, runs);
+    const targetProject = currentPortfolio.find((p) => p.id === projectId);
+    const existingList = [...(targetProject?.goals || [])];
+
+    if (body.goalId && body.nextStatus) {
+      const idx = existingList.findIndex((g) => g.id === body.goalId);
+      if (idx >= 0) {
+        existingList[idx] = { ...existingList[idx], status: body.nextStatus };
+      }
+    } else if (body.newGoalTitle?.trim()) {
+      existingList.push({
+        id: `g-${projectId}-${Date.now()}`,
+        title: body.newGoalTitle.trim(),
+        category: body.newGoalCategory || 'Feature',
+        status: 'todo',
+        priority: body.newGoalPriority || 'medium',
+      });
+    }
+
+    savedGoals[projectId] = existingList;
+    ctx.db.kvSet('project_goals', savedGoals);
+
+    const monitoredProjects = buildMonitoredProjectsPortfolio(github, savedGoals, runs);
+    return {
+      ok: true,
+      projectId,
+      monitoredProjects,
     };
   });
 

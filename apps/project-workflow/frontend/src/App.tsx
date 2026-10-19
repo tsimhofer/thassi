@@ -5,7 +5,9 @@ import {
   type EcosystemCompatibilityReport,
   type GitHubIntegrationSnapshot,
   type ModuleTemplateForm,
+  type MonitoredThassiProject,
   type N8nWorkflowNodeState,
+  type ProjectGoalItem,
   type PythonUnitTestReport,
   type SignalColor,
   type WorkflowExecutionRecord,
@@ -16,6 +18,7 @@ const api = createAppClient('project-workflow');
 interface OverviewResponse {
   ecosystem: EcosystemCompatibilityReport;
   presets: typeof MODULE_TEMPLATE_PRESETS;
+  monitoredProjects: MonitoredThassiProject[];
   latestRun: WorkflowExecutionRecord | null;
   runs: WorkflowExecutionRecord[];
   defaultNodes: N8nWorkflowNodeState[];
@@ -64,7 +67,12 @@ const NODE_ICONS = ['⚡', '📋', '✨', '🧪', '🔀', '🚀'];
 export default function App() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'template' | 'github' | 'tests' | 'ecosystem'>('template');
+  const [activeTab, setActiveTab] = useState<
+    'projects' | 'template' | 'github' | 'tests' | 'ecosystem'
+  >('projects');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('thassi');
+  const [newGoalTitle, setNewGoalTitle] = useState<string>('');
+  const [newGoalCategory, setNewGoalCategory] = useState<ProjectGoalItem['category']>('Feature');
   const [templateForm, setTemplateForm] = useState<ModuleTemplateForm>(
     structuredClone(MODULE_TEMPLATE_PRESETS[0].template)
   );
@@ -72,7 +80,7 @@ export default function App() {
     MODULE_TEMPLATE_PRESETS[0].template.objectives.targetEntities.join(', ')
   );
   const [nodes, setNodes] = useState<N8nWorkflowNodeState[]>([]);
-  const [selectedNodeIdx, setSelectedNodeIdx] = useState<number>(2);
+  const [selectedNodeIdx, setSelectedNodeIdx] = useState<number>(1);
   const [activeRun, setActiveRun] = useState<WorkflowExecutionRecord | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [codeTab, setCodeTab] = useState<'sensorPy' | 'testPy' | 'manifestJson' | 'n8nJson'>('sensorPy');
@@ -88,11 +96,18 @@ export default function App() {
     try {
       const res = await api.get<OverviewResponse>(`/overview${refresh ? '?refresh=1' : ''}`);
       setData(res);
-      if (res.latestRun) {
-        setActiveRun(res.latestRun);
+      const selProj =
+        res.monitoredProjects?.find((p) => p.id === selectedProjectId) ||
+        res.monitoredProjects?.[0];
+      if (selProj && !isExecuting) {
+        setNodes(selProj.n8nPipelineNodes);
+      } else if (res.latestRun) {
         setNodes(res.latestRun.nodes);
       } else {
         setNodes(res.defaultNodes);
+      }
+      if (res.latestRun) {
+        setActiveRun(res.latestRun);
       }
     } catch (err) {
       setStatusBanner({
@@ -108,6 +123,70 @@ export default function App() {
   useEffect(() => {
     void loadOverview(false);
   }, []);
+
+  const selectMonitoredProject = (project: MonitoredThassiProject) => {
+    setSelectedProjectId(project.id);
+    setNodes(project.n8nPipelineNodes);
+    setSelectedNodeIdx(1);
+    if (project.linkedPresetId) {
+      const preset = MODULE_TEMPLATE_PRESETS.find((p) => p.id === project.linkedPresetId);
+      if (preset) {
+        const copy = structuredClone(preset.template);
+        setTemplateForm(copy);
+        setEntitiesText(copy.objectives.targetEntities.join(', '));
+      }
+    }
+    setStatusBanner({
+      text: `Projekt "${project.name}" (${project.repoFullName}) ausgewählt · Fortschritt ${project.progressPercent}% · n8n-Workflow-Visualisierung aktualisiert.`,
+      color: project.signalColor,
+      flag: project.statusFlag,
+    });
+  };
+
+  const handleCycleGoalStatus = async (projectId: string, goal: ProjectGoalItem) => {
+    const nextStatus: ProjectGoalItem['status'] =
+      goal.status === 'todo' ? 'in_progress' : goal.status === 'in_progress' ? 'done' : 'todo';
+    try {
+      const res = await api.post<{ ok: boolean; monitoredProjects: MonitoredThassiProject[] }>(
+        '/projects/goal',
+        {
+          projectId,
+          goalId: goal.id,
+          nextStatus,
+        }
+      );
+      if (data && res.monitoredProjects) {
+        setData({ ...data, monitoredProjects: res.monitoredProjects });
+        const updatedProj = res.monitoredProjects.find((p) => p.id === projectId);
+        if (updatedProj) {
+          setNodes(updatedProj.n8nPipelineNodes);
+        }
+      }
+    } catch {}
+  };
+
+  const handleAddProjectGoal = async (projectId: string) => {
+    if (!newGoalTitle.trim()) return;
+    try {
+      const res = await api.post<{ ok: boolean; monitoredProjects: MonitoredThassiProject[] }>(
+        '/projects/goal',
+        {
+          projectId,
+          newGoalTitle: newGoalTitle.trim(),
+          newGoalCategory,
+          newGoalPriority: 'high',
+        }
+      );
+      setNewGoalTitle('');
+      if (data && res.monitoredProjects) {
+        setData({ ...data, monitoredProjects: res.monitoredProjects });
+        const updatedProj = res.monitoredProjects.find((p) => p.id === projectId);
+        if (updatedProj) {
+          setNodes(updatedProj.n8nPipelineNodes);
+        }
+      }
+    } catch {}
+  };
 
   const selectPreset = (presetId: string) => {
     const found = MODULE_TEMPLATE_PRESETS.find((p) => p.id === presetId);
@@ -727,8 +806,14 @@ export default function App() {
         )}
       </div>
 
-      {/* NAVIGATION TABS FOR PHASES 1, 2, 4, 5 */}
+      {/* NAVIGATION TABS FOR PROJECTS ADMIN DASHBOARD & PHASES 1, 2, 4, 5 */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setActiveTab('projects')}
+          style={tabBtnStyle(activeTab === 'projects')}
+        >
+          🚀 Projekte Admin-Dashboard ({data?.monitoredProjects?.length || 11} Repos)
+        </button>
         <button
           onClick={() => setActiveTab('template')}
           style={tabBtnStyle(activeTab === 'template')}
@@ -739,7 +824,7 @@ export default function App() {
           onClick={() => setActiveTab('github')}
           style={tabBtnStyle(activeTab === 'github')}
         >
-          🐙 Phase 4: GitHub API &amp; Repositories ({data?.github.repositories.length || 3})
+          🐙 Phase 4: GitHub API &amp; Commits ({data?.github.repositories.length || 10})
         </button>
         <button
           onClick={() => setActiveTab('tests')}
@@ -754,6 +839,617 @@ export default function App() {
           🔍 Phase 1: Ökosystem-Analyse &amp; Run-Historie
         </button>
       </div>
+
+      {/* TAB 0: PROJEKTE ADMIN-DASHBOARD (GITHUB REPOSITORIES, ZIELE, TESTS & FORTSCHRITT ALS N8N WORKFLOW) */}
+      {activeTab === 'projects' && (() => {
+        const projects = data?.monitoredProjects || [];
+        const currentProj =
+          projects.find((p) => p.id === selectedProjectId) || projects[0] || null;
+        const totalGoalsAll = projects.reduce((sum, p) => sum + p.goals.length, 0);
+        const doneGoalsAll = projects.reduce(
+          (sum, p) => sum + p.goals.filter((g) => g.status === 'done').length,
+          0
+        );
+        const totalTestsAll = projects.reduce((sum, p) => sum + p.testSummary.total, 0);
+        const passedTestsAll = projects.reduce((sum, p) => sum + p.testSummary.passed, 0);
+        const avgProgress =
+          projects.length > 0
+            ? Math.round(
+                projects.reduce((sum, p) => sum + p.progressPercent, 0) / projects.length
+              )
+            : 0;
+        const liveCount = projects.filter((p) => p.devStatus === 'LIVE_PRODUCTION').length;
+
+        return (
+          <div>
+            {/* PORTFOLIO KPI SUMMARY STRIP */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))',
+                gap: 14,
+                marginBottom: 18,
+              }}
+            >
+              <div
+                style={{
+                  ...cardStyle,
+                  padding: '14px 16px',
+                  borderLeft: '3px solid #38bdf8',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
+                  ÜBERWACHTE GITHUB REPOSITORIES
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
+                  {projects.length}{' '}
+                  <span style={{ fontSize: 12, color: '#22c55e', fontWeight: 600 }}>
+                    ({liveCount} Live auf HAOS)
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3 }}>
+                  Account: github.com/{data?.github.owner || 'tsimhofer'}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...cardStyle,
+                  padding: '14px 16px',
+                  borderLeft: '3px solid #22c55e',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
+                  ENTWICKLUNGSZIELE &amp; ROADMAP
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
+                  {doneGoalsAll} / {totalGoalsAll}{' '}
+                  <span style={{ fontSize: 12, color: '#38bdf8', fontWeight: 600 }}>
+                    erreicht
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3 }}>
+                  Interaktiv abhakbar &amp; im n8n-Gate verknüpft
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...cardStyle,
+                  padding: '14px 16px',
+                  borderLeft: '3px solid #a855f7',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
+                  UNIT-TESTS &amp; QA-SUITE
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#22c55e', marginTop: 4 }}>
+                  {passedTestsAll} / {totalTestsAll} PASS
+                </div>
+                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3 }}>
+                  Python 3.14 unittest · TypeScript · n8n Resilience
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...cardStyle,
+                  padding: '14px 16px',
+                  borderLeft: '3px solid #f59e0b',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
+                  PORTFOLIO-GESAMTFORTSCHRITT
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
+                  {avgProgress}%
+                </div>
+                <div
+                  style={{
+                    marginTop: 6,
+                    height: 6,
+                    borderRadius: 99,
+                    background: 'rgba(148,163,184,0.18)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${avgProgress}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #38bdf8, #22c55e)',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* MAIN 2-COLUMN ADMIN DASHBOARD: REPO LIST LEFT + PROJECT INSPECTOR RIGHT */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 1.25fr', gap: 20 }}>
+              {/* LEFT: MONITORED THASSI & GITHUB REPOSITORIES */}
+              <div style={cardStyle}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc' }}>
+                      📦 Überwachte GitHub-Repositories &amp; Thassi-Module
+                    </h3>
+                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>
+                      Klicke auf ein Projekt, um dessen n8n-Workflow, Ziele und Tests zu inspizieren
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshGitHub()}
+                    style={{
+                      padding: '6px 11px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(56,189,248,0.4)',
+                      background: 'rgba(56,189,248,0.14)',
+                      color: '#38bdf8',
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔄 GitHub Sync
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                    maxHeight: 620,
+                    overflowY: 'auto',
+                    paddingRight: 4,
+                  }}
+                >
+                  {projects.map((proj) => {
+                    const isSelected = currentProj?.id === proj.id;
+                    const pal = SIGNAL_PALETTE[proj.signalColor];
+                    const doneGoals = proj.goals.filter((g) => g.status === 'done').length;
+
+                    return (
+                      <div
+                        key={proj.id}
+                        onClick={() => selectMonitoredProject(proj)}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: 12,
+                          cursor: 'pointer',
+                          background: isSelected
+                            ? 'rgba(30, 41, 59, 0.96)'
+                            : 'rgba(15, 23, 42, 0.72)',
+                          border: isSelected
+                            ? `1.5px solid #38bdf8`
+                            : `1px solid ${pal.border}`,
+                          boxShadow: isSelected
+                            ? '0 0 18px rgba(56, 189, 248, 0.22)'
+                            : 'none',
+                          transition: 'all 0.16s ease',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span
+                              style={{
+                                width: 9,
+                                height: 9,
+                                borderRadius: '50%',
+                                background: pal.hex,
+                                boxShadow: `0 0 8px ${pal.hex}`,
+                              }}
+                            />
+                            <strong style={{ fontSize: 14, color: '#f8fafc' }}>
+                              {proj.name}
+                            </strong>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: '2px 7px',
+                                borderRadius: 6,
+                                background: 'rgba(148,163,184,0.14)',
+                                color: '#cbd5e1',
+                              }}
+                            >
+                              {proj.category}
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: 99,
+                              background: pal.bg,
+                              color: pal.hex,
+                              border: `1px solid ${pal.border}`,
+                            }}
+                          >
+                            {proj.devStatusLabel}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            color: '#94a3b8',
+                            marginTop: 5,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          {proj.description}
+                        </div>
+
+                        {/* Progress bar + metrics row */}
+                        <div style={{ marginTop: 9 }}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: 11,
+                              color: '#cbd5e1',
+                              marginBottom: 4,
+                            }}
+                          >
+                            <span>
+                              🎯 Ziele: <strong>{doneGoals}/{proj.goals.length}</strong> · 🧪 Tests:{' '}
+                              <strong style={{ color: '#22c55e' }}>
+                                {proj.testSummary.passed}/{proj.testSummary.total} PASS
+                              </strong>{' '}
+                              · 🌿 <code style={{ color: '#38bdf8' }}>{proj.branch}@{proj.lastCommitSha}</code>
+                            </span>
+                            <strong style={{ color: pal.hex }}>{proj.progressPercent}%</strong>
+                          </div>
+                          <div
+                            style={{
+                              height: 6,
+                              borderRadius: 99,
+                              background: 'rgba(148,163,184,0.16)',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${proj.progressPercent}%`,
+                                height: '100%',
+                                background: `linear-gradient(90deg, #38bdf8, ${pal.hex})`,
+                                transition: 'width 0.3s ease',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* RIGHT: SELECTED PROJECT GOALS, TESTS, PROGRESS & N8N PIPELINE */}
+              {currentProj && (
+                <div style={cardStyle}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                      paddingBottom: 12,
+                      borderBottom: '1px solid rgba(148,163,184,0.16)',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <h3 style={{ margin: 0, fontSize: 17, color: '#f8fafc' }}>
+                          {currentProj.name}
+                        </h3>
+                        <a
+                          href={currentProj.htmlUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            fontSize: 11.5,
+                            color: '#38bdf8',
+                            textDecoration: 'none',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          ↗ {currentProj.repoFullName}
+                        </a>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
+                        Sprache: <strong style={{ color: '#e2e8f0' }}>{currentProj.language}</strong> · Branch:{' '}
+                        <code style={{ color: '#38bdf8' }}>{currentProj.branch}</code> · Letzter Commit:{' '}
+                        <code style={{ color: '#22c55e' }}>{currentProj.lastCommitSha}</code>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isExecuting}
+                      onClick={() => void triggerN8nWorkflow()}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: 9,
+                        border: '1px solid rgba(34,197,94,0.5)',
+                        background:
+                          'linear-gradient(135deg, rgba(34,197,94,0.22), rgba(56,189,248,0.2))',
+                        color: '#f8fafc',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: isExecuting ? 'wait' : 'pointer',
+                      }}
+                    >
+                      ⚡ n8n-Workflow für Projekt ausführen
+                    </button>
+                  </div>
+
+                  {/* SECTION 1: ZU ERREICHENDE ZIELE (GOALS & MILESTONES) */}
+                  <div style={{ marginTop: 14 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#38bdf8' }}>
+                        🎯 ZU ERREICHENDE ZIELE &amp; MEILENSTEINE (Klick ändert Status: Offen → In Arbeit → Erreicht)
+                      </div>
+                      <span style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700 }}>
+                        {currentProj.goals.filter((g) => g.status === 'done').length} /{' '}
+                        {currentProj.goals.length} abgeschlossen ({currentProj.progressPercent}%)
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {currentProj.goals.map((goal) => {
+                        const statusColor =
+                          goal.status === 'done'
+                            ? '#22c55e'
+                            : goal.status === 'in_progress'
+                              ? '#f59e0b'
+                              : '#94a3b8';
+                        const statusBadge =
+                          goal.status === 'done'
+                            ? '✓ ERREICHT'
+                            : goal.status === 'in_progress'
+                              ? '⏳ IN ARBEIT'
+                              : '○ OFFEN';
+
+                        return (
+                          <div
+                            key={goal.id}
+                            onClick={() => void handleCycleGoalStatus(currentProj.id, goal)}
+                            style={{
+                              padding: '9px 12px',
+                              borderRadius: 9,
+                              background: 'rgba(15, 23, 42, 0.82)',
+                              border: `1px solid ${
+                                goal.status === 'done'
+                                  ? 'rgba(34,197,94,0.35)'
+                                  : goal.status === 'in_progress'
+                                    ? 'rgba(245,158,11,0.4)'
+                                    : 'rgba(148,163,184,0.22)'
+                              }`,
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 10,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  padding: '2px 6px',
+                                  borderRadius: 5,
+                                  background: 'rgba(56,189,248,0.14)',
+                                  color: '#38bdf8',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {goal.category}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 12.5,
+                                  color: goal.status === 'done' ? '#cbd5e1' : '#f8fafc',
+                                  textDecoration:
+                                    goal.status === 'done' ? 'line-through' : 'none',
+                                }}
+                              >
+                                {goal.title}
+                              </span>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                color: statusColor,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {statusBadge}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Add new goal input */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <select
+                        value={newGoalCategory}
+                        onChange={(e) =>
+                          setNewGoalCategory(e.target.value as ProjectGoalItem['category'])
+                        }
+                        style={{ ...inputStyle, width: 130, marginBottom: 0 }}
+                      >
+                        <option value="Feature">Feature</option>
+                        <option value="Architecture">Architecture</option>
+                        <option value="Testing">Testing</option>
+                        <option value="Deployment">Deployment</option>
+                      </select>
+                      <input
+                        style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                        placeholder="Neues Ziel / Meilenstein für dieses Repository hinzufügen..."
+                        value={newGoalTitle}
+                        onChange={(e) => setNewGoalTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void handleAddProjectGoal(currentProj.id);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleAddProjectGoal(currentProj.id)}
+                        style={{
+                          padding: '7px 13px',
+                          borderRadius: 8,
+                          border: '1px solid rgba(56,189,248,0.45)',
+                          background: 'rgba(56,189,248,0.18)',
+                          color: '#f8fafc',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        + Ziel anlegen
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: TESTS & QUALITÄTSMETRIKEN DES PROJEKTS */}
+                  <div
+                    style={{
+                      marginTop: 16,
+                      padding: 12,
+                      borderRadius: 11,
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      border: '1px solid rgba(34, 197, 94, 0.35)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#22c55e' }}>
+                        🧪 Test-Suite &amp; Verifikationsstatus ({currentProj.testSummary.framework})
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleRunPythonUnitTests()}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 7,
+                          border: '1px solid rgba(34,197,94,0.45)',
+                          background: 'rgba(34,197,94,0.16)',
+                          color: '#22c55e',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ▶ Unit-Tests jetzt prüfen ({currentProj.testSummary.passed}/
+                        {currentProj.testSummary.total} PASS)
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: '#38bdf8',
+                        marginBottom: 6,
+                      }}
+                    >
+                      $ {currentProj.testSummary.command}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {currentProj.testSummary.details.map((det, i) => (
+                        <div key={i} style={{ fontSize: 11.5, color: '#cbd5e1' }}>
+                          ✓ {det}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SECTION 3: PROJEKT-N8N-WORKFLOW-ZUSAMMENFASSUNG */}
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: 12,
+                      borderRadius: 11,
+                      background: 'rgba(15, 23, 42, 0.72)',
+                      border: '1px solid rgba(56, 189, 248, 0.28)',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8', marginBottom: 6 }}>
+                      🔀 n8n-Workflow-Pipeline für {currentProj.repoFullName} (oben im Canvas live dargestellt)
+                    </div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: 8,
+                      }}
+                    >
+                      {currentProj.n8nPipelineNodes.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => setSelectedNodeIdx(n.index - 1)}
+                          style={{
+                            padding: '7px 9px',
+                            borderRadius: 8,
+                            background: 'rgba(2, 6, 23, 0.65)',
+                            border: `1px solid ${SIGNAL_PALETTE[n.signalColor].border}`,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              color: SIGNAL_PALETTE[n.signalColor].hex,
+                            }}
+                          >
+                            {n.index}. {n.name}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                            {n.subtitle}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* TAB 1: PHASE 2 MODULE TEMPLATE FORM + GENERATED PYTHON CODE VIEWER */}
       {activeTab === 'template' && (
