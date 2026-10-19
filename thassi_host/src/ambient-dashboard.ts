@@ -939,6 +939,47 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals →</button>
       </div>
     </div>
+
+    <!-- 3D DRUCK MINI-PREVIEW WIDGET (MINIATURE 3D OBJECT + PROGRESS BAR + PLACEHOLDER) -->
+    <div class="ambient-widget" id="widget-3dprint" onclick="toggleWidget('3dprint', event)">
+      <div class="w-header">
+        <div class="w-label-row">
+          <span>3d druck · bambulab</span>
+          <span class="w-dot" id="dot-3dprint" style="background:#00AE42; box-shadow:0 0 10px #00AE42;"></span>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:2px;">
+          <div style="position:relative; width:82px; height:64px; border-radius:12px; background:rgba(4,7,17,0.72); border:1px solid rgba(56,189,248,0.22); overflow:hidden; flex-shrink:0;"
+               title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)"
+               onclick="event.stopPropagation()">
+            <canvas id="mini-3d-canvas" width="164" height="128" style="width:82px; height:64px; display:block; cursor:grab; touch-action:none;"></canvas>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; min-width:145px;">
+            <div class="w-primary" id="compact-3dprint" style="font-size:15.5px;">Kein Projekt aktiv</div>
+            <div class="w-sub" id="sub-3dprint">Platzhalter · 0% Leerlauf</div>
+            <div style="width:100%; height:5px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-top:6px;">
+              <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00AE42, #38bdf8); transition:width 0.35s ease;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="w-expand-body" onclick="event.stopPropagation()">
+        <div class="w-stat-grid" style="margin-bottom:10px;">
+          <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
+          <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer" style="color:#00AE42;">0% (0/0)</span></div>
+          <div class="w-stat-item"><span class="w-stat-k">Maße / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
+          <div class="w-stat-item"><span class="w-stat-k">Düse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24°C / 24°C</span></div>
+        </div>
+        <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:10px;">
+          <input id="mini-3d-prompt" class="minimal-input" placeholder="Prompt: 3D-Objekt ändern oder neu erstellen…" />
+          <button type="submit" id="mini-3d-prompt-btn" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 12px; font-weight:700; font-size:11.5px; cursor:pointer; white-space:nowrap;">KI</button>
+        </form>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <button class="w-action-link" style="color:#fbbf24; margin:0;" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
+          <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">🖨️ Druck starten</button>
+          <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- QUICK EVENT MODAL -->
@@ -992,11 +1033,18 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <div id="room-flyout" onclick="event.stopPropagation()"></div>
   <div id="room-dock-bar">
     <div class="room-dock-group" id="room-pills-container"></div>
-    <button class="room-pill" onclick="openFullService('camera-vision', 'Camera Vision')" title="Kamera-Objekterkennung & Streams öffnen">
-      <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
-      <span>Vision AI</span>
-      <span class="room-meta" id="vision-dock-meta">Zyklisch</span>
-    </button>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <button class="room-pill" onclick="openFullService('3d-print', '3D Druck Studio')" title="3D Druck Editor & BambuLab Steuerung öffnen">
+        <span class="room-dot" id="print3d-dock-dot" style="background:#00AE42; box-shadow:0 0 8px #00AE42;"></span>
+        <span>3D Druck</span>
+        <span class="room-meta" id="print3d-dock-meta">Bambu P1S</span>
+      </button>
+      <button class="room-pill" onclick="openFullService('camera-vision', 'Camera Vision')" title="Kamera-Objekterkennung & Streams öffnen">
+        <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
+        <span>Vision AI</span>
+        <span class="room-meta" id="vision-dock-meta">Zyklisch</span>
+      </button>
+    </div>
   </div>
 
   <!-- FULL SERVICE OVERLAY (WHEN LAUNCHING FULL VIEW) -->
@@ -1782,8 +1830,395 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           document.getElementById('sub-meals').textContent = 'No meals logged for today';
           document.getElementById('em-slots').innerHTML = 'No meals planned for today yet.';
         }
+
+        // 5. Update 3D PRINT Mini-Preview Widget
+        await refreshMini3dData(sys.summaries?.print3d);
       } catch (err) {
         console.error('Failed loading dashboard data:', err);
+      }
+    }
+
+    // ============================================================================
+    // 3D PRINT MINI-PREVIEW RENDERER & CONTROLS (3D OBJECT + PROGRESS + PLACEHOLDER)
+    // ============================================================================
+    let mini3dState = {
+      hasActiveProject: false,
+      activeProjectId: null,
+      projectName: null,
+      scene: null,
+      stats: null,
+      printer: {
+        name: 'Bambu Lab P1S',
+        status: 'IDLE',
+        progressPercent: 0,
+        currentLayer: 0,
+        totalLayers: 0,
+        remainingMinutes: 0,
+        nozzleTemp: 24,
+        bedTemp: 24,
+      },
+      yaw: 0.65,
+      pitch: 0.42,
+      dragging: false,
+      lastX: 0,
+      lastY: 0,
+      triangles: [],
+      maxExtent: 60,
+      centerZ: 20,
+    };
+
+    function buildMiniTrianglesFromScene(scene) {
+      if (!scene || !Array.isArray(scene.nodes) || scene.nodes.length === 0) return [];
+      const tris = [];
+      for (const n of scene.nodes) {
+        if (n.operation === 'subtract') continue;
+        const p = n.params || {};
+        const pos = n.position || [0, 0, 0];
+        const col = n.color || scene.primaryColor || '#00AE42';
+        const w = (p.width || (p.radius ? p.radius * 2 : 36)) / 2;
+        const d = (p.depth || (p.radius ? p.radius * 2 : 36)) / 2;
+        const h = p.height || (p.radius ? p.radius * 2 : 30);
+        const cx = pos[0] || 0;
+        const cy = pos[1] || 0;
+        const z0 = pos[2] || 0;
+        const z1 = z0 + h;
+
+        if (n.type === 'cylinder' || n.type === 'cone' || n.type === 'gear' || n.type === 'twisted_vase' || n.type === 'hex_organizer' || n.type === 'sphere' || n.type === 'torus') {
+          const segs = n.type === 'hex_organizer' ? 6 : 16;
+          const rBot = (p.radiusBottom || p.outerRadius || p.radius || w);
+          const rTop = n.type === 'cone' ? (p.radiusTop != null ? p.radiusTop : rBot * 0.2) : rBot;
+          for (let i = 0; i < segs; i++) {
+            const a0 = (i / segs) * Math.PI * 2;
+            const a1 = ((i + 1) / segs) * Math.PI * 2;
+            const x0b = cx + Math.cos(a0) * rBot, y0b = cy + Math.sin(a0) * rBot;
+            const x1b = cx + Math.cos(a1) * rBot, y1b = cy + Math.sin(a1) * rBot;
+            const x0t = cx + Math.cos(a0) * rTop, y0t = cy + Math.sin(a0) * rTop;
+            const x1t = cx + Math.cos(a1) * rTop, y1t = cy + Math.sin(a1) * rTop;
+            tris.push({ v: [[x0b, y0b, z0], [x1b, y1b, z0], [x1t, y1t, z1]], c: col });
+            tris.push({ v: [[x0b, y0b, z0], [x1t, y1t, z1], [x0t, y0t, z1]], c: col });
+            tris.push({ v: [[cx, cy, z1], [x0t, y0t, z1], [x1t, y1t, z1]], c: col });
+          }
+        } else {
+          // Box / Bracket / Default
+          const v = [
+            [cx - w, cy - d, z0], [cx + w, cy - d, z0], [cx + w, cy + d, z0], [cx - w, cy + d, z0],
+            [cx - w, cy - d, z1], [cx + w, cy - d, z1], [cx + w, cy + d, z1], [cx - w, cy + d, z1]
+          ];
+          const faces = [
+            [4, 5, 6], [4, 6, 7],
+            [0, 1, 5], [0, 5, 4],
+            [1, 2, 6], [1, 6, 5],
+            [2, 3, 7], [2, 7, 6],
+            [3, 0, 4], [3, 4, 7]
+          ];
+          for (const f of faces) {
+            tris.push({ v: [v[f[0]], v[f[1]], v[f[2]]], c: col });
+          }
+        }
+      }
+      return tris;
+    }
+
+    async function refreshMini3dData(summaryFromSys) {
+      try {
+        const res = await fetch('/api/apps/3d-print/dashboard');
+        if (res.ok) {
+          const data = await res.json();
+          applyMini3dDashboardPayload(data);
+          return;
+        }
+      } catch {}
+      if (summaryFromSys) {
+        applyMini3dDashboardPayload(summaryFromSys);
+      }
+    }
+
+    function applyMini3dDashboardPayload(data) {
+      if (!data) return;
+      const hasProj = Boolean(data.hasActiveProject && (data.activeProject || data.scene));
+      const proj = data.activeProject || data;
+      const scene = proj.scene || data.scene || null;
+      const stats = proj.stats || data.stats || null;
+      const tel = data.telemetry || data.printer || {};
+      const cfg = data.printerConfig || {};
+
+      const printer = {
+        name: cfg.printerName || tel.name || 'Bambu Lab P1S',
+        status: tel.printerState || tel.status || 'IDLE',
+        progressPercent: Number(tel.progressPercent ?? proj.progressPct ?? 0),
+        currentLayer: Number(tel.currentLayer ?? 0),
+        totalLayers: Number(tel.totalLayers ?? (stats && stats.layerCount ? stats.layerCount : 0)),
+        remainingMinutes: Number(tel.remainingMinutes ?? (stats && stats.estimatedPrintMinutes ? stats.estimatedPrintMinutes : 0)),
+        nozzleTemp: Number(tel.nozzleTempC ?? tel.nozzleTemp ?? 24),
+        bedTemp: Number(tel.bedTempC ?? tel.bedTemp ?? 24),
+      };
+
+      mini3dState.hasActiveProject = hasProj;
+      mini3dState.activeProjectId = proj.id || data.activeProjectId || null;
+      mini3dState.projectName = proj.title || proj.name || data.projectName || null;
+      mini3dState.scene = scene;
+      mini3dState.stats = stats;
+      mini3dState.printer = printer;
+
+      const rawDims = stats && stats.dimensionsMm ? stats.dimensionsMm : null;
+      const dimX = rawDims ? (Array.isArray(rawDims) ? rawDims[0] : rawDims.x) : 60;
+      const dimY = rawDims ? (Array.isArray(rawDims) ? rawDims[1] : rawDims.y) : 60;
+      const dimZ = rawDims ? (Array.isArray(rawDims) ? rawDims[2] : rawDims.z) : 45;
+
+      if (hasProj && scene) {
+        mini3dState.triangles = buildMiniTrianglesFromScene(scene);
+        mini3dState.maxExtent = Math.max(dimX || 50, dimY || 50, dimZ || 40, 35);
+        mini3dState.centerZ = (dimZ || 40) * 0.45;
+      } else {
+        mini3dState.triangles = [];
+      }
+
+      const compactEl = document.getElementById('compact-3dprint');
+      const subEl = document.getElementById('sub-3dprint');
+      const fillEl = document.getElementById('mini-3d-progress-fill');
+      const dotEl = document.getElementById('dot-3dprint');
+      const ePrinter = document.getElementById('e3d-printer');
+      const eLayer = document.getElementById('e3d-layer');
+      const eDims = document.getElementById('e3d-dims');
+      const eTemps = document.getElementById('e3d-temps');
+      const btnToggle = document.getElementById('btn-mini-3d-toggle');
+
+      const pct = Number(printer.progressPercent || 0);
+      if (fillEl) fillEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
+
+      if (!hasProj) {
+        if (compactEl) compactEl.textContent = 'Kein 3D-Projekt';
+        if (subEl) subEl.textContent = 'Platzhalter aktiv · 0%';
+        if (dotEl) {
+          dotEl.style.background = '#94a3b8';
+          dotEl.style.boxShadow = '0 0 8px rgba(148,163,184,0.5)';
+        }
+        if (eDims) eDims.textContent = 'Kein Objekt geladen';
+        if (btnToggle) btnToggle.textContent = 'Projekt laden';
+      } else {
+        if (compactEl) compactEl.textContent = mini3dState.projectName || '3D Objekt';
+        const isPrinting = printer.status === 'RUNNING' || printer.status === 'PREPARE';
+        const statusLabel = isPrinting
+          ? ('Druckt · ' + pct + '% (' + (printer.remainingMinutes || 0) + 'm)')
+          : (rawDims
+              ? (Math.round(dimX) + '×' + Math.round(dimY) + '×' + Math.round(dimZ) + 'mm · ' + (pct > 0 ? pct + '%' : 'Bereit'))
+              : 'Bereit zum Druck');
+        if (subEl) subEl.textContent = statusLabel;
+        if (dotEl) {
+          const c = isPrinting ? '#38bdf8' : '#00AE42';
+          dotEl.style.background = c;
+          dotEl.style.boxShadow = '0 0 10px ' + c;
+        }
+        if (eDims && rawDims) {
+          const weightG = stats.filamentWeightG || stats.estimatedWeightGrams || 15;
+          eDims.textContent = Math.round(dimX) + '×' + Math.round(dimY) + '×' + Math.round(dimZ) + 'mm · ' + weightG + 'g';
+        }
+        if (btnToggle) btnToggle.textContent = 'Platzhalter testen';
+      }
+
+      if (ePrinter) ePrinter.textContent = (printer.name || 'Bambu Lab P1S') + ' (' + (printer.status || 'IDLE') + ')';
+      if (eLayer) eLayer.textContent = pct + '% (' + (printer.currentLayer || 0) + '/' + (printer.totalLayers || 0) + ')';
+      if (eTemps) eTemps.textContent = Math.round(printer.nozzleTemp || 24) + '°C / ' + Math.round(printer.bedTemp || 24) + '°C';
+    }
+
+    function initMini3dCanvas() {
+      const canvas = document.getElementById('mini-3d-canvas');
+      if (!canvas) return;
+
+      canvas.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        mini3dState.dragging = true;
+        mini3dState.lastX = e.clientX;
+        mini3dState.lastY = e.clientY;
+        canvas.setPointerCapture(e.pointerId);
+      });
+      canvas.addEventListener('pointermove', (e) => {
+        if (!mini3dState.dragging) return;
+        e.stopPropagation();
+        const dx = e.clientX - mini3dState.lastX;
+        const dy = e.clientY - mini3dState.lastY;
+        mini3dState.lastX = e.clientX;
+        mini3dState.lastY = e.clientY;
+        mini3dState.yaw += dx * 0.018;
+        mini3dState.pitch = Math.max(-1.2, Math.min(1.2, mini3dState.pitch + dy * 0.018));
+      });
+      canvas.addEventListener('pointerup', (e) => {
+        mini3dState.dragging = false;
+        try { canvas.releasePointerCapture(e.pointerId); } catch {}
+      });
+
+      function renderLoop() {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.clearRect(0, 0, w, h);
+
+          if (!mini3dState.dragging) {
+            mini3dState.yaw += 0.012;
+          }
+
+          const cy = Math.cos(mini3dState.yaw), sy = Math.sin(mini3dState.yaw);
+          const cp = Math.cos(mini3dState.pitch), sp = Math.sin(mini3dState.pitch);
+
+          function projectPt(pt, scale, zOff) {
+            const x = pt[0], y = pt[1], z = pt[2] - zOff;
+            const rx = x * cy - y * sy;
+            const ry = x * sy + y * cy;
+            const rz = z * cp - ry * sp;
+            const ry2 = z * sp + ry * cp;
+            const fov = 220 / (220 + ry2 * 0.6);
+            return {
+              x: w / 2 + rx * scale * fov,
+              y: h / 2 - rz * scale * fov,
+              depth: ry2
+            };
+          }
+
+          if (!mini3dState.hasActiveProject || mini3dState.triangles.length === 0) {
+            // PLACEHOLDER STATE: Dashed rotating wireframe cube + "Kein Projekt" badge
+            const r = 20;
+            const verts = [
+              [-r, -r, 0], [r, -r, 0], [r, r, 0], [-r, r, 0],
+              [-r, -r, r*1.6], [r, -r, r*1.6], [r, r, r*1.6], [-r, r, r*1.6]
+            ].map(v => projectPt(v, 1.15, r * 0.8));
+            const edges = [
+              [0,1],[1,2],[2,3],[3,0],
+              [4,5],[5,6],[6,7],[7,4],
+              [0,4],[1,5],[2,6],[3,7]
+            ];
+            ctx.save();
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+            ctx.lineWidth = 1.6;
+            for (const [a, b] of edges) {
+              ctx.beginPath();
+              ctx.moveTo(verts[a].x, verts[a].y);
+              ctx.lineTo(verts[b].x, verts[b].y);
+              ctx.stroke();
+            }
+            ctx.restore();
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
+            ctx.font = '600 15px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('KEIN 3D OBJEKT', w / 2, h - 10);
+          } else {
+            // ACTIVE 3D OBJECT: Build plate grid + lit 3D mesh
+            const scale = 68 / Math.max(30, mini3dState.maxExtent);
+            const zOff = mini3dState.centerZ;
+
+            // Mini build plate outline
+            const plateR = mini3dState.maxExtent * 0.65;
+            const pCorners = [
+              [-plateR, -plateR, 0], [plateR, -plateR, 0],
+              [plateR, plateR, 0], [-plateR, plateR, 0]
+            ].map(v => projectPt(v, scale, zOff));
+            ctx.beginPath();
+            ctx.moveTo(pCorners[0].x, pCorners[0].y);
+            for (let i = 1; i < 4; i++) ctx.lineTo(pCorners[i].x, pCorners[i].y);
+            ctx.closePath();
+            ctx.strokeStyle = 'rgba(0, 174, 66, 0.35)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            // Project & sort triangles
+            const projected = [];
+            for (const t of mini3dState.triangles) {
+              const p0 = projectPt(t.v[0], scale, zOff);
+              const p1 = projectPt(t.v[1], scale, zOff);
+              const p2 = projectPt(t.v[2], scale, zOff);
+              // Compute 3D normal for shading
+              const ux = t.v[1][0] - t.v[0][0], uy = t.v[1][1] - t.v[0][1], uz = t.v[1][2] - t.v[0][2];
+              const vx = t.v[2][0] - t.v[0][0], vy = t.v[2][1] - t.v[0][1], vz = t.v[2][2] - t.v[0][2];
+              const nx = uy * vz - uz * vy;
+              const ny = uz * vx - ux * vz;
+              const nz = ux * vy - uy * vx;
+              const nl = Math.hypot(nx, ny, nz) || 1;
+              const light = Math.max(0.32, Math.min(1.12, 0.55 + ((nx / nl) * 0.35 + (nz / nl) * 0.45)));
+              projected.push({
+                p0, p1, p2,
+                depth: (p0.depth + p1.depth + p2.depth) / 3,
+                color: t.c,
+                light
+              });
+            }
+            projected.sort((a, b) => b.depth - a.depth);
+
+            for (const tri of projected) {
+              ctx.beginPath();
+              ctx.moveTo(tri.p0.x, tri.p0.y);
+              ctx.lineTo(tri.p1.x, tri.p1.y);
+              ctx.lineTo(tri.p2.x, tri.p2.y);
+              ctx.closePath();
+              const hex = (tri.color || '#00AE42').replace('#', '');
+              const r = Math.min(255, Math.round(parseInt(hex.substring(0, 2) || '00', 16) * tri.light));
+              const g = Math.min(255, Math.round(parseInt(hex.substring(2, 4) || 'ae', 16) * tri.light));
+              const b = Math.min(255, Math.round(parseInt(hex.substring(4, 6) || '42', 16) * tri.light));
+              ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+              ctx.fill();
+              ctx.strokeStyle = 'rgba(4, 7, 17, 0.22)';
+              ctx.lineWidth = 0.6;
+              ctx.stroke();
+            }
+          }
+        }
+        requestAnimationFrame(renderLoop);
+      }
+      requestAnimationFrame(renderLoop);
+    }
+
+    async function submitMini3dPrompt(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const input = document.getElementById('mini-3d-prompt');
+      const btn = document.getElementById('mini-3d-prompt-btn');
+      if (!input || !input.value.trim()) return;
+      const prompt = input.value.trim();
+      if (btn) btn.textContent = '...';
+      try {
+        const endpoint = mini3dState.hasActiveProject && mini3dState.activeProjectId
+          ? '/api/apps/3d-print/projects/modify'
+          : '/api/apps/3d-print/projects/generate';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, projectId: mini3dState.activeProjectId })
+        });
+        if (res.ok) {
+          input.value = '';
+          await refreshMini3dData();
+        }
+      } catch (err) {
+        console.error('3D prompt failed:', err);
+      } finally {
+        if (btn) btn.textContent = 'KI';
+      }
+    }
+
+    async function toggleMini3dPlaceholder() {
+      try {
+        const nextId = mini3dState.hasActiveProject ? null : 'preset-headphone-hook';
+        await fetch('/api/apps/3d-print/projects/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: nextId })
+        });
+        await refreshMini3dData();
+      } catch (err) {
+        console.error('Failed toggling 3D placeholder:', err);
+      }
+    }
+
+    async function triggerMini3dPrint() {
+      try {
+        await fetch('/api/apps/3d-print/printer/print', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: mini3dState.activeProjectId })
+        });
+        await refreshMini3dData();
+      } catch (err) {
+        console.error('Failed starting 3D print:', err);
       }
     }
 
@@ -1793,10 +2228,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     });
 
     renderSolarArcPaths();
+    initMini3dCanvas();
     tickClockAndTimeline();
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     setInterval(loadAllLiveData, 60000);
+    setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
   </script>
 </body>

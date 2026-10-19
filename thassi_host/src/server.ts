@@ -415,7 +415,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.0.9',
+          version: '1.1.0',
           timestamp: new Date().toISOString(),
         });
       }
@@ -658,6 +658,7 @@ async function startServer() {
           calendar: sharedDb.kvGet('google_calendar_today') || null,
           finance: sharedDb.kvGet('finance_summary') || null,
           vision: sharedDb.kvGet('camera_vision_today') || null,
+          print3d: sharedDb.kvGet('thassi_3dprint_summary') || null,
         };
         const notes = sharedDb.query<{
           id: number;

@@ -1,3 +1,5 @@
+import { createRequire as __thassiCreateRequire } from 'node:module'; const require = __thassiCreateRequire(import.meta.url);
+
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
