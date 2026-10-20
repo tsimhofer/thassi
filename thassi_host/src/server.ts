@@ -807,7 +807,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.2.3',
+          version: '1.2.4',
           timestamp: new Date().toISOString(),
         });
       }
@@ -1250,8 +1250,13 @@ async function startServer() {
       }
 
       if (pathname === '/' || pathname === '/index.html') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderUnifiedDashboardHtml(ingressPath));
+        const dashboardHtml = renderUnifiedDashboardHtml(ingressPath);
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'x-thassi-dashboard-version': '1.2.4-cortex',
+          'x-thassi-html-len': String(dashboardHtml.length),
+        });
+        res.end(dashboardHtml);
         return;
       }
 
