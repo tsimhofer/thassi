@@ -10325,7 +10325,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.2.0",
+          version: "1.2.2",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
