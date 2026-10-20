@@ -807,7 +807,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.2.2',
+          version: '1.2.3',
           timestamp: new Date().toISOString(),
         });
       }

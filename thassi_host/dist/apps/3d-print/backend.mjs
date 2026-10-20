@@ -384,6 +384,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Thassi Horizon</title>
+  <!-- VERIFY_PROMPT_BAR_123 -->
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -5540,8 +5541,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
         \${actionsHtml}
         <div class="cortex-resp-body" id="cortex-resp-body-text">\${escapeHtml(text)}</div>
       \`;
-      responseCard.style.display = 'flex';
-    }
       responseCard.style.display = 'flex';
     }
 

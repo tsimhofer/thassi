@@ -4509,6 +4509,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Thassi Horizon</title>
+  <!-- VERIFY_PROMPT_BAR_123 -->
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -9667,8 +9668,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
       \`;
       responseCard.style.display = 'flex';
     }
-      responseCard.style.display = 'flex';
-    }
 
     function closeCortexResponse() {
       const responseCard = document.getElementById('cortex-response-card');
@@ -10325,7 +10324,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.2.2",
+          version: "1.2.3",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
