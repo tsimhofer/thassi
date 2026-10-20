@@ -86,6 +86,42 @@ export function getHassSidebarStylerScript(): string {
         transform: none !important;
         box-shadow: none !important;
       }
+      a[href="/home"],
+      a[href="/lovelace"],
+      a[href="/light"],
+      a[href="/security"],
+      a[href="/climate"],
+      a[href="/energy"],
+      a[href="/media-browser"],
+      a[href="/logbook"],
+      a[href="/history"],
+      a[href="/todo"],
+      a[href="/calendar"],
+      a[href="/map"],
+      a[href="/thomas-buero"],
+      a[href="/aishe-diagnose"],
+      a[href="/aishe-details"],
+      a[href="/aishe-security"],
+      a[href="/aishe-energy"],
+      ha-md-list-item[href="/home"],
+      ha-md-list-item[href="/lovelace"],
+      ha-md-list-item[href="/light"],
+      ha-md-list-item[href="/security"],
+      ha-md-list-item[href="/climate"],
+      ha-md-list-item[href="/energy"],
+      ha-md-list-item[href="/media-browser"],
+      ha-md-list-item[href="/logbook"],
+      ha-md-list-item[href="/history"],
+      ha-md-list-item[href="/todo"],
+      ha-md-list-item[href="/calendar"],
+      ha-md-list-item[href="/map"],
+      ha-md-list-item[href="/thomas-buero"],
+      ha-md-list-item[href="/aishe-diagnose"],
+      ha-md-list-item[href="/aishe-details"],
+      ha-md-list-item[href="/aishe-security"],
+      ha-md-list-item[href="/aishe-energy"] {
+        display: none !important;
+      }
     \`;
 
     const LOVELACE_FULLBLEED_CSS = \`
@@ -145,6 +181,28 @@ export function getHassSidebarStylerScript(): string {
         if (sidebar && sidebar.shadowRoot) {
           ensureStyleTag(sidebar.shadowRoot, 'thassi-sidebar-style', SIDEBAR_SHADOW_CSS);
         }
+
+        // Persist clean sidebar order & hidden panels in localStorage for all browser sessions
+        try {
+          const hidden = [
+            "home","lovelace","light","security","climate","energy",
+            "media-browser","logbook","history","todo","calendar",
+            "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy"
+          ];
+          const order = [
+            "44ec3c40_thassi_host",
+            "44ec3c40_thassi_workflows",
+            "44ec3c40_thassi_finance_analytics",
+            "44ec3c40_thassi_google_health",
+            "44ec3c40_thassi_meal_planner",
+            "44ec3c40_thassi_google_calendar",
+            "44ec3c40_thassi_smart_canvas",
+            "44ec3c40_thassi_project_workflow",
+            "hacs"
+          ];
+          window.top.localStorage.setItem('sidebarHiddenPanels', JSON.stringify(hidden));
+          window.top.localStorage.setItem('sidebarPanelOrder', JSON.stringify(order));
+        } catch (_e) {}
 
         const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
         const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');

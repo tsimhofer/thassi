@@ -2,11 +2,13 @@ import { ThassiAppDatabase } from './db.js';
 import { ThassiHaBridge } from './ha-bridge.js';
 import { ThassiCronScheduler, ThassiJobDefinition } from './cron.js';
 import { ThassiGoogleOAuthManager } from './google-oauth.js';
+import { ThassiActionRegistry } from './actions.js';
 
 export * from './db.js';
 export * from './ha-bridge.js';
 export * from './cron.js';
 export * from './google-oauth.js';
+export * from './actions.js';
 
 export interface ThassiAppManifest {
   id: string;
@@ -49,6 +51,8 @@ export interface ThassiAppContext {
   ha: ThassiHaBridge;
   /** Shared Google OAuth2 client manager (Calendar, Health/Fitness, etc.) */
   google: ThassiGoogleOAuthManager;
+  /** Shared Atomic Action & Connector Registry (Home Assistant, Google, GitHub, Gemini, Weather, Food, HTTP) */
+  actions: ThassiActionRegistry;
   /** Register a recurring background job for this app */
   scheduleJob: (job: ThassiJobDefinition) => void;
   /** Register an HTTP API route under `/api/apps/<appId><path>` */

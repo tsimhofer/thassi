@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { defineThassiApp } from '@thassi/sdk';
+import { defineThassiApp, ThassiActionRegistry } from '@thassi/sdk';
 
 export interface CalendarEventRow {
   id: number;
@@ -13,6 +13,7 @@ export interface CalendarEventRow {
   duration_minutes: number;
   location: string;
   description: string;
+  attendees?: string;
   source: 'google_oauth' | 'ics_feed' | 'manual';
 }
 
@@ -92,13 +93,15 @@ export function parseIcsFeed(
     let summary = '';
     let description = '';
     let location = '';
+    const attendeeList: string[] = [];
     let dtStart: Date | null = null;
     let dtEnd: Date | null = null;
 
     for (const line of lines) {
       const colonIdx = line.indexOf(':');
       if (colonIdx <= 0) continue;
-      const keyPart = line.slice(0, colonIdx).toUpperCase();
+      const rawKeyPart = line.slice(0, colonIdx);
+      const keyPart = rawKeyPart.toUpperCase();
       const valPart = line
         .slice(colonIdx + 1)
         .replace(/\\n/g, '\n')
@@ -109,7 +112,12 @@ export function parseIcsFeed(
       else if (keyPart.startsWith('SUMMARY')) summary = valPart;
       else if (keyPart.startsWith('DESCRIPTION')) description = valPart;
       else if (keyPart.startsWith('LOCATION')) location = valPart;
-      else if (keyPart.startsWith('DTSTART')) dtStart = parseIcsDate(valPart);
+      else if (keyPart.startsWith('ATTENDEE')) {
+        const cnMatch = rawKeyPart.match(/CN="?([^";:]+)"?/i);
+        const mailClean = valPart.replace(/^mailto:/i, '').trim();
+        const label = (cnMatch ? cnMatch[1].trim() : mailClean) || mailClean;
+        if (label && !attendeeList.includes(label)) attendeeList.push(label);
+      } else if (keyPart.startsWith('DTSTART')) dtStart = parseIcsDate(valPart);
       else if (keyPart.startsWith('DTEND')) dtEnd = parseIcsDate(valPart);
     }
 
@@ -127,6 +135,7 @@ export function parseIcsFeed(
       duration_minutes: durationMinutes,
       location,
       description,
+      attendees: attendeeList.join(', '),
       source: 'ics_feed',
     });
   }
@@ -159,6 +168,7 @@ export default defineThassiApp((ctx) => {
       duration_minutes INTEGER NOT NULL DEFAULT 60,
       location TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL DEFAULT '',
+      attendees TEXT NOT NULL DEFAULT '',
       source TEXT NOT NULL DEFAULT 'manual'
     );
 
@@ -179,6 +189,12 @@ export default defineThassiApp((ctx) => {
       updated_at TEXT
     );
   `);
+
+  try {
+    ctx.db.exec(`ALTER TABLE calendar_events ADD COLUMN attendees TEXT NOT NULL DEFAULT '';`);
+  } catch {
+    // Column already exists
+  }
 
   // Purge any legacy dummy/seed events so only real Google Calendar & user events remain
   ctx.db.execute("DELETE FROM calendar_events WHERE external_id LIKE 'seed_%'");
@@ -363,8 +379,8 @@ export default defineThassiApp((ctx) => {
     ensureCalendarSetting(ev.calendar_name, ev.calendar_name, '', ev.source, 1);
     ctx.db.execute(
       `INSERT INTO calendar_events
-       (external_id, calendar_name, title, category, start_time, end_time, duration_minutes, location, description, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (external_id, calendar_name, title, category, start_time, end_time, duration_minutes, location, description, attendees, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(external_id) DO UPDATE SET
          calendar_name = excluded.calendar_name,
          title = excluded.title,
@@ -373,7 +389,8 @@ export default defineThassiApp((ctx) => {
          end_time = excluded.end_time,
          duration_minutes = excluded.duration_minutes,
          location = excluded.location,
-         description = excluded.description`,
+         description = excluded.description,
+         attendees = CASE WHEN excluded.attendees != '' THEN excluded.attendees ELSE calendar_events.attendees END`,
       [
         ev.external_id,
         ev.calendar_name,
@@ -384,6 +401,7 @@ export default defineThassiApp((ctx) => {
         ev.duration_minutes,
         ev.location,
         ev.description,
+        ev.attendees || '',
         ev.source,
       ]
     );
@@ -493,6 +511,16 @@ export default defineThassiApp((ctx) => {
                 description?: string;
                 location?: string;
                 status?: string;
+                attendees?: Array<{
+                  email?: string;
+                  displayName?: string;
+                  self?: boolean;
+                }>;
+                organizer?: {
+                  email?: string;
+                  displayName?: string;
+                  self?: boolean;
+                };
                 start?: { dateTime?: string; date?: string };
                 end?: { dateTime?: string; date?: string };
               }>;
@@ -515,6 +543,10 @@ export default defineThassiApp((ctx) => {
                 isAllDay
               );
 
+              const attendeeNames = (item.attendees || [])
+                .map((a) => (a.displayName || a.email || '').trim())
+                .filter(Boolean);
+
               const extId = `gcal_${gCal.id}_${item.id}`;
               upsertEvent({
                 external_id: extId,
@@ -531,6 +563,7 @@ export default defineThassiApp((ctx) => {
                 duration_minutes: durationMinutes,
                 location: item.location || '',
                 description: item.description || '',
+                attendees: attendeeNames.join(', '),
                 source: 'google_oauth',
               });
               oauthSynced++;
@@ -1032,11 +1065,25 @@ export default defineThassiApp((ctx) => {
     return { created: true, external_id: createdExternalId };
   });
 
-  ctx.route('DELETE', '/events', async (req, { db }) => {
+  ctx.route('DELETE', '/events', async (req, { db, actions }) => {
     const id = Number(req.query.id);
+    const existing = db.queryOne<{ external_id?: string; calendar_name?: string }>(
+      'SELECT external_id, calendar_name FROM calendar_events WHERE id = ?',
+      [id]
+    );
+    let remoteDeleted = false;
+    if (existing?.external_id && existing.external_id.startsWith('gcal_')) {
+      const googleEventId = existing.external_id.replace(/^gcal_/, '');
+      const reg = actions || new ThassiActionRegistry(ctx.sharedDb, ctx.ha, ctx.google);
+      const delRes = await reg.execute('gcal.delete_event', {
+        calendarId: 'primary',
+        eventId: googleEventId,
+      });
+      remoteDeleted = delRes.status === 'success';
+    }
     db.execute('DELETE FROM calendar_events WHERE id = ?', [id]);
     await publishCalendarSensorsAndSharedState();
-    return { deleted: id };
+    return { deleted: id, remoteDeleted };
   });
 
   ctx.route('POST', '/feeds', async (req, { db }) => {

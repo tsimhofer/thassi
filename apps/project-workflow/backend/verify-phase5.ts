@@ -5,6 +5,7 @@ import {
   ThassiCronScheduler,
   ThassiGoogleOAuthManager,
   ThassiHaBridge,
+  ThassiActionRegistry,
   type ThassiAppContext,
 } from '../../../packages/sdk/src/index.js';
 import { MODULE_TEMPLATE_PRESETS } from '../shared/workflow-types.js';
@@ -61,12 +62,14 @@ async function runPhase5Verification() {
   const scheduler = new ThassiCronScheduler();
   const ha = new ThassiHaBridge('project-workflow', db);
   const google = new ThassiGoogleOAuthManager(db);
+  const actions = new ThassiActionRegistry(db, ha, google);
   const ctx: ThassiAppContext = {
     appId: 'project-workflow',
     db,
     sharedDb: db,
     ha,
     google,
+    actions,
     scheduleJob: (j) => scheduler.registerJob('project-workflow', j),
     route: () => {},
   };

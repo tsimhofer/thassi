@@ -763,14 +763,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path2 = url.path;
-      if (path2.length === 0) {
+      const path3 = url.path;
+      if (path3.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path2.length === 1 && isNormalizedWindowsDriveLetter(path2[0])) {
+      if (url.scheme === "file" && path3.length === 1 && isNormalizedWindowsDriveLetter(path3[0])) {
         return;
       }
-      path2.pop();
+      path3.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -5307,8 +5307,8 @@ var require_tf_core_node = __commonJS({
     function now() {
       return env().platform.now();
     }
-    function fetch$1(path2, requestInits) {
-      return env().platform.fetch(path2, requestInits);
+    function fetch$1(path3, requestInits) {
+      return env().platform.fetch(path3, requestInits);
     }
     function encodeString(s, encoding) {
       if (encoding === void 0) {
@@ -8107,13 +8107,13 @@ var require_tf_core_node = __commonJS({
     function concatenateArrayBuffers(buffers) {
       return CompositeArrayBuffer.join(buffers);
     }
-    function basename(path2) {
+    function basename(path3) {
       var SEPARATOR = "/";
-      path2 = path2.trim();
-      while (path2.endsWith(SEPARATOR)) {
-        path2 = path2.slice(0, path2.length - 1);
+      path3 = path3.trim();
+      while (path3.endsWith(SEPARATOR)) {
+        path3 = path3.slice(0, path3.length - 1);
       }
-      var items = path2.split(SEPARATOR);
+      var items = path3.split(SEPARATOR);
       return items[items.length - 1];
     }
     function getModelJSONForModelArtifacts(artifacts, manifest) {
@@ -8547,11 +8547,11 @@ var require_tf_core_node = __commonJS({
             });
           });
         };
-        BrowserIndexedDBManager2.prototype.removeModel = function(path2) {
+        BrowserIndexedDBManager2.prototype.removeModel = function(path3) {
           return __awaiter(this, void 0, void 0, function() {
             var _this = this;
             return __generator(this, function(_a) {
-              path2 = maybeStripScheme$1(path2);
+              path3 = maybeStripScheme$1(path3);
               return [2, new Promise(function(resolve, reject) {
                 var openRequest = _this.indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
                 openRequest.onupgradeneeded = function() {
@@ -8561,18 +8561,18 @@ var require_tf_core_node = __commonJS({
                   var db = openRequest.result;
                   var infoTx = db.transaction(INFO_STORE_NAME, "readwrite");
                   var infoStore = infoTx.objectStore(INFO_STORE_NAME);
-                  var getInfoRequest = infoStore.get(path2);
+                  var getInfoRequest = infoStore.get(path3);
                   var modelTx;
                   getInfoRequest.onsuccess = function() {
                     if (getInfoRequest.result == null) {
                       db.close();
-                      return reject(new Error("Cannot find model with path '".concat(path2, "' ") + "in IndexedDB."));
+                      return reject(new Error("Cannot find model with path '".concat(path3, "' ") + "in IndexedDB."));
                     } else {
-                      var deleteInfoRequest = infoStore.delete(path2);
+                      var deleteInfoRequest = infoStore.delete(path3);
                       var deleteModelData_1 = function() {
                         modelTx = db.transaction(MODEL_STORE_NAME, "readwrite");
                         var modelStore = modelTx.objectStore(MODEL_STORE_NAME);
-                        var deleteModelRequest = modelStore.delete(path2);
+                        var deleteModelRequest = modelStore.delete(path3);
                         deleteModelRequest.onsuccess = function() {
                           return resolve(getInfoRequest.result.modelArtifactsInfo);
                         };
@@ -8619,13 +8619,13 @@ var require_tf_core_node = __commonJS({
     var WEIGHT_SPECS_SUFFIX = "weight_specs";
     var WEIGHT_DATA_SUFFIX = "weight_data";
     var MODEL_METADATA_SUFFIX = "model_metadata";
-    function getModelKeys(path2) {
+    function getModelKeys(path3) {
       return {
-        info: [PATH_PREFIX, path2, INFO_SUFFIX].join(PATH_SEPARATOR),
-        topology: [PATH_PREFIX, path2, MODEL_TOPOLOGY_SUFFIX].join(PATH_SEPARATOR),
-        weightSpecs: [PATH_PREFIX, path2, WEIGHT_SPECS_SUFFIX].join(PATH_SEPARATOR),
-        weightData: [PATH_PREFIX, path2, WEIGHT_DATA_SUFFIX].join(PATH_SEPARATOR),
-        modelMetadata: [PATH_PREFIX, path2, MODEL_METADATA_SUFFIX].join(PATH_SEPARATOR)
+        info: [PATH_PREFIX, path3, INFO_SUFFIX].join(PATH_SEPARATOR),
+        topology: [PATH_PREFIX, path3, MODEL_TOPOLOGY_SUFFIX].join(PATH_SEPARATOR),
+        weightSpecs: [PATH_PREFIX, path3, WEIGHT_SPECS_SUFFIX].join(PATH_SEPARATOR),
+        weightData: [PATH_PREFIX, path3, WEIGHT_DATA_SUFFIX].join(PATH_SEPARATOR),
+        modelMetadata: [PATH_PREFIX, path3, MODEL_METADATA_SUFFIX].join(PATH_SEPARATOR)
       };
     }
     function removeItems(keys) {
@@ -8812,14 +8812,14 @@ var require_tf_core_node = __commonJS({
             });
           });
         };
-        BrowserLocalStorageManager2.prototype.removeModel = function(path2) {
+        BrowserLocalStorageManager2.prototype.removeModel = function(path3) {
           return __awaiter(this, void 0, void 0, function() {
             var keys, info;
             return __generator(this, function(_a) {
-              path2 = maybeStripScheme(path2);
-              keys = getModelKeys(path2);
+              path3 = maybeStripScheme(path3);
+              keys = getModelKeys(path3);
               if (this.LS.getItem(keys.info) == null) {
-                throw new Error("Cannot find model at path '".concat(path2, "'"));
+                throw new Error("Cannot find model at path '".concat(path3, "'"));
               }
               info = JSON.parse(this.LS.getItem(keys.info));
               removeItems(keys);
@@ -8937,7 +8937,7 @@ var require_tf_core_node = __commonJS({
     }
     function listModels() {
       return __awaiter(this, void 0, void 0, function() {
-        var schemes, out, schemes_1, schemes_1_1, scheme, schemeOut, path2, url, e_1_1;
+        var schemes, out, schemes_1, schemes_1_1, scheme, schemeOut, path3, url, e_1_1;
         var e_1, _a;
         return __generator(this, function(_b) {
           switch (_b.label) {
@@ -8955,9 +8955,9 @@ var require_tf_core_node = __commonJS({
               return [4, ModelStoreManagerRegistry.getManager(scheme).listModels()];
             case 3:
               schemeOut = _b.sent();
-              for (path2 in schemeOut) {
-                url = scheme + URL_SCHEME_SUFFIX + path2;
-                out[url] = schemeOut[path2];
+              for (path3 in schemeOut) {
+                url = scheme + URL_SCHEME_SUFFIX + path3;
+                out[url] = schemeOut[path3];
               }
               _b.label = 4;
             case 4:
@@ -9022,8 +9022,8 @@ var require_tf_core_node = __commonJS({
           this.handledMessageCount = 0;
           this.hasEventListener = false;
         }
-        PlatformBrowser2.prototype.fetch = function(path2, init) {
-          return fetch(path2, init);
+        PlatformBrowser2.prototype.fetch = function(path3, init) {
+          return fetch(path3, init);
         };
         PlatformBrowser2.prototype.now = function() {
           return performance.now();
@@ -9097,14 +9097,14 @@ var require_tf_core_node = __commonJS({
           this.util = __require("util");
           this.textEncoder = new this.util.TextEncoder();
         }
-        PlatformNode2.prototype.fetch = function(path2, requestInits) {
+        PlatformNode2.prototype.fetch = function(path3, requestInits) {
           if (env().global.fetch != null) {
-            return env().global.fetch(path2, requestInits);
+            return env().global.fetch(path3, requestInits);
           }
           if (systemFetch == null) {
             systemFetch = getNodeFetch.importFetch();
           }
-          return systemFetch(path2, requestInits);
+          return systemFetch(path3, requestInits);
         };
         PlatformNode2.prototype.now = function() {
           var time2 = process.hrtime();
@@ -17116,14 +17116,14 @@ var require_tf_core_node = __commonJS({
             }
           }
           var pathToFile = this.checkManifestAndWeightFiles(weightsManifest);
-          var promises = paths.map(function(path2) {
-            return _this.loadWeightsFile(path2, pathToFile[path2]);
+          var promises = paths.map(function(path3) {
+            return _this.loadWeightsFile(path3, pathToFile[path3]);
           });
           return Promise.all(promises).then(function(buffers) {
             return [weightSpecs, buffers];
           });
         };
-        BrowserFiles2.prototype.loadWeightsFile = function(path2, file) {
+        BrowserFiles2.prototype.loadWeightsFile = function(path3, file) {
           return new Promise(function(resolve, reject) {
             var weightFileReader = new FileReader();
             weightFileReader.onload = function(event) {
@@ -17131,7 +17131,7 @@ var require_tf_core_node = __commonJS({
               resolve(weightData);
             };
             weightFileReader.onerror = function(error) {
-              return reject("Failed to weights data from file of path '".concat(path2, "'."));
+              return reject("Failed to weights data from file of path '".concat(path3, "'."));
             };
             weightFileReader.readAsArrayBuffer(file);
           });
@@ -17147,8 +17147,8 @@ var require_tf_core_node = __commonJS({
           try {
             for (var manifest_1 = __values(manifest), manifest_1_1 = manifest_1.next(); !manifest_1_1.done; manifest_1_1 = manifest_1.next()) {
               var group = manifest_1_1.value;
-              group.paths.forEach(function(path2) {
-                var pathBasename = basename(path2);
+              group.paths.forEach(function(path3) {
+                var pathBasename = basename(path3);
                 if (basenames.indexOf(pathBasename) !== -1) {
                   throw new Error("Duplicate file basename found in weights manifest: " + "'".concat(pathBasename, "'"));
                 }
@@ -17156,7 +17156,7 @@ var require_tf_core_node = __commonJS({
                 if (fileNames.indexOf(pathBasename) === -1) {
                   throw new Error("Weight file with basename '".concat(pathBasename, "' is not provided."));
                 } else {
-                  pathToFile[path2] = _this.weightsFiles[fileNames.indexOf(pathBasename)];
+                  pathToFile[path3] = _this.weightsFiles[fileNames.indexOf(pathBasename)];
                 }
               });
             }
@@ -17441,7 +17441,7 @@ var require_tf_core_node = __commonJS({
     var HTTPRequest = (
       /** @class */
       function() {
-        function HTTPRequest2(path2, loadOptions) {
+        function HTTPRequest2(path3, loadOptions) {
           this.DEFAULT_METHOD = "POST";
           if (loadOptions == null) {
             loadOptions = {};
@@ -17456,15 +17456,15 @@ var require_tf_core_node = __commonJS({
           } else {
             this.fetch = env().platform.fetch;
           }
-          assert(path2 != null && path2.length > 0, function() {
+          assert(path3 != null && path3.length > 0, function() {
             return "URL path for http must not be null, undefined or empty.";
           });
-          if (Array.isArray(path2)) {
-            assert(path2.length === 2, function() {
-              return "URL paths for http must have a length of 2, " + "(actual length is ".concat(path2.length, ").");
+          if (Array.isArray(path3)) {
+            assert(path3.length === 2, function() {
+              return "URL paths for http must have a length of 2, " + "(actual length is ".concat(path3.length, ").");
             });
           }
-          this.path = path2;
+          this.path = path3;
           if (loadOptions.requestInit != null && loadOptions.requestInit.body != null) {
             throw new Error("requestInit is expected to have no pre-existing body, but has one.");
           }
@@ -17590,7 +17590,7 @@ var require_tf_core_node = __commonJS({
         };
         HTTPRequest2.prototype.getWeightUrls = function(weightsManifest) {
           return __awaiter(this, void 0, void 0, function() {
-            var weightPath, _a, prefix, suffix, pathPrefix, fetchURLs, urlPromises, weightsManifest_1, weightsManifest_1_1, weightsGroup, _b, _c, path2, _d, _e, _f, _g;
+            var weightPath, _a, prefix, suffix, pathPrefix, fetchURLs, urlPromises, weightsManifest_1, weightsManifest_1_1, weightsGroup, _b, _c, path3, _d, _e, _f, _g;
             var e_2, _h, e_3, _j;
             return __generator(this, function(_k) {
               switch (_k.label) {
@@ -17605,11 +17605,11 @@ var require_tf_core_node = __commonJS({
                       weightsGroup = weightsManifest_1_1.value;
                       try {
                         for (_b = (e_3 = void 0, __values(weightsGroup.paths)), _c = _b.next(); !_c.done; _c = _b.next()) {
-                          path2 = _c.value;
+                          path3 = _c.value;
                           if (this.weightUrlConverter != null) {
-                            urlPromises.push(this.weightUrlConverter(path2));
+                            urlPromises.push(this.weightUrlConverter(path3));
                           } else {
-                            fetchURLs.push(pathPrefix + path2 + suffix);
+                            fetchURLs.push(pathPrefix + path3 + suffix);
                           }
                         }
                       } catch (e_3_1) {
@@ -17697,11 +17697,11 @@ var require_tf_core_node = __commonJS({
     };
     IORouterRegistry.registerSaveRouter(httpRouter);
     IORouterRegistry.registerLoadRouter(httpRouter);
-    function http(path2, loadOptions) {
-      return new HTTPRequest(path2, loadOptions);
+    function http(path3, loadOptions) {
+      return new HTTPRequest(path3, loadOptions);
     }
-    function browserHTTPRequest(path2, loadOptions) {
-      return http(path2, loadOptions);
+    function browserHTTPRequest(path3, loadOptions) {
+      return http(path3, loadOptions);
     }
     var PassthroughLoader = (
       /** @class */
@@ -19079,19 +19079,19 @@ var require_tf_core_node = __commonJS({
     }
     function getEinsumComputePath(summedDims, idDims) {
       var e_1, _a;
-      var path2 = summedDims;
+      var path3 = summedDims;
       var steps = [];
       var nSteps = 0;
       if (summedDims.length === 0) {
-        path2.push(-1);
+        path3.push(-1);
       }
       nSteps = summedDims.length + 1;
       for (var i = 0; i < nSteps; ++i) {
         steps.push([]);
       }
       var computedTermIndices = [];
-      for (var i = 0; i < path2.length; ++i) {
-        var summedDim = path2[i];
+      for (var i = 0; i < path3.length; ++i) {
+        var summedDim = path3[i];
         var termIndices = findTermsWithDim(idDims, summedDim);
         try {
           for (var termIndices_1 = (e_1 = void 0, __values(termIndices)), termIndices_1_1 = termIndices_1.next(); !termIndices_1_1.done; termIndices_1_1 = termIndices_1.next()) {
@@ -19111,7 +19111,7 @@ var require_tf_core_node = __commonJS({
           }
         }
       }
-      return { path: path2, steps };
+      return { path: path3, steps };
     }
     function isIdentityPermutation(perm) {
       return perm.every(function(dim, index) {
@@ -30089,13 +30089,13 @@ var require_tf_layers_node = __commonJS({
     var WEIGHT_SPECS_SUFFIX = "weight_specs";
     var WEIGHT_DATA_SUFFIX = "weight_data";
     var MODEL_METADATA_SUFFIX = "model_metadata";
-    function getModelKeys(path2) {
+    function getModelKeys(path3) {
       return {
-        info: [PATH_PREFIX, path2, INFO_SUFFIX].join(PATH_SEPARATOR),
-        topology: [PATH_PREFIX, path2, MODEL_TOPOLOGY_SUFFIX].join(PATH_SEPARATOR),
-        weightSpecs: [PATH_PREFIX, path2, WEIGHT_SPECS_SUFFIX].join(PATH_SEPARATOR),
-        weightData: [PATH_PREFIX, path2, WEIGHT_DATA_SUFFIX].join(PATH_SEPARATOR),
-        modelMetadata: [PATH_PREFIX, path2, MODEL_METADATA_SUFFIX].join(PATH_SEPARATOR)
+        info: [PATH_PREFIX, path3, INFO_SUFFIX].join(PATH_SEPARATOR),
+        topology: [PATH_PREFIX, path3, MODEL_TOPOLOGY_SUFFIX].join(PATH_SEPARATOR),
+        weightSpecs: [PATH_PREFIX, path3, WEIGHT_SPECS_SUFFIX].join(PATH_SEPARATOR),
+        weightData: [PATH_PREFIX, path3, WEIGHT_DATA_SUFFIX].join(PATH_SEPARATOR),
+        modelMetadata: [PATH_PREFIX, path3, MODEL_METADATA_SUFFIX].join(PATH_SEPARATOR)
       };
     }
     function removeItems(keys) {
@@ -30466,7 +30466,7 @@ var require_tf_layers_node = __commonJS({
     var HTTPRequest = (
       /** @class */
       function() {
-        function HTTPRequest2(path2, loadOptions) {
+        function HTTPRequest2(path3, loadOptions) {
           this.DEFAULT_METHOD = "POST";
           if (loadOptions == null) {
             loadOptions = {};
@@ -30481,15 +30481,15 @@ var require_tf_layers_node = __commonJS({
           } else {
             this.fetch = env().platform.fetch;
           }
-          assert(path2 != null && path2.length > 0, function() {
+          assert(path3 != null && path3.length > 0, function() {
             return "URL path for http must not be null, undefined or empty.";
           });
-          if (Array.isArray(path2)) {
-            assert(path2.length === 2, function() {
-              return "URL paths for http must have a length of 2, " + "(actual length is ".concat(path2.length, ").");
+          if (Array.isArray(path3)) {
+            assert(path3.length === 2, function() {
+              return "URL paths for http must have a length of 2, " + "(actual length is ".concat(path3.length, ").");
             });
           }
-          this.path = path2;
+          this.path = path3;
           if (loadOptions.requestInit != null && loadOptions.requestInit.body != null) {
             throw new Error("requestInit is expected to have no pre-existing body, but has one.");
           }
@@ -30615,7 +30615,7 @@ var require_tf_layers_node = __commonJS({
         };
         HTTPRequest2.prototype.getWeightUrls = function(weightsManifest) {
           return __awaiter(this, void 0, void 0, function() {
-            var weightPath, _a2, prefix, suffix, pathPrefix, fetchURLs, urlPromises, weightsManifest_1, weightsManifest_1_1, weightsGroup, _b, _c, path2, _d, _e, _f, _g;
+            var weightPath, _a2, prefix, suffix, pathPrefix, fetchURLs, urlPromises, weightsManifest_1, weightsManifest_1_1, weightsGroup, _b, _c, path3, _d, _e, _f, _g;
             var e_2, _h, e_3, _j;
             return __generator(this, function(_k) {
               switch (_k.label) {
@@ -30630,11 +30630,11 @@ var require_tf_layers_node = __commonJS({
                       weightsGroup = weightsManifest_1_1.value;
                       try {
                         for (_b = (e_3 = void 0, __values(weightsGroup.paths)), _c = _b.next(); !_c.done; _c = _b.next()) {
-                          path2 = _c.value;
+                          path3 = _c.value;
                           if (this.weightUrlConverter != null) {
-                            urlPromises.push(this.weightUrlConverter(path2));
+                            urlPromises.push(this.weightUrlConverter(path3));
                           } else {
-                            fetchURLs.push(pathPrefix + path2 + suffix);
+                            fetchURLs.push(pathPrefix + path3 + suffix);
                           }
                         }
                       } catch (e_3_1) {
@@ -30722,8 +30722,8 @@ var require_tf_layers_node = __commonJS({
     };
     IORouterRegistry.registerSaveRouter(httpRouter);
     IORouterRegistry.registerLoadRouter(httpRouter);
-    function http(path2, loadOptions) {
-      return new HTTPRequest(path2, loadOptions);
+    function http(path3, loadOptions) {
+      return new HTTPRequest(path3, loadOptions);
     }
     function validateUpdateShape(shape, indices, updates) {
       var sliceDim = indices.rank > 1 ? indices.shape[indices.rank - 1] : 1;
@@ -67127,17 +67127,17 @@ var require_tf_converter_node = __commonJS({
           configurable: true
         });
         GraphModel2.prototype.findIOHandler = function() {
-          var path2 = this.modelUrl;
-          if (path2.load != null) {
-            this.handler = path2;
+          var path3 = this.modelUrl;
+          if (path3.load != null) {
+            this.handler = path3;
           } else if (this.loadOptions.requestInit != null) {
-            this.handler = this.io.browserHTTPRequest(path2, this.loadOptions);
+            this.handler = this.io.browserHTTPRequest(path3, this.loadOptions);
           } else {
-            var handlers = this.io.getLoadHandlers(path2, this.loadOptions);
+            var handlers = this.io.getLoadHandlers(path3, this.loadOptions);
             if (handlers.length === 0) {
-              handlers.push(this.io.browserHTTPRequest(path2, this.loadOptions));
+              handlers.push(this.io.browserHTTPRequest(path3, this.loadOptions));
             } else if (handlers.length > 1) {
-              throw new Error("Found more than one (".concat(handlers.length, ") load handlers for ") + "URL '".concat([path2], "'"));
+              throw new Error("Found more than one (".concat(handlers.length, ") load handlers for ") + "URL '".concat([path3], "'"));
             }
             this.handler = handlers[0];
           }
@@ -71117,11 +71117,11 @@ var require_tf_data_node = __commonJS({
         }
         FileDataSource2.prototype.iterator = function() {
           return __awaiter(this, void 0, void 0, function() {
-            var fs3;
+            var fs4;
             return __generator(this, function(_a) {
               if (isLocalPath(this.input) && tf2.env().get("IS_NODE")) {
-                fs3 = __require("fs");
-                this.input = fs3.readFileSync(this.input.slice(7));
+                fs4 = __require("fs");
+                this.input = fs4.readFileSync(this.input.slice(7));
               }
               return [2, new FileChunkIterator(this.input, this.options)];
             });
@@ -76629,7 +76629,7 @@ var require_tf_backend_cpu_node = __commonJS({
       var tensors = inputs;
       var _c = tfjsCore.backend_util.decodeEinsumEquation(equation, tensors.length), allDims = _c.allDims, summedDims = _c.summedDims, idDims = _c.idDims;
       tfjsCore.backend_util.checkEinsumDimSizes(allDims.length, idDims, tensors);
-      var _d = tfjsCore.backend_util.getEinsumComputePath(summedDims, idDims), path2 = _d.path, steps = _d.steps;
+      var _d = tfjsCore.backend_util.getEinsumComputePath(summedDims, idDims), path3 = _d.path, steps = _d.steps;
       var nSteps = steps.length;
       var out = null;
       var numDimsRemaining = allDims.length;
@@ -76671,12 +76671,12 @@ var require_tf_backend_cpu_node = __commonJS({
           }
         }
         if (i < nSteps - 1) {
-          if (path2[i] >= 0) {
+          if (path3[i] >= 0) {
             out = sum({
               inputs: { x: out },
               backend,
               attrs: {
-                axis: path2[i] - (allDims.length - numDimsRemaining),
+                axis: path3[i] - (allDims.length - numDimsRemaining),
                 keepDims: false
               }
             });
@@ -89026,7 +89026,7 @@ var require_tf_backend_webgl_node = __commonJS({
       var tensors = inputs;
       var _c = tf2.backend_util.decodeEinsumEquation(equation, tensors.length), allDims = _c.allDims, summedDims = _c.summedDims, idDims = _c.idDims;
       tf2.backend_util.checkEinsumDimSizes(allDims.length, idDims, tensors);
-      var _d = tf2.backend_util.getEinsumComputePath(summedDims, idDims), path2 = _d.path, steps = _d.steps;
+      var _d = tf2.backend_util.getEinsumComputePath(summedDims, idDims), path3 = _d.path, steps = _d.steps;
       var nSteps = steps.length;
       var out = null;
       var numDimsRemaining = allDims.length;
@@ -89068,12 +89068,12 @@ var require_tf_backend_webgl_node = __commonJS({
           }
         }
         if (i < nSteps - 1) {
-          if (path2[i] >= 0) {
+          if (path3[i] >= 0) {
             out = sum({
               inputs: { x: out },
               backend,
               attrs: {
-                axis: path2[i] - (allDims.length - numDimsRemaining),
+                axis: path3[i] - (allDims.length - numDimsRemaining),
                 keepDims: false
               }
             });
@@ -97234,13 +97234,13 @@ var require_tf_node = __commonJS({
     var WEIGHT_SPECS_SUFFIX = "weight_specs";
     var WEIGHT_DATA_SUFFIX = "weight_data";
     var MODEL_METADATA_SUFFIX = "model_metadata";
-    function getModelKeys(path2) {
+    function getModelKeys(path3) {
       return {
-        info: [PATH_PREFIX, path2, INFO_SUFFIX].join(PATH_SEPARATOR),
-        topology: [PATH_PREFIX, path2, MODEL_TOPOLOGY_SUFFIX].join(PATH_SEPARATOR),
-        weightSpecs: [PATH_PREFIX, path2, WEIGHT_SPECS_SUFFIX].join(PATH_SEPARATOR),
-        weightData: [PATH_PREFIX, path2, WEIGHT_DATA_SUFFIX].join(PATH_SEPARATOR),
-        modelMetadata: [PATH_PREFIX, path2, MODEL_METADATA_SUFFIX].join(PATH_SEPARATOR)
+        info: [PATH_PREFIX, path3, INFO_SUFFIX].join(PATH_SEPARATOR),
+        topology: [PATH_PREFIX, path3, MODEL_TOPOLOGY_SUFFIX].join(PATH_SEPARATOR),
+        weightSpecs: [PATH_PREFIX, path3, WEIGHT_SPECS_SUFFIX].join(PATH_SEPARATOR),
+        weightData: [PATH_PREFIX, path3, WEIGHT_DATA_SUFFIX].join(PATH_SEPARATOR),
+        modelMetadata: [PATH_PREFIX, path3, MODEL_METADATA_SUFFIX].join(PATH_SEPARATOR)
       };
     }
     function removeItems(keys) {
@@ -97509,7 +97509,7 @@ var require_tf_node = __commonJS({
     var OCTET_STREAM_MIME_TYPE = "application/octet-stream";
     var JSON_TYPE = "application/json";
     var HTTPRequest = class {
-      constructor(path2, loadOptions) {
+      constructor(path3, loadOptions) {
         this.DEFAULT_METHOD = "POST";
         if (loadOptions == null) {
           loadOptions = {};
@@ -97522,11 +97522,11 @@ var require_tf_node = __commonJS({
         } else {
           this.fetch = env().platform.fetch;
         }
-        assert(path2 != null && path2.length > 0, () => "URL path for http must not be null, undefined or empty.");
-        if (Array.isArray(path2)) {
-          assert(path2.length === 2, () => `URL paths for http must have a length of 2, (actual length is ${path2.length}).`);
+        assert(path3 != null && path3.length > 0, () => "URL path for http must not be null, undefined or empty.");
+        if (Array.isArray(path3)) {
+          assert(path3.length === 2, () => `URL paths for http must have a length of 2, (actual length is ${path3.length}).`);
         }
-        this.path = path2;
+        this.path = path3;
         if (loadOptions.requestInit != null && loadOptions.requestInit.body != null) {
           throw new Error("requestInit is expected to have no pre-existing body, but has one.");
         }
@@ -97612,11 +97612,11 @@ var require_tf_node = __commonJS({
         const fetchURLs = [];
         const urlPromises = [];
         for (const weightsGroup of weightsManifest) {
-          for (const path2 of weightsGroup.paths) {
+          for (const path3 of weightsGroup.paths) {
             if (this.weightUrlConverter != null) {
-              urlPromises.push(this.weightUrlConverter(path2));
+              urlPromises.push(this.weightUrlConverter(path3));
             } else {
-              fetchURLs.push(pathPrefix + path2 + suffix);
+              fetchURLs.push(pathPrefix + path3 + suffix);
             }
           }
         }
@@ -97661,8 +97661,8 @@ var require_tf_node = __commonJS({
     };
     IORouterRegistry.registerSaveRouter(httpRouter);
     IORouterRegistry.registerLoadRouter(httpRouter);
-    function http(path2, loadOptions) {
-      return new HTTPRequest(path2, loadOptions);
+    function http(path3, loadOptions) {
+      return new HTTPRequest(path3, loadOptions);
     }
     function oneHot_(indices, depth, onValue = 1, offValue = 0, dtype = "int32") {
       if (depth < 2) {
@@ -103128,9 +103128,9 @@ var require_decoder = __commonJS({
         return a < 0 ? 0 : a > 255 ? 255 : a;
       }
       constructor.prototype = {
-        load: function load2(path2) {
+        load: function load2(path3) {
           var xhr = new XMLHttpRequest();
-          xhr.open("GET", path2, true);
+          xhr.open("GET", path3, true);
           xhr.responseType = "arraybuffer";
           xhr.onload = function() {
             var data = new Uint8Array(xhr.response || xhr.mozResponseArrayBuffer);
@@ -105789,13 +105789,18 @@ var tf = __toESM(require_tf_node(), 1);
 var cocoSsd = __toESM(require_coco_ssd_node(), 1);
 var import_jpeg_js = __toESM(require_jpeg_js(), 1);
 var import_pngjs = __toESM(require_png(), 1);
-import fs2 from "node:fs";
-import net from "node:net";
+import fs3 from "node:fs";
+import net2 from "node:net";
 
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+
+// packages/sdk/src/actions.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
+import net from "node:net";
 
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {
@@ -105927,7 +105932,7 @@ async function getLocalCocoModel() {
 function checkTcpPort(ip, port, timeoutMs = 450) {
   return new Promise((resolve) => {
     if (!ip) return resolve(false);
-    const sock = new net.Socket();
+    const sock = new net2.Socket();
     sock.setTimeout(timeoutMs);
     sock.on("connect", () => {
       sock.destroy();
@@ -106666,8 +106671,8 @@ var index_default = defineThassiApp((ctx) => {
     let storedEntryId = "01KCMYXWZ67QCM7YXY37ZTKBDZ";
     const storagePath = "/homeassistant/.storage/core.config_entries";
     try {
-      if (fs2.existsSync(storagePath)) {
-        const raw = JSON.parse(fs2.readFileSync(storagePath, "utf-8"));
+      if (fs3.existsSync(storagePath)) {
+        const raw = JSON.parse(fs3.readFileSync(storagePath, "utf-8"));
         const entries = raw?.data?.entries || [];
         const tuyaEntry = entries.find((e) => e.domain === "tuya");
         if (tuyaEntry) {

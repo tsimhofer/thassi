@@ -1,7 +1,7 @@
 import http from 'node:http';
 
 const PORT = Number(process.env.PORT || 8099);
-const APP_ID = "finance-analytics";
+const APP_ID = "workflows";
 const TARGET_HOST = process.env.THASSI_HOST_IP || '192.168.188.92';
 const TARGET_PORT = Number(process.env.THASSI_HOST_PORT || 8099);
 

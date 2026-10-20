@@ -7,6 +7,7 @@ import {
   ThassiHaBridge,
   ThassiCronScheduler,
   ThassiGoogleOAuthManager,
+  ThassiActionRegistry,
   type ThassiAppManifest,
   type ThassiAppContext,
   type ThassiRouteHandler,
@@ -73,6 +74,7 @@ sharedDb.exec(`
 const scheduler = new ThassiCronScheduler();
 const googleOAuth = new ThassiGoogleOAuthManager(sharedDb);
 const systemHaBridge = new ThassiHaBridge('hub', sharedDb);
+const actionRegistry = new ThassiActionRegistry(sharedDb, systemHaBridge, googleOAuth);
 
 export type WeatherConditionKind =
   | 'clear'
@@ -397,7 +399,7 @@ async function fetchStVeitGoelsenWeather(forceRefresh = false): Promise<StVeitWe
         location: ST_VEIT_GOELSEN.name,
         region: ST_VEIT_GOELSEN.region,
         coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
-        provider: 'Google Weather · St. Veit / Gölsen',
+        provider: 'Open-Meteo API · St. Veit / Gölsen',
         updatedAt: new Date().toISOString(),
         current: {
           tempC: Math.round(Number(cur.temperature_2m ?? 14) * 10) / 10,
@@ -433,54 +435,7 @@ async function fetchStVeitGoelsenWeather(forceRefresh = false): Promise<StVeitWe
   const persisted = sharedDb.kvGet<StVeitWeatherPayload>('weather_st_veit_goelsen');
   if (persisted) return persisted;
 
-  // 3. Offline synthesized fallback for St. Veit / Gölsen
-  const now = new Date();
-  const curHr = now.getHours();
-  const isDay = curHr >= 7 && curHr <= 18;
-  const fallbackSlots: WeatherHourSlot[] = [6, 9, 12, 15, 18, 21].map((hr) => {
-    const curve = Math.sin(((hr - 6) / 14) * Math.PI);
-    const t = Math.round((8 + curve * 8.5) * 10) / 10;
-    return {
-      timeIso: new Date(now.getFullYear(), now.getMonth(), now.getDate(), hr, 0, 0).toISOString(),
-      hourLabel: `${String(hr).padStart(2, '0')}:00`,
-      hour: hr,
-      tempC: t,
-      precipProbPct: hr === 15 || hr === 18 ? 20 : 10,
-      precipMm: 0,
-      conditionCode: hr >= 12 && hr <= 18 ? 'partly_cloudy' : 'clear',
-      conditionLabel: hr >= 12 && hr <= 18 ? 'Leicht bewölkt' : 'Klar',
-      isDay: hr >= 7 && hr <= 18,
-    };
-  });
-
-  return {
-    location: ST_VEIT_GOELSEN.name,
-    region: ST_VEIT_GOELSEN.region,
-    coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
-    provider: 'Google Weather · St. Veit / Gölsen',
-    updatedAt: now.toISOString(),
-    current: {
-      tempC: 13.5,
-      feelsLikeC: 12.8,
-      conditionCode: 'partly_cloudy',
-      conditionLabel: 'Leicht bewölkt',
-      humidityPct: 64,
-      windKmh: 9,
-      precipProbPct: 15,
-      isDay,
-    },
-    today: {
-      tempMaxC: 16.5,
-      tempMinC: 7.5,
-      sunriseHour: 6.75,
-      sunsetHour: 18.5,
-      sunriseLabel: '06:45',
-      sunsetLabel: '18:30',
-      summary: 'Leicht bewölkt · H: 17° T: 8° in St. Veit / Gölsen',
-    },
-    daySlots: fallbackSlots,
-    hourly24: fallbackSlots,
-  };
+  throw new Error('Wetterdienst (Google Weather & Open-Meteo) nicht erreichbar und kein Cache vorhanden.');
 }
 
 interface LoadedAppInstance {
@@ -518,6 +473,7 @@ async function loadAppFromDirectory(
     sharedDb,
     ha: appHa,
     google: googleOAuth,
+    actions: actionRegistry,
     scheduleJob: (job) => scheduler.registerJob(appId, job),
     route: (method, routePath, handler) => {
       const normalized = routePath.startsWith('/') ? routePath : `/${routePath}`;
@@ -770,6 +726,24 @@ async function handleAppApiRequest(
     return sendJson(res, 200, { events });
   }
 
+  if (subRoute === '/_actions' && method === 'GET') {
+    return sendJson(res, 200, { actions: actionRegistry.listActions() });
+  }
+  if (subRoute === '/_actions/execute' && method === 'POST') {
+    const body = parsedBody as {
+      actionId?: string;
+      input?: Record<string, unknown>;
+      upstreamText?: string;
+    };
+    if (!body?.actionId) {
+      return sendJson(res, 400, { error: 'actionId is required' });
+    }
+    const result = await actionRegistry.execute(body.actionId, body.input || {}, {
+      upstreamText: body.upstreamText,
+    });
+    return sendJson(res, 200, result);
+  }
+
   const handler = app.routes.get(`${method} ${subRoute}`);
   if (!handler) {
     return sendJson(res, 404, {
@@ -783,6 +757,7 @@ async function handleAppApiRequest(
     sharedDb,
     ha: app.ha,
     google: googleOAuth,
+    actions: actionRegistry,
     scheduleJob: (j) => scheduler.registerJob(app.manifest.id, j),
     route: () => {},
   };
@@ -1107,6 +1082,25 @@ async function startServer() {
         const forceRefresh = queryObj.refresh === '1' || queryObj.refresh === 'true';
         const weather = await fetchStVeitGoelsenWeather(forceRefresh);
         return sendJson(res, 200, weather);
+      }
+
+      if (pathname === '/api/system/actions' && req.method === 'GET') {
+        return sendJson(res, 200, { actions: actionRegistry.listActions() });
+      }
+
+      if (pathname === '/api/system/actions/execute' && req.method === 'POST') {
+        const body = JSON.parse((await readRequestBody(req)) || '{}') as {
+          actionId?: string;
+          input?: Record<string, unknown>;
+          upstreamText?: string;
+        };
+        if (!body.actionId) {
+          return sendJson(res, 400, { error: 'actionId is required' });
+        }
+        const result = await actionRegistry.execute(body.actionId, body.input || {}, {
+          upstreamText: body.upstreamText,
+        });
+        return sendJson(res, 200, result);
       }
 
       if (pathname === '/api/system/weather/config' && req.method === 'POST') {

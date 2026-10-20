@@ -5,6 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
+// packages/sdk/src/actions.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
+import net from "node:net";
+
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {
   return { setup };
@@ -207,7 +212,28 @@ var index_default = defineThassiApp((ctx) => {
   ctx.db.execute(
     "DELETE FROM workout_logs WHERE notes IN ('Strong bench & pull-up progression', 'Nasal breathing steady Zone 2')"
   );
-  async function syncHealthDataAndPublishSensors() {
+  let lastGoogleFitSyncMs = 0;
+  let lastHaPublishMs = 0;
+  const HA_HEALTH_ENTITY_IDS = [
+    "sensor.pixel_10_daily_steps",
+    "sensor.thomas_pixel_watch_daily_steps",
+    "sensor.pixel_10_steps_sensor",
+    "sensor.thomas_pixel_watch_heart_rate",
+    "sensor.pixel_10_heart_rate",
+    "sensor.pixel_10_resting_heart_rate",
+    "sensor.pixel_10_heart_rate_variability",
+    "sensor.pixel_10_sleep_duration",
+    "sensor.pixel_10_total_calories_burned",
+    "sensor.pixel_10_active_calories_burned",
+    "sensor.pixel_10_daily_distance",
+    "sensor.pixel_10_daily_floors",
+    "sensor.pixel_10_respiratory_rate",
+    "sensor.pixel_10_weight",
+    "sensor.thomas_pixel_watch_battery_level"
+  ];
+  async function syncHealthDataAndPublishSensors(options = {}) {
+    const fastMode = Boolean(options.fastMode);
+    const nowMs = Date.now();
     const today = formatDateOffset(0);
     let todayRow = ctx.db.queryOne(
       "SELECT * FROM daily_biometrics WHERE log_date = ?",
@@ -238,9 +264,18 @@ var index_default = defineThassiApp((ctx) => {
     let pixelWatchBattery = null;
     let pixelPhoneSteps = null;
     const activeSources = [];
+    let haConnected = false;
     try {
-      const states = await ctx.ha.getStates("sensor");
-      const byId = new Map(states.map((s) => [s.entity_id, s]));
+      const entityResults = await Promise.all(
+        HA_HEALTH_ENTITY_IDS.map((id) => ctx.ha.getState(id).catch(() => null))
+      );
+      const byId = /* @__PURE__ */ new Map();
+      for (const st of entityResults) {
+        if (st && st.entity_id) {
+          byId.set(st.entity_id, st);
+          haConnected = true;
+        }
+      }
       const p10DailySteps = Number(byId.get("sensor.pixel_10_daily_steps")?.state);
       const watchDailySteps = Number(byId.get("sensor.thomas_pixel_watch_daily_steps")?.state);
       const p10BootSteps = Number(byId.get("sensor.pixel_10_steps_sensor")?.state);
@@ -307,7 +342,8 @@ var index_default = defineThassiApp((ctx) => {
     } catch {
     }
     const googleStatus = ctx.google.getStatus();
-    if (googleStatus.authorized) {
+    if (googleStatus.authorized && (!fastMode || nowMs - lastGoogleFitSyncMs > 3e4)) {
+      lastGoogleFitSyncMs = nowMs;
       try {
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setHours(0, 0, 0, 0);
@@ -383,7 +419,7 @@ var index_default = defineThassiApp((ctx) => {
       "SELECT COUNT(*) as cnt FROM workout_logs WHERE workout_date >= ?",
       [formatDateOffset(7)]
     )?.cnt ?? 0;
-    ctx.sharedDb.kvSet("google_health_today", {
+    const livePayload = {
       date: today,
       steps,
       stepGoal: todayRow.step_goal,
@@ -402,50 +438,64 @@ var index_default = defineThassiApp((ctx) => {
       pixelWatchBattery,
       source: sourceLabel,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    const haStatus = await ctx.ha.getStatus();
-    if (haStatus.connected) {
-      await ctx.ha.publishSensor("readiness_score", readiness.score, {
-        friendly_name: "Daily Readiness Score",
-        unit_of_measurement: "/100",
-        icon: "mdi:lightning-bolt-circle",
-        status: readiness.status,
-        recommendation: readiness.recommendation,
-        resting_hr_bpm: restingHr,
-        sleep_hours: sleepHours,
-        weight_kg: weightKg
-      });
-      await ctx.ha.publishSensor("daily_steps", steps, {
-        friendly_name: "Daily Steps",
-        unit_of_measurement: "steps",
-        icon: "mdi:walk",
-        step_goal: todayRow.step_goal,
-        goal_progress_pct: Math.round(steps / todayRow.step_goal * 100),
-        pixel_10_sensor: pixelPhoneSteps
-      });
-      await ctx.ha.publishSensor("heart_rate", currentHr, {
-        friendly_name: "Current Heart Rate",
-        unit_of_measurement: "bpm",
-        icon: "mdi:heart-pulse",
-        hr_zone: hrZoneInfo.zone
-      });
-      await ctx.ha.publishSensor("resting_heart_rate", restingHr, {
-        friendly_name: "Resting Heart Rate (RHR)",
-        unit_of_measurement: "bpm",
-        icon: "mdi:heart-outline",
-        baseline_7d_bpm: Number(baselineRhr.toFixed(1))
-      });
-      await ctx.ha.publishSensor("weekly_workouts", weeklyWorkoutsCount, {
-        friendly_name: "Weekly Completed Workouts",
-        unit_of_measurement: "workouts",
-        icon: "mdi:dumbbell"
-      });
+    };
+    ctx.sharedDb.kvSet("google_health_today", livePayload);
+    const shouldPublishHa = !fastMode || nowMs - lastHaPublishMs > 1e4;
+    if (shouldPublishHa && haConnected) {
+      lastHaPublishMs = nowMs;
+      const publishAll = async () => {
+        await Promise.all([
+          ctx.ha.publishSensor("readiness_score", readiness.score, {
+            friendly_name: "Daily Readiness Score",
+            unit_of_measurement: "/100",
+            icon: "mdi:lightning-bolt-circle",
+            status: readiness.status,
+            recommendation: readiness.recommendation,
+            resting_hr_bpm: restingHr,
+            sleep_hours: sleepHours,
+            weight_kg: weightKg
+          }),
+          ctx.ha.publishSensor("daily_steps", steps, {
+            friendly_name: "Daily Steps",
+            unit_of_measurement: "steps",
+            icon: "mdi:walk",
+            step_goal: todayRow.step_goal,
+            goal_progress_pct: Math.round(steps / todayRow.step_goal * 100),
+            pixel_10_sensor: pixelPhoneSteps
+          }),
+          ctx.ha.publishSensor("heart_rate", currentHr, {
+            friendly_name: "Current Heart Rate",
+            unit_of_measurement: "bpm",
+            icon: "mdi:heart-pulse",
+            hr_zone: hrZoneInfo.zone
+          }),
+          ctx.ha.publishSensor("resting_heart_rate", restingHr, {
+            friendly_name: "Resting Heart Rate (RHR)",
+            unit_of_measurement: "bpm",
+            icon: "mdi:heart-outline",
+            baseline_7d_bpm: Number(baselineRhr.toFixed(1))
+          }),
+          ctx.ha.publishSensor("weekly_workouts", weeklyWorkoutsCount, {
+            friendly_name: "Weekly Completed Workouts",
+            unit_of_measurement: "workouts",
+            icon: "mdi:dumbbell"
+          })
+        ]);
+      };
+      if (fastMode) {
+        void publishAll().catch(() => {
+        });
+      } else {
+        await publishAll().catch(() => {
+        });
+      }
     }
     return {
       today: ctx.db.queryOne(
         "SELECT * FROM daily_biometrics WHERE log_date = ?",
         [today]
       ),
+      live: livePayload,
       readiness,
       hrZone: hrZoneInfo,
       baselineRhr: Number(baselineRhr.toFixed(1)),
@@ -455,9 +505,13 @@ var index_default = defineThassiApp((ctx) => {
       respiratoryRate,
       pixelWatchBattery,
       pixelPhoneSteps,
-      haConnected: haStatus.connected
+      haConnected
     };
   }
+  ctx.route("GET", "/live", async () => {
+    const syncState = await syncHealthDataAndPublishSensors({ fastMode: true });
+    return syncState.live;
+  });
   ctx.route("GET", "/dashboard", async (_req, { db, sharedDb, google }) => {
     const syncState = await syncHealthDataAndPublishSensors();
     const history = db.query(

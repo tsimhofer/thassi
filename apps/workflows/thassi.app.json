@@ -1,8 +1,8 @@
 {
   "id": "workflows",
-  "name": "Workflows",
-  "version": "1.0.0",
-  "description": "Clean Drag & Drop n8n Workflow Editor with starter nodes for Gemini AI, Gmail, Google Calendar, GitHub, and Home Assistant APIs.",
+  "name": "Axons",
+  "version": "2.0.0",
+  "description": "Minimalist Axon Registry & Live Data Connector Bus for Home Assistant, Google, Finance, Nutrition, Hardware & AI.",
   "icon": "mdi:transit-connection-variant",
   "category": "automation"
 }

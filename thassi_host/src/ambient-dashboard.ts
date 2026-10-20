@@ -98,15 +98,15 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     #horizon-cal-filter-popover {
       display: none;
       position: absolute;
-      bottom: calc(100% + 10px);
+      top: calc(100% + 8px);
       left: 0;
       width: 310px;
       max-height: 340px;
       background: rgba(11, 17, 32, 0.96);
       border: 1px solid rgba(56, 189, 248, 0.35);
-      border-radius: 14px;
+      border-radius: 10px;
       padding: 12px;
-      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.72);
+      box-shadow: 0 14px 38px rgba(0, 0, 0, 0.78);
       z-index: 95;
       pointer-events: auto;
       flex-direction: column;
@@ -233,102 +233,101 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       z-index: 3;
     }
 
-    /* Abstract Sun Sculpture (Concentric Geometric Rings + Singularity Annulus) */
+    /* Abstract Sun Sculpture (Super Subtle & Bottom-Aligned) */
     #sun-assembly {
       position: absolute;
       width: 0;
       height: 0;
-      z-index: 4;
+      z-index: 3;
+      pointer-events: none;
       transform: translate3d(0, 0, 0);
       transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease, transform 0.8s ease;
       will-change: left, top;
     }
     .abstract-sun-bloom {
       position: absolute;
-      width: 220px;
-      height: 220px;
-      left: -110px;
-      top: -110px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(254, 240, 138, 0.36) 0%, rgba(251, 191, 36, 0.16) 42%, rgba(249, 115, 22, 0.05) 68%, transparent 100%);
-      filter: blur(28px);
-      animation: abstractPulse 7s ease-in-out infinite alternate;
-    }
-    .abstract-sun-outer-ring {
-      position: absolute;
-      width: 104px;
-      height: 104px;
-      left: -52px;
-      top: -52px;
-      animation: rotateOrbital 72s linear infinite;
-    }
-    .abstract-sun-mid-ring {
-      position: absolute;
       width: 56px;
       height: 56px;
       left: -28px;
       top: -28px;
       border-radius: 50%;
-      border: 1px solid rgba(254, 240, 138, 0.42);
-      background: radial-gradient(circle, rgba(254, 240, 138, 0.12) 0%, rgba(251, 191, 36, 0.03) 70%, transparent 100%);
-      box-shadow: 0 0 32px rgba(251, 191, 36, 0.22);
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.025) 45%, transparent 72%);
+      filter: blur(10px);
+    }
+    .abstract-sun-outer-ring {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      left: -17px;
+      top: -17px;
+      animation: rotateOrbital 90s linear infinite;
+    }
+    .abstract-sun-mid-ring {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: -9px;
+      top: -9px;
+      border-radius: 50%;
+      border: 0.75px solid rgba(255, 255, 255, 0.16);
+      background: transparent;
+      box-shadow: none;
     }
     .abstract-sun-annulus {
       position: absolute;
-      width: 22px;
-      height: 22px;
-      left: -11px;
-      top: -11px;
+      width: 7px;
+      height: 7px;
+      left: -3.5px;
+      top: -3.5px;
       border-radius: 50%;
-      border: 1.5px solid rgba(255, 255, 255, 0.92);
-      background: rgba(254, 240, 138, 0.18);
-      box-shadow:
-        0 0 20px rgba(251, 191, 36, 0.8),
-        inset 0 0 8px rgba(254, 240, 138, 0.65);
+      border: 0.9px solid rgba(255, 255, 255, 0.34);
+      background: rgba(255, 255, 255, 0.06);
+      box-shadow: none;
     }
     .abstract-sun-singularity {
       position: absolute;
-      width: 4px;
-      height: 4px;
-      left: -2px;
-      top: -2px;
+      width: 2px;
+      height: 2px;
+      left: -1px;
+      top: -1px;
       border-radius: 50%;
-      background: #ffffff;
-      box-shadow: 0 0 10px #ffffff;
+      background: rgba(255, 255, 255, 0.55);
+      box-shadow: none;
     }
     @keyframes abstractPulse {
-      0% { transform: scale(0.94); opacity: 0.78; }
-      100% { transform: scale(1.08); opacity: 1; }
+      0% { transform: scale(0.96); opacity: 0.65; }
+      100% { transform: scale(1.04); opacity: 0.9; }
     }
     @keyframes rotateOrbital {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
 
-    /* Abstract Lunar Sculpture (Geometric Eclipse Crescent & Orbital Ring) */
+    /* Abstract Lunar Sculpture (Slightly More Visible + Dynamic Moon Phase) */
     #moon-assembly {
       position: absolute;
       width: 0;
       height: 0;
       z-index: 4;
+      pointer-events: none;
       transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
     }
     .abstract-moon-bloom {
       position: absolute;
-      width: 150px;
-      height: 150px;
-      left: -75px;
-      top: -75px;
+      width: 68px;
+      height: 68px;
+      left: -34px;
+      top: -34px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(56, 189, 248, 0.24) 0%, rgba(129, 140, 248, 0.1) 48%, transparent 74%);
-      filter: blur(22px);
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.16) 0%, rgba(226, 232, 240, 0.06) 48%, transparent 74%);
+      filter: blur(12px);
     }
     .abstract-moon-svg {
       position: absolute;
-      width: 84px;
-      height: 84px;
-      left: -42px;
-      top: -42px;
+      width: 40px;
+      height: 40px;
+      left: -20px;
+      top: -20px;
       overflow: visible;
     }
 
@@ -341,6 +340,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       text-align: left;
       z-index: 15;
       pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
     }
     .clock-row {
       display: flex;
@@ -364,23 +366,46 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
     }
-    #hero-date {
+    #hero-date-row {
       margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+    }
+    #hero-date {
       font-size: clamp(1.0rem, 1.45vw, 1.38rem);
       font-weight: 300;
       letter-spacing: 0.04em;
       color: rgba(255, 255, 255, 0.84);
       text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
+    .hero-cal-icon-btn {
+      background: transparent;
+      border: none;
+      color: rgba(248, 250, 252, 0.42);
+      padding: 3px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+    }
+    .hero-cal-icon-btn:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+      transform: translateY(-1px);
+    }
     #solar-telemetry {
       display: none;
     }
 
-    /* Simplified Minimal Weather Component (St. Veit / Gölsen) */
+    /* Simplified Minimal Weather Component (Directly Below Date) */
     #hero-weather-strip {
-      margin-top: 10px;
+      margin-top: 6px;
       pointer-events: auto;
-      display: inline-flex;
+      display: flex;
       flex-direction: column;
       align-items: flex-start;
       gap: 5px;
@@ -426,36 +451,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       font-variant-numeric: tabular-nums;
     }
     .mw-day-slots {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .mw-slot {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      color: rgba(248, 250, 252, 0.56);
-      font-variant-numeric: tabular-nums;
-    }
-    .mw-slot.is-current-slot {
-      color: #38bdf8;
-      font-weight: 500;
-    }
-    .mw-slot-hr {
-      font-size: 10px;
-      opacity: 0.72;
-    }
-    .mw-slot-ico {
-      width: 13px;
-      height: 13px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .mw-slot-temp {
-      font-size: 11px;
-      color: rgba(248, 250, 252, 0.88);
+      display: none !important;
     }
 
     /* 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS (health, meals, finances, notes) */
@@ -739,7 +735,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       width: 100vw;
       height: calc(28vh - 28px);
       min-height: 168px;
-      overflow: hidden;
+      overflow-x: clip;
+      overflow-y: visible;
       cursor: grab;
       pointer-events: auto;
     }
@@ -799,15 +796,100 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       will-change: transform;
     }
 
-    /* Horizontal Axis Line */
+    /* Horizontal Axis Line (0° Horizon Line) */
     #timeline-axis-line {
       position: absolute;
       left: -20000px;
       width: 40000px;
       bottom: 38px;
       height: 1px;
-      background: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.22);
+      z-index: 5;
       pointer-events: none;
+    }
+
+    /* Celestial Altitude Layer (Behind Timeline Ticks & Calendar Events) */
+    #timeline-celestial-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      overflow: visible;
+    }
+    #tl-celestial-svg {
+      position: absolute;
+      left: 0;
+      bottom: 38px;
+      width: 1px;
+      height: 1px;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .tl-horizon-node {
+      position: absolute;
+      bottom: 38px;
+      transform: translate(-50%, 50%);
+      pointer-events: none;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .tl-horizon-dot {
+      width: 4.5px;
+      height: 4.5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.75);
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+    }
+    .tl-horizon-node.moon-cross .tl-horizon-dot {
+      background: rgba(186, 230, 253, 0.72);
+    }
+    .tl-horizon-time {
+      position: absolute;
+      top: -15px;
+      font-size: 8.5px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.03em;
+      color: rgba(248, 250, 252, 0.62);
+      white-space: nowrap;
+      background: rgba(4, 7, 17, 0.58);
+      padding: 0.5px 4px;
+      border-radius: 3px;
+    }
+    .tl-horizon-node.moon-cross .tl-horizon-time {
+      top: 6px;
+      color: rgba(186, 230, 253, 0.55);
+    }
+    .tl-celestial-body {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      transform: translate(-50%, 50%);
+      pointer-events: none;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.35s ease, filter 0.35s ease;
+    }
+    .tl-celestial-body.below-horizon {
+      opacity: 0.36;
+      filter: saturate(0.45) brightness(0.72);
+    }
+
+    #timeline-ticks-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      pointer-events: none;
+    }
+    #timeline-events-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      pointer-events: auto;
     }
 
     /* Hour Ticks & Day Dividers */
@@ -820,6 +902,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       flex-direction: column;
       align-items: center;
       pointer-events: none;
+      z-index: 6;
     }
     .tl-tick-mark {
       width: 1px;
@@ -851,53 +934,81 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       font-size: 10.5px;
     }
 
-    /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE */
+    /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE (FLAT + LOCATION, ATTENDEES, DESCRIPTION) */
     .tl-event-rect {
       position: absolute;
-      height: 42px;
-      border-radius: 10px;
-      padding: 5px 12px;
-      background: rgba(12, 19, 36, 0.56);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border-left: 2.5px solid var(--ev-color, #38bdf8);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      height: 54px;
+      border-radius: 4px;
+      padding: 4px 10px;
+      background: rgba(11, 18, 32, 0.94);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-left: 3px solid var(--ev-color, #38bdf8);
+      box-shadow: none;
       display: flex;
       flex-direction: column;
       justify-content: center;
+      gap: 1.5px;
       overflow: hidden;
       cursor: pointer;
-      transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background 0.22s ease, box-shadow 0.22s ease;
+      z-index: 12;
+      transition: background 0.15s ease, border-color 0.15s ease;
     }
     .tl-event-rect:hover {
-      transform: translateY(-3px) scale(1.01);
-      background: rgba(24, 35, 58, 0.85);
-      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 20px var(--ev-glow, rgba(56, 189, 248, 0.25));
+      background: rgba(19, 30, 52, 0.98);
+      border-color: rgba(255, 255, 255, 0.28);
+      border-left-color: var(--ev-color, #38bdf8);
+      box-shadow: none;
       z-index: 18;
     }
     .tl-event-rect.is-now {
-      background: rgba(14, 116, 144, 0.42);
-      box-shadow: 0 0 28px rgba(56, 189, 248, 0.35);
+      background: rgba(12, 42, 64, 0.95);
+      border-color: rgba(56, 189, 248, 0.42);
+      border-left: 3px solid var(--ev-color, #38bdf8);
+      box-shadow: none;
     }
     .tl-event-rect.is-past {
-      opacity: 0.45;
+      opacity: 0.52;
+    }
+    .tl-ev-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px;
+      min-width: 0;
     }
     .tl-ev-title {
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 11.5px;
+      font-weight: 600;
       color: #ffffff;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      line-height: 1.2;
+      line-height: 1.15;
+    }
+    .tl-ev-time {
+      font-size: 9.5px;
+      font-variant-numeric: tabular-nums;
+      color: rgba(248, 250, 252, 0.72);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
     .tl-ev-meta {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.56);
+      font-size: 9.5px;
+      color: rgba(226, 232, 240, 0.75);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-top: 2px;
+      line-height: 1.15;
+    }
+    .tl-ev-desc {
+      font-size: 9px;
+      color: rgba(148, 163, 184, 0.85);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.15;
     }
 
     /* Quick Event Creator Popover */
@@ -938,13 +1049,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       border: none;
     }
 
-    /* 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS */
+    /* 6. BORDERED HIGHER ROOM STATUSBAR + UPWARD FLYOUTS OVER UPPER CONTENT */
     #devices-dock {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
-      z-index: 32;
+      z-index: 38;
       background: transparent !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
@@ -955,12 +1066,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     /* Subtle hairline separator between Timeline and StatusBar */
     #timeline-devices-separator {
       position: relative;
-      height: 10px;
+      height: 2px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
       padding: 0 28px 0 24px;
-      pointer-events: auto;
+      pointer-events: none;
     }
     #timeline-devices-separator::before {
       content: "";
@@ -979,42 +1090,39 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       pointer-events: none;
     }
     .td-sep-badge {
-      position: relative;
-      z-index: 2;
-      background: transparent;
-      padding: 0 6px 0 0;
-      font-size: 8.5px;
-      font-weight: 600;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: rgba(248, 250, 252, 0.45);
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+      display: none;
     }
     .td-sep-unpin-btn {
-      background: none;
-      border: none;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 6px;
       color: #38bdf8;
-      font-size: 9px;
+      font-size: 9.5px;
       font-weight: 600;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       cursor: pointer;
-      padding: 0 4px;
+      padding: 5px 9px;
+      white-space: nowrap;
     }
     .td-sep-unpin-btn:hover {
-      text-decoration: underline;
+      background: rgba(56, 189, 248, 0.22);
     }
 
-    /* Pinned Room Groups Tray (Expands upwards above the tabview when rooms are pinned) */
+    /* Pinned Room Groups Tray (Expands upwards OVER upper timeline content) */
     #pinned-rooms-tray {
       display: none;
-      padding: 6px 28px 8px 24px;
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 24px;
+      right: 28px;
+      padding: 6px 4px 8px 4px;
       gap: 12px;
       overflow-x: auto;
       scrollbar-width: thin;
-      align-items: stretch;
+      align-items: flex-end;
+      z-index: 65;
+      pointer-events: auto;
     }
     #pinned-rooms-tray.has-pinned {
       display: flex;
@@ -1023,16 +1131,16 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       min-width: 265px;
       max-width: 330px;
       flex: 0 0 auto;
-      background: rgba(6, 10, 22, 0.64);
+      background: rgba(8, 13, 26, 0.94);
       backdrop-filter: blur(24px) saturate(140%);
       -webkit-backdrop-filter: blur(24px) saturate(140%);
-      border: 1px solid rgba(56, 189, 248, 0.22);
-      border-radius: 16px;
+      border: 1px solid rgba(56, 189, 248, 0.32);
+      border-radius: 12px;
       padding: 10px 13px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.65);
       animation: pinCardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     }
     @keyframes pinCardIn {
@@ -1087,27 +1195,28 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       display: flex;
       flex-direction: column;
       gap: 5px;
-      max-height: 155px;
+      max-height: 175px;
       overflow-y: auto;
       padding-right: 2px;
     }
 
-    /* Minimalistic TabView Bar + Right-Aligned 3D Print & Vision Previews */
+    /* Higher & Bordered Room Bar + Right-Aligned 3D Print & Vision Previews */
     #room-dock-bar {
       position: relative;
-      height: 36px;
+      height: 50px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 28px 4px 24px;
-      gap: 16px;
-      background: transparent;
+      padding: 6px 28px 6px 24px;
+      gap: 12px;
+      background: rgba(7, 11, 22, 0.72);
+      border-top: 1px solid rgba(255, 255, 255, 0.16);
     }
 
     .room-dock-group {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 8px;
       overflow-x: auto;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
@@ -1116,47 +1225,48 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .room-dock-group::-webkit-scrollbar { display: none; }
 
-    /* Minimalistic Tab item */
+    /* Higher, bordered room button */
     .room-pill {
       position: relative;
-      background: transparent;
-      border: none;
-      border-bottom: 1.5px solid transparent;
-      border-radius: 0;
-      padding: 6px 2px;
-      color: rgba(248, 250, 252, 0.52);
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 7px;
+      padding: 7px 12px;
+      color: rgba(248, 250, 252, 0.78);
       font-family: var(--font-sans);
-      font-size: 11px;
-      font-weight: 400;
-      letter-spacing: 0.04em;
+      font-size: 11.5px;
+      font-weight: 500;
+      letter-spacing: 0.03em;
       display: inline-flex;
       align-items: center;
       gap: 6px;
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.2s ease, border-color 0.2s ease;
-      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.18s ease;
     }
     .room-pill:hover {
-      color: rgba(248, 250, 252, 0.95);
-      border-bottom-color: rgba(255, 255, 255, 0.28);
+      color: #ffffff;
+      background: rgba(30, 41, 59, 0.85);
+      border-color: rgba(255, 255, 255, 0.34);
     }
     .room-pill.pinned-tab {
       color: #ffffff;
-      font-weight: 500;
-      border-bottom-color: #38bdf8;
+      font-weight: 600;
+      background: rgba(14, 116, 144, 0.32);
+      border-color: #38bdf8;
     }
     .room-pill.has-on {
-      color: rgba(248, 250, 252, 0.88);
+      color: rgba(248, 250, 252, 0.94);
+      border-color: rgba(251, 191, 36, 0.38);
     }
     .room-pin-ico {
       display: none;
     }
     .room-dot {
-      width: 5px;
-      height: 5px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.24);
+      background: rgba(255, 255, 255, 0.28);
       transition: background 0.25s ease, box-shadow 0.25s ease;
     }
     .room-pill.has-on .room-dot {
@@ -1169,11 +1279,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     }
     .room-meta {
       font-size: 9.5px;
-      color: rgba(248, 250, 252, 0.38);
+      color: rgba(248, 250, 252, 0.48);
       font-variant-numeric: tabular-nums;
     }
     .room-pill.has-on .room-meta {
-      color: rgba(251, 191, 36, 0.82);
+      color: rgba(251, 191, 36, 0.88);
     }
 
     /* Right-Aligned StatusBar Previews (3D Print & Vision — NOT inside tabs, expand upwards) */
@@ -1711,42 +1821,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       <canvas id="weather-fx-canvas"></canvas>
     </div>
     <div id="horizon-glow"></div>
-    <svg id="solar-arc-svg" preserveAspectRatio="none">
-      <!-- Abstract Horizon Datum Line & Zenith Tick Marks -->
-      <line id="horizon-datum-line" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.09)" stroke-width="1" stroke-dasharray="2 8" />
-      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="3 7" />
-      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.16)" stroke-width="1.2" />
-      <path id="solar-progressed-path" fill="none" stroke="rgba(254,240,138,0.48)" stroke-width="1.8" />
-      <line id="celestial-elevation-chord" x1="0" y1="0" x2="0" y2="0" stroke="rgba(254,240,138,0.22)" stroke-width="1" stroke-dasharray="2 4" />
-      <circle id="horizon-node-dot" cx="0" cy="0" r="2.5" fill="rgba(56,189,248,0.65)" />
-    </svg>
-
-    <!-- Abstract Lunar Geometry -->
-    <div id="moon-assembly">
-      <div class="abstract-moon-bloom"></div>
-      <svg class="abstract-moon-svg" viewBox="-42 -42 84 84">
-        <circle cx="0" cy="0" r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.8" stroke-dasharray="2 5" />
-        <circle cx="0" cy="0" r="21" fill="none" stroke="rgba(56,189,248,0.28)" stroke-width="1" />
-        <path d="M -4,-13 A 13,13 0 1,0 10,9 A 10.5,10.5 0 1,1 -4,-13 Z" fill="rgba(226,232,240,0.88)" />
-        <circle cx="-11" cy="-11" r="1.5" fill="#38bdf8" opacity="0.85" />
-      </svg>
-    </div>
-
-    <!-- Abstract Solar Geometry (Concentric Astrolabe Rings + Singularity Annulus) -->
-    <div id="sun-assembly">
-      <div class="abstract-sun-bloom"></div>
-      <svg class="abstract-sun-outer-ring" viewBox="-52 -52 104 104">
-        <circle cx="0" cy="0" r="46" fill="none" stroke="rgba(254,240,138,0.22)" stroke-width="0.9" stroke-dasharray="3 7" />
-        <circle cx="0" cy="0" r="36" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="0.8" />
-        <line x1="-50" y1="0" x2="-39" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-        <line x1="39" y1="0" x2="50" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-        <line x1="0" y1="-50" x2="0" y2="-39" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-        <line x1="0" y1="39" x2="0" y2="50" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-      </svg>
-      <div class="abstract-sun-mid-ring"></div>
-      <div class="abstract-sun-annulus"></div>
-      <div class="abstract-sun-singularity"></div>
-    </div>
+    <svg id="solar-arc-svg" preserveAspectRatio="none" style="display:none;"></svg>
+    <div id="moon-assembly" style="display:none;"></div>
+    <div id="sun-assembly" style="display:none;"></div>
   </div>
 
   <!-- 2. LEFT-ALIGNED DATE, TIME & SIMPLIFIED WEATHER IN UPPER-LEFT -->
@@ -1755,12 +1832,22 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       <div id="hero-time">--:--</div>
       <div id="hero-seconds">--</div>
     </div>
-    <div id="hero-date"></div>
+    <div id="hero-date-row">
+      <div id="hero-date"></div>
+      <button class="hero-cal-icon-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+      </button>
+    </div>
     <div id="solar-telemetry">
       <span id="solar-phase-text"></span>
     </div>
 
-    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / GÖLSEN -->
+    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / GÖLSEN (CURRENT WEATHER ONLY) -->
     <div id="hero-weather-strip" title="St. Veit an der Gölsen">
       <div class="mw-current-row">
         <div class="mw-icon-wrap" id="mw-current-icon"></div>
@@ -1768,7 +1855,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         <div class="mw-cond-text" id="mw-current-desc">--</div>
         <div class="mw-hi-lo" id="mw-hi-lo">--° / --°</div>
       </div>
-      <div class="mw-day-slots" id="mw-day-slots"></div>
     </div>
   </div>
 
@@ -1950,29 +2036,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
   <div id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
-        <button class="horizon-view-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar View">◷ Calendar ↗</button>
-        <div class="cal-filter-wrap" onclick="event.stopPropagation()">
-          <button class="horizon-view-btn" id="btn-horizon-cal-filter" onclick="toggleCalendarFilterPopover(event)" title="Configure which calendars appear in Horizon">
-            ⚙️ <span id="cal-filter-btn-label">Calendars</span>
-          </button>
-          <div id="horizon-cal-filter-popover">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">
-              <div>
-                <div style="font-size:12px; font-weight:700; color:#f8fafc;">🌅 Horizon Calendars</div>
-                <div id="cal-filter-oauth-badge" style="font-size:10px; color:#94a3b8; margin-top:2px;">Checking Google OAuth...</div>
-              </div>
-              <div style="display:flex; gap:4px;">
-                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(true)">All</button>
-                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(false)">None</button>
-              </div>
-            </div>
-            <div class="cal-filter-list" id="horizon-cal-filter-list"></div>
-            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
-              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="syncGoogleCalendarsFromDash()">🔄 Sync Google OAuth</button>
-              <button class="w-action-link" style="margin:0; font-size:10.5px; color:#94a3b8;" onclick="openFullService('google-calendar', 'Calendar')">OAuth &amp; Settings ↗</button>
-            </div>
-          </div>
-        </div>
         <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">↺ Return to Now</button>
       </div>
       <div class="tl-controls">
@@ -1991,8 +2054,19 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         <div id="fixed-now-orb"></div>
       </div>
 
-      <!-- Continuously moving timeline track -->
+      <!-- Continuously moving timeline track (0° Horizon Line + Altitude Curves + Events) -->
       <div id="timeline-world">
+        <div id="timeline-celestial-layer">
+          <svg id="tl-celestial-svg" overflow="visible">
+            <path id="tl-moon-below-path" fill="none" stroke="rgba(186, 230, 253, 0.20)" stroke-width="1.0" stroke-dasharray="3 5" />
+            <path id="tl-moon-above-path" fill="none" stroke="rgba(224, 242, 254, 0.48)" stroke-width="1.25" />
+            <path id="tl-sun-below-path" fill="none" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.05" stroke-dasharray="3 5" />
+            <path id="tl-sun-above-path" fill="none" stroke="rgba(255, 255, 255, 0.62)" stroke-width="1.4" />
+          </svg>
+          <div id="tl-horizon-crossings"></div>
+          <div id="tl-moon-node" class="tl-celestial-body" title="Mond"></div>
+          <div id="tl-sun-node" class="tl-celestial-body" title="Sonne &amp; Wetter"></div>
+        </div>
         <div id="timeline-axis-line"></div>
         <div id="timeline-ticks-layer"></div>
         <div id="timeline-events-layer"></div>
@@ -2000,25 +2074,22 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     </div>
   </div>
 
-  <!-- 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS -->
+  <!-- 6. BORDERED HIGHER ROOM STATUSBAR + UPWARD FLYOUTS OVER UPPER CONTENT -->
   <div id="devices-dock">
-    <div id="timeline-devices-separator">
-      <div class="td-sep-badge">
-        <span>Timeline ▾ Rooms &amp; Devices</span>
-        <span id="pinned-rooms-count-label" style="color:#38bdf8; display:none;"></span>
-        <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Alle minimieren</button>
-        <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="pointer-events:auto; margin-left:4px;">⌂ Smart Home ↗</button>
-      </div>
-    </div>
+    <div id="timeline-devices-separator"></div>
 
-    <!-- Pinned Room Groups Tray (minimized/collapsed by default until user pins a room tab) -->
+    <!-- Pinned Room Groups Tray (floats over upper timeline content when rooms are pinned) -->
     <div id="pinned-rooms-tray"></div>
 
-    <!-- Transparent Minimalistic TabView StatusBar: Left = Room Tabs, Right = 3D Print & Vision Previews (Expanding Upwards) -->
+    <!-- Higher, bordered Room StatusBar: Left = Smart Home Button + Room Buttons, Right = 3D Print & Vision Previews -->
     <div id="room-dock-bar">
+      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0;">
+        ⌂ Smart Home ↗
+      </button>
       <div class="room-dock-group" id="room-pills-container"></div>
+      <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>
 
-      <!-- Right-aligned StatusBar Previews (NOT inside room tabs; expand flyouts upwards) -->
+      <!-- Right-aligned StatusBar Previews (3D Print & Vision only; Projekte & n8n removed per screenshot) -->
       <div id="statusbar-right-previews">
         <!-- 3D PRINT STATUSBAR PREVIEW (UPWARD FLYOUT) -->
         <div class="sb-preview-item" id="widget-3dprint">
@@ -2089,29 +2160,6 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
             </div>
             <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; max-height:180px; overflow-y:auto;"></div>
             <button class="w-action-link" style="margin:0;" onclick="openFullService('camera-vision', 'Camera Vision')">Open Camera Vision →</button>
-          </div>
-        </div>
-
-        <!-- N8N PROJEKTE & MODUL-WORKFLOW STATUSBAR PREVIEW (UPWARD FLYOUT) -->
-        <div class="sb-preview-item" id="widget-workflow">
-          <div style="display:inline-flex; align-items:center; gap:2px;">
-            <button class="sb-preview-trigger" onclick="toggleWidget('workflow', event)" title="n8n Modul-Workflow & Projektverwaltung">
-              <span class="room-dot" id="workflow-dock-dot" style="background:#22c55e; box-shadow:0 0 8px #22c55e;"></span>
-              <span>Projekte &amp; n8n</span>
-              <span class="sb-meta" id="workflow-dock-meta">LIVE</span>
-              <span class="sb-caret">▴</span>
-            </button>
-            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('project-workflow', 'Projekte & Modul-Workflow')" title="Open Projekte & n8n Workflow Panel">↗</button>
-          </div>
-          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
-            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
-              <span>n8n modul-workflow · gemini &amp; github</span>
-              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Panel ↗</button>
-            </div>
-            <div style="font-size:11.5px; color:rgba(248,250,252,0.85); margin-bottom:8px; line-height:1.45;">
-              Webhook → Template → Gemini API → Python Unit-Tests (4/4 PASS) → Git → Samba/HA Deploy
-            </div>
-            <button class="w-action-link" style="margin:0;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Projekte &amp; n8n Workflow öffnen →</button>
           </div>
         </div>
       </div>
@@ -2235,51 +2283,150 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       };
     }
 
-    function computeSunPoint(hourFloat, vw, vh) {
-      const isMobile = vw <= 900;
-      const horizonY = vh * (isMobile ? 0.44 : 0.62);
-      const zenithY = vh * (isMobile ? 0.09 : 0.12);
-      const nadirY = vh * (isMobile ? 0.64 : 0.80);
-
-      const xMargin = isMobile ? 0.04 : 0.08;
-      const x = vw * (xMargin + (hourFloat / 24) * (1 - xMargin * 2));
+    function computeSunAltitudeRatio(epochMs) {
+      const d = new Date(epochMs);
+      const h = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
       const daySpan = SUNSET_HOUR - SUNRISE_HOUR;
-      const angle = ((hourFloat - SUNRISE_HOUR) / daySpan) * Math.PI;
-      const sinVal = Math.sin(angle);
-      const y = sinVal >= 0
-        ? horizonY - sinVal * (horizonY - zenithY)
-        : horizonY - sinVal * (nadirY - horizonY);
+      const nightSpan = 24 - daySpan;
+      if (h >= SUNRISE_HOUR && h <= SUNSET_HOUR) {
+        return Math.sin(((h - SUNRISE_HOUR) / daySpan) * Math.PI);
+      }
+      const nightH = h < SUNRISE_HOUR ? h + (24 - SUNSET_HOUR) : h - SUNSET_HOUR;
+      return -Math.sin((nightH / nightSpan) * Math.PI);
+    }
 
-      return { x, y, horizonY, aboveHorizon: sinVal >= -0.06, elevationPct: Math.round(sinVal * 100) };
+    function computeMoonAltitudeRatio(epochMs) {
+      const d = new Date(epochMs);
+      const h = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+      const lunarInfo = computeLunarPhaseInfo(d);
+      const moonPeakHour = (12.625 + lunarInfo.phase * 24) % 24;
+      return Math.cos(((h - moonPeakHour) / 24) * 2 * Math.PI);
+    }
+
+    function computeLunarPhaseInfo(dateObj) {
+      const synodicDays = 29.530588853;
+      const refNewMoonMs = Date.UTC(2000, 0, 6, 18, 14, 0);
+      const daysSince = (dateObj.getTime() - refNewMoonMs) / 86400000;
+      const phase = ((daysSince % synodicDays) + synodicDays) % synodicDays / synodicDays;
+      const r = 10.5;
+      let d = '';
+      if (phase < 0.02 || phase > 0.98) {
+        d = '';
+      } else if (Math.abs(phase - 0.5) < 0.02) {
+        d = \`M 0,-\${r} A \${r},\${r} 0 1,1 0,\${r} A \${r},\${r} 0 1,1 0,-\${r} Z\`;
+      } else if (phase < 0.5) {
+        const k = Math.cos(phase * 2 * Math.PI);
+        const rx = Math.max(0.2, Math.abs(k) * r).toFixed(2);
+        const sweepTerm = k >= 0 ? 0 : 1;
+        d = \`M 0,-\${r} A \${r},\${r} 0 0,1 0,\${r} A \${rx},\${r} 0 0,\${sweepTerm} 0,-\${r} Z\`;
+      } else {
+        const k = -Math.cos(phase * 2 * Math.PI);
+        const rx = Math.max(0.2, Math.abs(k) * r).toFixed(2);
+        const sweepTerm = k >= 0 ? 1 : 0;
+        d = \`M 0,-\${r} A \${r},\${r} 0 0,0 0,\${r} A \${rx},\${r} 0 0,\${sweepTerm} 0,-\${r} Z\`;
+      }
+
+      let phaseLabel = 'Waxing Crescent';
+      if (phase < 0.03 || phase > 0.97) phaseLabel = 'New Moon';
+      else if (phase < 0.22) phaseLabel = 'Waxing Crescent';
+      else if (phase < 0.28) phaseLabel = 'First Quarter';
+      else if (phase < 0.47) phaseLabel = 'Waxing Gibbous';
+      else if (phase < 0.53) phaseLabel = 'Full Moon';
+      else if (phase < 0.72) phaseLabel = 'Waning Gibbous';
+      else if (phase < 0.78) phaseLabel = 'Last Quarter';
+      else phaseLabel = 'Waning Crescent';
+
+      return { phase, d, phaseLabel };
+    }
+
+    function buildSmartMoonSvg(dateObj) {
+      const lunar = computeLunarPhaseInfo(dateObj);
+      return \`
+        <svg width="32" height="32" viewBox="-17 -17 34 34" style="overflow:visible;">
+          <circle cx="0" cy="0" r="14" fill="rgba(186, 230, 253, 0.10)" />
+          <circle cx="0" cy="0" r="10.5" fill="rgba(15, 23, 42, 0.88)" stroke="rgba(226, 232, 240, 0.52)" stroke-width="1" />
+          <path d="\${lunar.d}" fill="rgba(248, 250, 252, 0.95)" />
+        </svg>
+      \`;
+    }
+
+    function buildSmartSunWeatherSvg(rawCond) {
+      const c = String(rawCond || '').toLowerCase();
+      const sunDisc = \`
+        <g>
+          <circle cx="-2" cy="-2" r="6.2" fill="#fde047" stroke="#ffffff" stroke-width="0.9" />
+          <line x1="-2" y1="-11.5" x2="-2" y2="-9.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-2" y1="5.5" x2="-2" y2="7.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-11.5" y1="-2" x2="-9.5" y2="-2" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="5.5" y1="-2" x2="7.5" y2="-2" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-8.8" y1="-8.8" x2="-7.3" y2="-7.3" stroke="#fde047" stroke-width="1.2" stroke-linecap="round" />
+          <line x1="2.8" y1="-8.8" x2="4.3" y2="-7.3" stroke="#fde047" stroke-width="1.2" stroke-linecap="round" />
+          <line x1="-8.8" y1="4.8" x2="-7.3" y2="3.3" stroke="#fde047" stroke-width="1.2" stroke-linecap="round" />
+        </g>
+      \`;
+      const cloudShape = \`
+        <path d="M -5,6.5 H 7.5 A 4.2,4.2 0 0,0 8.2,-1.8 A 5.5,5.5 0 0,0 -2.2,-3.2 A 4.4,4.4 0 0,0 -5,6.5 Z"
+              fill="rgba(226, 232, 240, 0.94)" stroke="rgba(15, 23, 42, 0.55)" stroke-width="0.9" stroke-linejoin="round" />
+      \`;
+
+      if (c.includes('thunder') || c.includes('storm')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+            <polyline points="1,5 -1.5,9.5 1.8,9.5 -0.5,14" fill="none" stroke="#facc15" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        \`;
+      }
+      if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+            <line x1="-2.5" y1="8.2" x2="-3.8" y2="12.5" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" />
+            <line x1="1.5" y1="8.2" x2="0.2" y2="12.5" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" />
+            <line x1="5.5" y1="8.2" x2="4.2" y2="12.5" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" />
+          </svg>
+        \`;
+      }
+      if (c.includes('snow') || c.includes('sleet')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+            <circle cx="-2" cy="10.2" r="1.2" fill="#e0f2fe" />
+            <circle cx="2" cy="11.5" r="1.2" fill="#e0f2fe" />
+            <circle cx="5.5" cy="10.0" r="1.2" fill="#e0f2fe" />
+          </svg>
+        \`;
+      }
+      if (c.includes('cloud') || c.includes('overcast') || c.includes('fog') || c.includes('mist')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+          </svg>
+        \`;
+      }
+      // Clear / Sunny
+      return \`
+        <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+          <circle cx="0" cy="0" r="13" fill="rgba(253, 224, 71, 0.16)" />
+          <circle cx="0" cy="0" r="6.8" fill="#fde047" stroke="#ffffff" stroke-width="1.1" />
+          <line x1="0" y1="-12" x2="0" y2="-9.4" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="0" y1="9.4" x2="0" y2="12" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="-12" y1="0" x2="-9.4" y2="0" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="9.4" y1="0" x2="12" y2="0" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="-8.5" y1="-8.5" x2="-6.6" y2="-6.6" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="6.6" y1="-6.6" x2="8.5" y2="-8.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-8.5" y1="8.5" x2="-6.6" y2="6.6" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="6.6" y1="6.6" x2="8.5" y2="8.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+        </svg>
+      \`;
     }
 
     function renderSolarArcPaths() {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const isMobile = vw <= 900;
-      const horizonY = vh * (isMobile ? 0.44 : 0.62);
-
-      const datumEl = document.getElementById('horizon-datum-line');
-      if (datumEl) {
-        datumEl.setAttribute('x1', (vw * (isMobile ? 0.03 : 0.06)).toFixed(1));
-        datumEl.setAttribute('y1', horizonY.toFixed(1));
-        datumEl.setAttribute('x2', (vw * (isMobile ? 0.97 : 0.94)).toFixed(1));
-        datumEl.setAttribute('y2', horizonY.toFixed(1));
-      }
-
-      let fullPath = '';
-      let dayPath = '';
-      for (let h = 0; h <= 24; h += 0.25) {
-        const pt = computeSunPoint(h, vw, vh);
-        fullPath += (h === 0 ? 'M' : 'L') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ' ';
-        if (h >= SUNRISE_HOUR && h <= SUNSET_HOUR) {
-          dayPath += (dayPath === '' ? 'M' : 'L') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ' ';
-        }
-      }
-      const arcEl = document.getElementById('solar-arc-path');
-      const dayEl = document.getElementById('solar-day-path');
-      if (arcEl) arcEl.setAttribute('d', fullPath);
-      if (dayEl) dayEl.setAttribute('d', dayPath);
+      // Curves are now rendered along the moving #timeline-world in renderTimelineGeometry()
     }
 
     function updateSkyAndSun(now) {
@@ -2294,55 +2441,50 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         window.syncThassiSidebarSky(palette.sidebarBg);
       }
 
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const isMobile = vw <= 900;
-      const sunPt = computeSunPoint(effectiveHour, vw, vh);
-
-      const sunEl = document.getElementById('sun-assembly');
-      sunEl.style.left = sunPt.x.toFixed(1) + 'px';
-      sunEl.style.top = sunPt.y.toFixed(1) + 'px';
-      sunEl.style.opacity = sunPt.aboveHorizon ? '1' : '0.24';
-      const baseScale = isMobile ? 0.8 : 1;
-      sunEl.style.transform = sunPt.aboveHorizon ? \`scale(\${baseScale})\` : \`scale(\${(baseScale * 0.75).toFixed(2)})\`;
-
-      const moonHour = (effectiveHour + 12) % 24;
-      const moonPt = computeSunPoint(moonHour, vw, vh);
-      const moonEl = document.getElementById('moon-assembly');
-      moonEl.style.left = moonPt.x.toFixed(1) + 'px';
-      moonEl.style.top = moonPt.y.toFixed(1) + 'px';
-      moonEl.style.opacity = sunPt.aboveHorizon ? '0.12' : '0.95';
-
-      // Progressed arc & abstract elevation chord to horizon datum
-      const activePt = sunPt.aboveHorizon ? sunPt : moonPt;
-      const chordEl = document.getElementById('celestial-elevation-chord');
-      const nodeEl = document.getElementById('horizon-node-dot');
-      if (chordEl && nodeEl) {
-        chordEl.setAttribute('x1', activePt.x.toFixed(1));
-        chordEl.setAttribute('y1', activePt.y.toFixed(1));
-        chordEl.setAttribute('x2', activePt.x.toFixed(1));
-        chordEl.setAttribute('y2', sunPt.horizonY.toFixed(1));
-        nodeEl.setAttribute('cx', activePt.x.toFixed(1));
-        nodeEl.setAttribute('cy', sunPt.horizonY.toFixed(1));
-      }
-
-      const progEl = document.getElementById('solar-progressed-path');
-      if (progEl) {
-        let progD = '';
-        if (effectiveHour >= SUNRISE_HOUR) {
-          const endH = Math.min(effectiveHour, SUNSET_HOUR);
-          for (let h = SUNRISE_HOUR; h <= endH; h += 0.2) {
-            const p = computeSunPoint(h, vw, vh);
-            progD += (progD === '' ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
-          }
-          const curP = computeSunPoint(endH, vw, vh);
-          progD += (progD === '' ? 'M' : 'L') + curP.x.toFixed(1) + ',' + curP.y.toFixed(1);
-        }
-        progEl.setAttribute('d', progD);
-      }
-
+      const lunarInfo = computeLunarPhaseInfo(now);
       document.getElementById('solar-phase-text').textContent =
-        \`\${palette.phase}  ·  Sunrise 06:45  ·  Sunset 18:30\`;
+        \`\${palette.phase}  ·  Sunrise 06:45  ·  Sunset 18:30  ·  \${lunarInfo.phaseLabel}\`;
+
+      // Update live smart Sun & Moon positions along their respective curves at NOW on the timeline
+      const nowEpochMs = now.getTime();
+      const pxPerMs = getPxPerMs();
+      const xNowPx = (nowEpochMs - timelineBaseEpochMs) * pxPerMs;
+      const sunAlt = computeSunAltitudeRatio(nowEpochMs);
+      const moonAlt = computeMoonAltitudeRatio(nowEpochMs);
+
+      const sunYOffsetPx = sunAlt >= 0 ? sunAlt * 112 : sunAlt * 32;
+      const moonYOffsetPx = moonAlt >= 0 ? moonAlt * 92 : moonAlt * 28;
+
+      const sunNode = document.getElementById('tl-sun-node');
+      if (sunNode) {
+        sunNode.style.left = xNowPx.toFixed(1) + 'px';
+        sunNode.style.bottom = (38 + sunYOffsetPx).toFixed(1) + 'px';
+        sunNode.classList.toggle('below-horizon', sunAlt < 0);
+        const rawCond = currentWeatherState && currentWeatherState.current
+          ? (currentWeatherState.current.conditionCode || currentWeatherState.current.effect)
+          : 'partly_cloudy';
+        const condLabel = currentWeatherState && currentWeatherState.current
+          ? (currentWeatherState.current.conditionLabel || currentWeatherState.current.descriptionDe || '')
+          : '';
+        if (sunNode.dataset.cond !== String(rawCond)) {
+          sunNode.dataset.cond = String(rawCond);
+          sunNode.innerHTML = buildSmartSunWeatherSvg(rawCond);
+        }
+        sunNode.title = \`Sonne (\${Math.round(sunAlt * 62)}°) · \${condLabel || 'Wetter aktiv'}\`;
+      }
+
+      const moonNode = document.getElementById('tl-moon-node');
+      if (moonNode) {
+        moonNode.style.left = xNowPx.toFixed(1) + 'px';
+        moonNode.style.bottom = (38 + moonYOffsetPx).toFixed(1) + 'px';
+        moonNode.classList.toggle('below-horizon', moonAlt < 0);
+        const phaseBucket = lunarInfo.phase.toFixed(2);
+        if (moonNode.dataset.phase !== phaseBucket) {
+          moonNode.dataset.phase = phaseBucket;
+          moonNode.innerHTML = buildSmartMoonSvg(now);
+        }
+        moonNode.title = \`Mond (\${Math.round(moonAlt * 54)}°) · \${lunarInfo.phaseLabel}\`;
+      }
     }
 
     // ============================================================================
@@ -2400,6 +2542,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       if (descEl) descEl.textContent = curDesc;
       if (hiloEl && todaySummary) {
         hiloEl.textContent = \`\${Math.round(Number(todaySummary.tempMaxC))}° / \${Math.round(Number(todaySummary.tempMinC))}°\`;
+      }
+
+      // Refresh smart Sun/Weather icon on timeline immediately when weather updates
+      const sunNode = document.getElementById('tl-sun-node');
+      if (sunNode) {
+        sunNode.dataset.cond = '';
+        updateSkyAndSun(new Date());
       }
 
       // Update subtle cloud veils in background
@@ -2609,7 +2758,105 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       document.getElementById('timeline-world').style.transform = \`translate3d(\${worldTranslateX.toFixed(2)}px, 0, 0)\`;
     }
 
-    // 3 & 4. RENDER TIMELINE TICKS & GOOGLE CALENDAR EVENT RECTANGLES
+    // 3 & 4. RENDER TIMELINE TICKS, CELESTIAL ALTITUDE CURVES & GOOGLE CALENDAR EVENT RECTANGLES
+    function renderTimelineCelestialCurves(startSpanMs, endSpanMs, pxPerMs) {
+      const stepMs = (visibleHoursSpan <= 24 ? 10 : 20) * 60 * 1000;
+      const sunAboveMaxPx = 112;
+      const sunBelowMaxPx = 32;
+      const moonAboveMaxPx = 92;
+      const moonBelowMaxPx = 28;
+
+      function traceSplitCurve(evalFn, aboveAmp, belowAmp, isMoon) {
+        let aboveD = '';
+        let belowD = '';
+        const crossings = [];
+        let prevT = startSpanMs;
+        let prevRatio = evalFn(prevT);
+        let prevX = (prevT - timelineBaseEpochMs) * pxPerMs;
+        let prevY = prevRatio >= 0 ? -prevRatio * aboveAmp : -prevRatio * belowAmp;
+
+        if (prevRatio >= 0) {
+          aboveD += \`M \${prevX.toFixed(1)},\${prevY.toFixed(1)} \`;
+        } else {
+          belowD += \`M \${prevX.toFixed(1)},\${prevY.toFixed(1)} \`;
+        }
+
+        for (let t = startSpanMs + stepMs; t <= endSpanMs; t += stepMs) {
+          const curRatio = evalFn(t);
+          const curX = (t - timelineBaseEpochMs) * pxPerMs;
+          const curY = curRatio >= 0 ? -curRatio * aboveAmp : -curRatio * belowAmp;
+
+          if ((prevRatio < 0 && curRatio >= 0) || (prevRatio >= 0 && curRatio < 0)) {
+            const denom = Math.abs(prevRatio) + Math.abs(curRatio);
+            const frac = denom > 1e-6 ? Math.abs(prevRatio) / denom : 0.5;
+            const crossT = prevT + frac * (t - prevT);
+            const crossX = (crossT - timelineBaseEpochMs) * pxPerMs;
+
+            if (prevRatio >= 0) {
+              aboveD += \`L \${crossX.toFixed(1)},0 \`;
+              belowD += \`M \${crossX.toFixed(1)},0 L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            } else {
+              belowD += \`L \${crossX.toFixed(1)},0 \`;
+              aboveD += \`M \${crossX.toFixed(1)},0 L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            }
+
+            crossings.push({
+              epochMs: crossT,
+              xPx: crossX,
+              isRise: prevRatio < 0 && curRatio >= 0,
+              isMoon
+            });
+          } else {
+            if (curRatio >= 0) {
+              aboveD += \`L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            } else {
+              belowD += \`L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            }
+          }
+
+          prevT = t;
+          prevRatio = curRatio;
+          prevX = curX;
+          prevY = curY;
+        }
+        return { aboveD, belowD, crossings };
+      }
+
+      const sunTrace = traceSplitCurve(computeSunAltitudeRatio, sunAboveMaxPx, sunBelowMaxPx, false);
+      const moonTrace = traceSplitCurve(computeMoonAltitudeRatio, moonAboveMaxPx, moonBelowMaxPx, true);
+
+      const sunAboveEl = document.getElementById('tl-sun-above-path');
+      const sunBelowEl = document.getElementById('tl-sun-below-path');
+      const moonAboveEl = document.getElementById('tl-moon-above-path');
+      const moonBelowEl = document.getElementById('tl-moon-below-path');
+      if (sunAboveEl) sunAboveEl.setAttribute('d', sunTrace.aboveD);
+      if (sunBelowEl) sunBelowEl.setAttribute('d', sunTrace.belowD);
+      if (moonAboveEl) moonAboveEl.setAttribute('d', moonTrace.aboveD);
+      if (moonBelowEl) moonBelowEl.setAttribute('d', moonTrace.belowD);
+
+      const crossingsContainer = document.getElementById('tl-horizon-crossings');
+      if (crossingsContainer) {
+        const showLabels = visibleHoursSpan <= 72;
+        const allCrossings = [...sunTrace.crossings, ...moonTrace.crossings];
+        crossingsContainer.innerHTML = allCrossings.map((c) => {
+          const d = new Date(c.epochMs);
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          const arrow = c.isRise ? '↑' : '↓';
+          const bodySym = c.isMoon ? '☾' : '☀';
+          const timeText = \`\${arrow} \${hh}:\${mm}\`;
+          return \`
+            <div class="tl-horizon-node \${c.isMoon ? 'moon-cross' : 'sun-cross'}"
+                 style="left:\${c.xPx.toFixed(1)}px;"
+                 title="\${bodySym} \${c.isRise ? 'Aufgang' : 'Untergang'}: \${hh}:\${mm}">
+              <div class="tl-horizon-dot"></div>
+              \${showLabels ? \`<div class="tl-horizon-time">\${timeText}</div>\` : ''}
+            </div>
+          \`;
+        }).join('');
+      }
+    }
+
     function renderTimelineGeometry() {
       const nowMs = Date.now();
       timelineBaseEpochMs = nowMs;
@@ -2617,6 +2864,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
       const startSpanMs = nowMs - 36 * 3600 * 1000;
       const endSpanMs = nowMs + 8 * 24 * 3600 * 1000;
+
+      renderTimelineCelestialCurves(startSpanMs, endSpanMs, pxPerMs);
 
       const stepHours = visibleHoursSpan <= 12 ? 1 : visibleHoursSpan <= 24 ? 2 : visibleHoursSpan <= 72 ? 6 : 12;
       const firstTick = new Date(startSpanMs);
@@ -2674,7 +2923,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       for (const ev of sorted) {
         const leftPx = (ev.s - timelineBaseEpochMs) * pxPerMs;
         const rawWidthPx = (ev.e - ev.s) * pxPerMs;
-        const widthPx = Math.max(135, rawWidthPx);
+        const widthPx = Math.max(155, rawWidthPx);
 
         let lane = 0;
         for (let l = 0; l < laneEndPx.length; l++) {
@@ -2686,7 +2935,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         }
         laneEndPx[lane] = leftPx + widthPx;
 
-        const bottomPx = 46 + lane * 48;
+        const bottomPx = 42 + lane * 58;
         const pal = catPalette[ev.category] || catPalette.personal;
         const evBorder = calColorMap[ev.calendar_name] || pal.border;
         const isNow = ev.s <= nowMs && ev.e >= nowMs;
@@ -2697,12 +2946,36 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         const dayStr = new Date(ev.s).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
         const safeTitle = String(ev.title || '').split('"').join('&quot;');
 
+        const locStr = String(ev.location || '').trim();
+        const attendeesStr = String(ev.attendees || ev.calendar_name || '').trim();
+        const rawDesc = String(ev.description || '')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\\s+/g, ' ')
+          .trim();
+
+        const metaParts = [];
+        if (locStr) metaParts.push('📍 ' + locStr);
+        if (attendeesStr) metaParts.push('👥 ' + attendeesStr);
+        const metaLine = metaParts.join(' · ') || (ev.calendar_name || ev.category || '');
+        const descLine = rawDesc || (locStr ? \`\${startStr}–\${endStr} · \${ev.calendar_name || ''}\` : 'Keine Beschreibung');
+
+        const tooltipParts = [
+          \`\${safeTitle} (\${dayStr}, \${startStr}–\${endStr})\`,
+          locStr ? \`Ort: \${locStr}\` : '',
+          attendeesStr ? \`Teilnehmer: \${attendeesStr}\` : '',
+          rawDesc ? \`Info: \${rawDesc}\` : ''
+        ].filter(Boolean).join(' | ').split('"').join('&quot;');
+
         eventsHtml += \`
           <div class="tl-event-rect \${isNow ? 'is-now' : ''} \${isPast ? 'is-past' : ''}"
                style="left:\${leftPx.toFixed(1)}px; width:\${widthPx.toFixed(1)}px; bottom:\${bottomPx}px; --ev-color:\${evBorder}; --ev-glow:\${pal.glow};"
-               title="\${safeTitle} (\${dayStr}, \${startStr} – \${endStr}) · \${ev.calendar_name || 'Google Calendar'}">
-            <div class="tl-ev-title">\${ev.title}</div>
-            <div class="tl-ev-meta">\${startStr}–\${endStr} · \${ev.calendar_name || ev.category}</div>
+               title="\${tooltipParts}">
+            <div class="tl-ev-head">
+              <div class="tl-ev-title">\${ev.title}</div>
+              <div class="tl-ev-time">\${startStr}–\${endStr}</div>
+            </div>
+            <div class="tl-ev-meta">\${metaLine}</div>
+            <div class="tl-ev-desc">\${descLine}</div>
           </div>
         \`;
       }
@@ -2771,12 +3044,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     });
 
     // ============================================================================
-    // 6. MINIMIZED-BY-DEFAULT ROOM TABS & PINNABLE ROOM GROUPS BELOW SEPARATOR
+    // 6. MINIMIZED-BY-DEFAULT ROOM TABS & PINNABLE ROOM GROUPS (EXPAND OVER UPPER CONTENT)
     // ============================================================================
     function syncDevicesDockHeight() {
-      const dock = document.getElementById('devices-dock');
-      if (!dock) return;
-      const h = dock.getBoundingClientRect().height || 44;
+      const bar = document.getElementById('room-dock-bar');
+      const h = (bar && bar.getBoundingClientRect().height) ? bar.getBoundingClientRect().height + 2 : 52;
       document.documentElement.style.setProperty('--devices-dock-height', Math.round(h) + 'px');
     }
 
@@ -3527,12 +3799,28 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       return false;
     }
 
+    let isRefreshingHealthLive = false;
+
     async function refreshHealthWidget(summaryFromSys) {
-      if (applyHealthWidgetData(summaryFromSys)) return;
+      if (summaryFromSys) {
+        applyHealthWidgetData(summaryFromSys);
+      }
+      if (isRefreshingHealthLive) return;
+      isRefreshingHealthLive = true;
       try {
-        const res = await fetch(base + '/api/apps/google-health/dashboard');
+        const liveRes = await fetch(base + '/api/apps/google-health/live?t=' + Date.now(), {
+          cache: 'no-store',
+        });
+        if (liveRes.ok) {
+          const liveData = await liveRes.json();
+          if (applyHealthWidgetData(liveData)) return;
+        }
+        const res = await fetch(base + '/api/apps/google-health/dashboard?t=' + Date.now(), {
+          cache: 'no-store',
+        });
         if (res.ok) {
           const d = await res.json();
+          if (d.live && applyHealthWidgetData(d.live)) return;
           const t = d.today || {};
           const r = d.readiness || {};
           const normalized = {
@@ -3550,15 +3838,15 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           };
           if (applyHealthWidgetData(normalized)) return;
         }
-      } catch (_e) {}
+      } catch (_e) {
+      } finally {
+        isRefreshingHealthLive = false;
+      }
+      if (summaryFromSys) return;
       const hrInsideEl = document.getElementById('health-hr-inside');
-      if (hrInsideEl) hrInsideEl.textContent = '--';
+      if (hrInsideEl && !hrInsideEl.textContent.trim()) hrInsideEl.textContent = '--';
       const stepsInsideEl = document.getElementById('health-steps-inside');
-      if (stepsInsideEl) stepsInsideEl.textContent = '--';
-      const compactEl = document.getElementById('compact-health');
-      if (compactEl) compactEl.textContent = 'No data';
-      const subEl = document.getElementById('sub-health');
-      if (subEl) subEl.textContent = 'Waiting for Pixel 10 telemetry';
+      if (stepsInsideEl && !stepsInsideEl.textContent.trim()) stepsInsideEl.textContent = '--';
     }
 
     function applyMealsWidgetData(m) {
@@ -4312,10 +4600,16 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     void loadWeatherData();
+    void refreshHealthWidget();
+    setInterval(() => void refreshHealthWidget(), 2000);
     setInterval(loadAllLiveData, 60000);
     setInterval(() => void loadWeatherData(), 600000);
     setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void refreshHealthWidget();
+    });
+    window.addEventListener('focus', () => void refreshHealthWidget());
 
     function checkHashFor3dPrint() {
       try {

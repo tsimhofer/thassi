@@ -272,13 +272,36 @@ export default defineThassiApp((ctx) => {
     "DELETE FROM workout_logs WHERE notes IN ('Strong bench & pull-up progression', 'Nasal breathing steady Zone 2')"
   );
 
+  let lastGoogleFitSyncMs = 0;
+  let lastHaPublishMs = 0;
+
+  const HA_HEALTH_ENTITY_IDS = [
+    'sensor.pixel_10_daily_steps',
+    'sensor.thomas_pixel_watch_daily_steps',
+    'sensor.pixel_10_steps_sensor',
+    'sensor.thomas_pixel_watch_heart_rate',
+    'sensor.pixel_10_heart_rate',
+    'sensor.pixel_10_resting_heart_rate',
+    'sensor.pixel_10_heart_rate_variability',
+    'sensor.pixel_10_sleep_duration',
+    'sensor.pixel_10_total_calories_burned',
+    'sensor.pixel_10_active_calories_burned',
+    'sensor.pixel_10_daily_distance',
+    'sensor.pixel_10_daily_floors',
+    'sensor.pixel_10_respiratory_rate',
+    'sensor.pixel_10_weight',
+    'sensor.thomas_pixel_watch_battery_level',
+  ] as const;
+
   /**
    * Syncs live biometrics from:
    * 1. Home Assistant wearable/companion sensors (Pixel 10 & Thomas' Pixel Watch)
    * 2. Google Fitness REST API (`ctx.google.googleFetch`) if Google OAuth2 is authorized
    * 3. Recalculates Readiness Score and publishes 5 live `sensor.thassi_google_health_*` entities to HA
    */
-  async function syncHealthDataAndPublishSensors() {
+  async function syncHealthDataAndPublishSensors(options: { fastMode?: boolean } = {}) {
+    const fastMode = Boolean(options.fastMode);
+    const nowMs = Date.now();
     const today = formatDateOffset(0);
     let todayRow = ctx.db.queryOne<BiometricDayRow>(
       'SELECT * FROM daily_biometrics WHERE log_date = ?',
@@ -311,11 +334,21 @@ export default defineThassiApp((ctx) => {
     let pixelWatchBattery: number | null = null;
     let pixelPhoneSteps: number | null = null;
     const activeSources: string[] = [];
+    let haConnected = false;
 
     // A) Pull from Home Assistant Companion App Sensors (Pixel 10 & Thomas' Pixel Watch)
+    // Fetch only the specific wearable entities in parallel for sub-50ms response time
     try {
-      const states = await ctx.ha.getStates('sensor');
-      const byId = new Map(states.map((s) => [s.entity_id, s]));
+      const entityResults = await Promise.all(
+        HA_HEALTH_ENTITY_IDS.map((id) => ctx.ha.getState(id).catch(() => null))
+      );
+      const byId = new Map<string, { state: string }>();
+      for (const st of entityResults) {
+        if (st && st.entity_id) {
+          byId.set(st.entity_id, st);
+          haConnected = true;
+        }
+      }
 
       // Prefer Health Connect daily_steps (16,060) over hardware steps_sensor since reboot (21,623)
       const p10DailySteps = Number(byId.get('sensor.pixel_10_daily_steps')?.state);
@@ -406,9 +439,10 @@ export default defineThassiApp((ctx) => {
       // HA offline fallback
     }
 
-    // B) Pull from Google Fitness REST API if Google OAuth2 is authorized
+    // B) Pull from Google Fitness REST API if Google OAuth2 is authorized (throttled in fastMode so it never blocks real-time HA polling)
     const googleStatus = ctx.google.getStatus();
-    if (googleStatus.authorized) {
+    if (googleStatus.authorized && (!fastMode || nowMs - lastGoogleFitSyncMs > 30000)) {
+      lastGoogleFitSyncMs = nowMs;
       try {
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
@@ -508,7 +542,7 @@ export default defineThassiApp((ctx) => {
         [formatDateOffset(7)]
       )?.cnt ?? 0;
 
-    ctx.sharedDb.kvSet('google_health_today', {
+    const livePayload = {
       date: today,
       steps,
       stepGoal: todayRow.step_goal,
@@ -527,49 +561,57 @@ export default defineThassiApp((ctx) => {
       pixelWatchBattery,
       source: sourceLabel,
       updatedAt: new Date().toISOString(),
-    });
+    };
 
-    const haStatus = await ctx.ha.getStatus();
-    if (haStatus.connected) {
-      await ctx.ha.publishSensor('readiness_score', readiness.score, {
-        friendly_name: 'Daily Readiness Score',
-        unit_of_measurement: '/100',
-        icon: 'mdi:lightning-bolt-circle',
-        status: readiness.status,
-        recommendation: readiness.recommendation,
-        resting_hr_bpm: restingHr,
-        sleep_hours: sleepHours,
-        weight_kg: weightKg,
-      });
+    ctx.sharedDb.kvSet('google_health_today', livePayload);
 
-      await ctx.ha.publishSensor('daily_steps', steps, {
-        friendly_name: 'Daily Steps',
-        unit_of_measurement: 'steps',
-        icon: 'mdi:walk',
-        step_goal: todayRow.step_goal,
-        goal_progress_pct: Math.round((steps / todayRow.step_goal) * 100),
-        pixel_10_sensor: pixelPhoneSteps,
-      });
-
-      await ctx.ha.publishSensor('heart_rate', currentHr, {
-        friendly_name: 'Current Heart Rate',
-        unit_of_measurement: 'bpm',
-        icon: 'mdi:heart-pulse',
-        hr_zone: hrZoneInfo.zone,
-      });
-
-      await ctx.ha.publishSensor('resting_heart_rate', restingHr, {
-        friendly_name: 'Resting Heart Rate (RHR)',
-        unit_of_measurement: 'bpm',
-        icon: 'mdi:heart-outline',
-        baseline_7d_bpm: Number(baselineRhr.toFixed(1)),
-      });
-
-      await ctx.ha.publishSensor('weekly_workouts', weeklyWorkoutsCount, {
-        friendly_name: 'Weekly Completed Workouts',
-        unit_of_measurement: 'workouts',
-        icon: 'mdi:dumbbell',
-      });
+    const shouldPublishHa = !fastMode || nowMs - lastHaPublishMs > 10000;
+    if (shouldPublishHa && haConnected) {
+      lastHaPublishMs = nowMs;
+      const publishAll = async () => {
+        await Promise.all([
+          ctx.ha.publishSensor('readiness_score', readiness.score, {
+            friendly_name: 'Daily Readiness Score',
+            unit_of_measurement: '/100',
+            icon: 'mdi:lightning-bolt-circle',
+            status: readiness.status,
+            recommendation: readiness.recommendation,
+            resting_hr_bpm: restingHr,
+            sleep_hours: sleepHours,
+            weight_kg: weightKg,
+          }),
+          ctx.ha.publishSensor('daily_steps', steps, {
+            friendly_name: 'Daily Steps',
+            unit_of_measurement: 'steps',
+            icon: 'mdi:walk',
+            step_goal: todayRow.step_goal,
+            goal_progress_pct: Math.round((steps / todayRow.step_goal) * 100),
+            pixel_10_sensor: pixelPhoneSteps,
+          }),
+          ctx.ha.publishSensor('heart_rate', currentHr, {
+            friendly_name: 'Current Heart Rate',
+            unit_of_measurement: 'bpm',
+            icon: 'mdi:heart-pulse',
+            hr_zone: hrZoneInfo.zone,
+          }),
+          ctx.ha.publishSensor('resting_heart_rate', restingHr, {
+            friendly_name: 'Resting Heart Rate (RHR)',
+            unit_of_measurement: 'bpm',
+            icon: 'mdi:heart-outline',
+            baseline_7d_bpm: Number(baselineRhr.toFixed(1)),
+          }),
+          ctx.ha.publishSensor('weekly_workouts', weeklyWorkoutsCount, {
+            friendly_name: 'Weekly Completed Workouts',
+            unit_of_measurement: 'workouts',
+            icon: 'mdi:dumbbell',
+          }),
+        ]);
+      };
+      if (fastMode) {
+        void publishAll().catch(() => {});
+      } else {
+        await publishAll().catch(() => {});
+      }
     }
 
     return {
@@ -577,6 +619,7 @@ export default defineThassiApp((ctx) => {
         'SELECT * FROM daily_biometrics WHERE log_date = ?',
         [today]
       )!,
+      live: livePayload,
       readiness,
       hrZone: hrZoneInfo,
       baselineRhr: Number(baselineRhr.toFixed(1)),
@@ -586,11 +629,16 @@ export default defineThassiApp((ctx) => {
       respiratoryRate,
       pixelWatchBattery,
       pixelPhoneSteps,
-      haConnected: haStatus.connected,
+      haConnected,
     };
   }
 
   // 2. REST API Endpoints (/api/apps/google-health/*)
+
+  ctx.route('GET', '/live', async () => {
+    const syncState = await syncHealthDataAndPublishSensors({ fastMode: true });
+    return syncState.live;
+  });
 
   ctx.route('GET', '/dashboard', async (_req, { db, sharedDb, google }) => {
     const syncState = await syncHealthDataAndPublishSensors();

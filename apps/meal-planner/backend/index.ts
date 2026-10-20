@@ -1,4 +1,4 @@
-import { defineThassiApp } from '@thassi/sdk';
+import { defineThassiApp, ThassiActionRegistry } from '@thassi/sdk';
 
 export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
@@ -1811,111 +1811,73 @@ export default defineThassiApp((ctx) => {
       };
     }
 
-    // 3. Query OpenFoodFacts API v2 live
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4500);
-      const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`;
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'ThassiHomeAssistantMealPlanner/2.0' },
-      });
-      clearTimeout(timeout);
+    // 3. Query OpenFoodFacts API v2 live via ThassiActionRegistry ('food.openfoodfacts.barcode')
+    const actionReg = ctx.actions || new ThassiActionRegistry(ctx.sharedDb, ctx.ha, ctx.google);
+    const offRes = await actionReg.execute<{
+      barcode: string;
+      name: string;
+      brand: string;
+      quantity: string;
+      calories_per_100g: number;
+      protein_per_100g: number;
+      carbs_per_100g: number;
+      fat_per_100g: number;
+      fiber_per_100g: number;
+      sugar_per_100g: number;
+    }>('food.openfoodfacts.barcode', { barcode: code });
 
-      if (res.ok) {
-        const data = (await res.json()) as {
-          status?: number;
-          product?: {
-            product_name_de?: string;
-            product_name?: string;
-            brands?: string;
-            quantity?: string;
-            nutriscore_grade?: string;
-            nutriments?: Record<string, number>;
-          };
-        };
-
-        if (data.status === 1 && data.product) {
-          const p = data.product;
-          const nutr = p.nutriments || {};
-          const name = p.product_name_de || p.product_name || `Produkt (${code})`;
-          const brand = p.brands || 'Markenprodukt';
-          const qtyMatch = (p.quantity || '250g').match(/(\d+(?:[.,]\d+)?)\s*(g|kg|ml|l)/i);
-          let packSize = 250;
-          let unit: 'g' | 'ml' | 'Stk' = 'g';
-          if (qtyMatch) {
-            packSize = parseFloat(qtyMatch[1].replace(',', '.'));
-            const u = qtyMatch[2].toLowerCase();
-            if (u === 'kg') packSize *= 1000;
-            if (u === 'l') {
-              packSize *= 1000;
-              unit = 'ml';
-            } else if (u === 'ml') {
-              unit = 'ml';
-            }
-          }
-
-          return {
-            source: 'openfoodfacts_live_api',
-            found: true,
-            product: {
-              name,
-              barcode: code,
-              brand,
-              unit,
-              package_size: packSize,
-              available_amount: packSize,
-              calories_per_100: Math.round(Number(nutr['energy-kcal_100g'] || nutr['energy-kcal'] || 120)),
-              protein_per_100: Math.round(Number(nutr.proteins_100g || 5) * 10) / 10,
-              carbs_per_100: Math.round(Number(nutr.carbohydrates_100g || 15) * 10) / 10,
-              fat_per_100: Math.round(Number(nutr.fat_100g || 4) * 10) / 10,
-              fiber_per_100: Math.round(Number(nutr.fiber_100g || 2) * 10) / 10,
-              sugar_per_100: Math.round(Number(nutr.sugars_100g || 3) * 10) / 10,
-              nutriscore: (p.nutriscore_grade || 'B').toUpperCase(),
-              price_billa: 2.49,
-              pack_billa: packSize,
-              product_billa: `BILLA ${brand} ${name} ${packSize}${unit}`,
-              price_hofer: 1.99,
-              pack_hofer: packSize,
-              product_hofer: `HOFER ${name} ${packSize}${unit}`,
-              price_spar: 2.29,
-              pack_spar: packSize,
-              product_spar: `SPAR ${brand} ${name} ${packSize}${unit}`,
-            },
-          };
+    if (offRes.status === 'success' && offRes.data) {
+      const p = offRes.data;
+      const qtyMatch = (p.quantity || '250g').match(/(\d+(?:[.,]\d+)?)\s*(g|kg|ml|l)/i);
+      let packSize = 250;
+      let unit: 'g' | 'ml' | 'Stk' = 'g';
+      if (qtyMatch) {
+        packSize = parseFloat(qtyMatch[1].replace(',', '.'));
+        const u = qtyMatch[2].toLowerCase();
+        if (u === 'kg') packSize *= 1000;
+        if (u === 'l') {
+          packSize *= 1000;
+          unit = 'ml';
+        } else if (u === 'ml') {
+          unit = 'ml';
         }
       }
-    } catch {
-      // Fallback if offline or timeout
+
+      return {
+        source: 'openfoodfacts_live_api',
+        found: true,
+        product: {
+          name: p.name,
+          barcode: code,
+          brand: p.brand || 'Markenprodukt',
+          unit,
+          package_size: packSize,
+          available_amount: packSize,
+          calories_per_100: p.calories_per_100g,
+          protein_per_100: p.protein_per_100g,
+          carbs_per_100: p.carbs_per_100g,
+          fat_per_100: p.fat_per_100g,
+          fiber_per_100: p.fiber_per_100g,
+          sugar_per_100: p.sugar_per_100g,
+          nutriscore: 'B',
+          price_billa: 0,
+          pack_billa: packSize,
+          product_billa: `BILLA ${p.brand} ${p.name} ${packSize}${unit}`,
+          price_hofer: 0,
+          pack_hofer: packSize,
+          product_hofer: `HOFER ${p.name} ${packSize}${unit}`,
+          price_spar: 0,
+          pack_spar: packSize,
+          product_spar: `SPAR ${p.brand} ${p.name} ${packSize}${unit}`,
+        },
+      };
     }
 
-    // 4. Smart fallback for any unknown EAN code so user can immediately edit & save
     return {
-      source: 'fallback_ean_parser',
-      found: true,
-      product: {
-        name: `Gescanntes Produkt (${code.slice(-4)})`,
-        barcode: code,
-        brand: 'Eigenmarke Österreich',
-        unit: 'g',
-        package_size: 250,
-        available_amount: 250,
-        calories_per_100: 185,
-        protein_per_100: 12.0,
-        carbs_per_100: 18.0,
-        fat_per_100: 7.5,
-        fiber_per_100: 3.5,
-        sugar_per_100: 2.4,
-        nutriscore: 'A',
-        price_billa: 2.29,
-        pack_billa: 250,
-        product_billa: `BILLA Produkt (${code.slice(-4)}) 250g`,
-        price_hofer: 1.79,
-        pack_hofer: 250,
-        product_hofer: `HOFER Produkt (${code.slice(-4)}) 250g`,
-        price_spar: 2.09,
-        pack_spar: 250,
-        product_spar: `SPAR Produkt (${code.slice(-4)}) 250g`,
+      status: 404,
+      body: {
+        found: false,
+        error: offRes.summary || `Barcode ${code} wurde in der Datenbank und OpenFoodFacts nicht gefunden.`,
       },
     };
   });

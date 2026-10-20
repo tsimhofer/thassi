@@ -5,6 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
+// packages/sdk/src/actions.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
+import net from "node:net";
+
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {
   return { setup };

@@ -2,8 +2,8 @@ import { createRequire as __thassiCreateRequire } from 'node:module'; const requ
 
 // thassi_host/src/server.ts
 import http from "node:http";
-import fs3 from "node:fs";
-import path3 from "node:path";
+import fs4 from "node:fs";
+import path4 from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 // packages/sdk/src/db.ts
@@ -448,6 +448,10 @@ var ThassiHaBridge = class {
       }
     };
     const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    const result = await this.request(`/states/${entityId}`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
     const published = this.sharedDb.kvGet("published_sensors", {}) || {};
     published[entityId] = {
       entityId,
@@ -456,20 +460,7 @@ var ThassiHaBridge = class {
       updatedAt: nowIso
     };
     this.sharedDb.kvSet("published_sensors", published);
-    try {
-      return await this.request(`/states/${entityId}`, {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-    } catch {
-      return {
-        entity_id: entityId,
-        state: payload.state,
-        attributes: payload.attributes,
-        last_changed: nowIso,
-        last_updated: nowIso
-      };
-    }
+    return result;
   }
   /** Fire a custom event on the Home Assistant event bus */
   async fireEvent(eventType, eventData = {}) {
@@ -563,10 +554,14 @@ var ThassiCronScheduler = class {
 
 // packages/sdk/src/google-oauth.ts
 var DEFAULT_GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/fitness.activity.read",
   "https://www.googleapis.com/auth/fitness.body.read",
-  "https://www.googleapis.com/auth/fitness.sleep.read"
+  "https://www.googleapis.com/auth/fitness.sleep.read",
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/drive.readonly"
 ];
 var ThassiGoogleOAuthManager = class {
   sharedDb;
@@ -742,9 +737,1542 @@ var ThassiGoogleOAuthManager = class {
   }
 };
 
-// thassi_host/src/hass-sidebar-sync.ts
+// packages/sdk/src/actions.ts
 import fs2 from "node:fs";
 import path2 from "node:path";
+import net from "node:net";
+function interpolateValue(template, upstreamText) {
+  if (!template) return "";
+  return template.replace(/\{\{\$input\}\}/g, upstreamText || "");
+}
+function resolveDataDir() {
+  return path2.resolve(
+    process.env.THASSI_DATA_DIR || (fs2.existsSync("/data") ? "/data" : "./data")
+  );
+}
+function openAppDatabaseReadWrite(dataDir, appId) {
+  const dbPath = path2.join(dataDir, "apps", `${appId}.db`);
+  return new ThassiAppDatabase(dbPath);
+}
+var ThassiActionRegistry = class {
+  actions = /* @__PURE__ */ new Map();
+  telemetry = /* @__PURE__ */ new Map();
+  sharedDb;
+  ha;
+  google;
+  dataDir;
+  constructor(sharedDb2, ha, google) {
+    this.sharedDb = sharedDb2;
+    this.ha = ha;
+    this.google = google;
+    this.dataDir = resolveDataDir();
+    this.loadPersistedTelemetry();
+    this.registerCoreAxons();
+  }
+  loadPersistedTelemetry() {
+    try {
+      const saved = this.sharedDb.kvGet("axons_telemetry");
+      if (saved && typeof saved === "object") {
+        for (const [k, v] of Object.entries(saved)) {
+          this.telemetry.set(k, v);
+        }
+      }
+    } catch {
+    }
+  }
+  persistTelemetry() {
+    try {
+      const obj = Object.fromEntries(this.telemetry.entries());
+      this.sharedDb.kvSet("axons_telemetry", obj);
+    } catch {
+    }
+  }
+  register(definition) {
+    const domainCode = definition.domainCode || definition.id.split(".")[0].toUpperCase().slice(0, 6);
+    this.actions.set(definition.id, {
+      ...definition,
+      domainCode
+    });
+  }
+  listActions() {
+    return Array.from(this.actions.values()).map((a) => {
+      const stat = this.telemetry.get(a.id);
+      return {
+        id: a.id,
+        name: a.name,
+        domainCode: a.domainCode,
+        category: a.category,
+        icon: a.icon,
+        description: a.description,
+        fields: a.fields,
+        defaultInput: a.defaultInput,
+        lastStatus: stat?.lastStatus || "idle",
+        lastDurationMs: stat?.lastDurationMs ?? null,
+        lastExecutedAt: stat?.lastExecutedAt ?? null,
+        lastSummary: stat?.lastSummary ?? null,
+        totalRuns: stat?.totalRuns ?? 0
+      };
+    });
+  }
+  listAxons() {
+    return this.listActions();
+  }
+  getAction(actionId) {
+    return this.actions.get(actionId);
+  }
+  resolveCredentials(override) {
+    const geminiApiKey = override?.geminiApiKey || this.sharedDb.kvGet("gemini_api_key", "") || process.env.GEMINI_API_KEY || "";
+    const githubToken = override?.githubToken || this.sharedDb.kvGet("github_token", "") || process.env.GITHUB_TOKEN || "";
+    const googleOAuthToken = override?.googleOAuthToken || this.sharedDb.kvGet("google_oauth_token", "") || "";
+    return { geminiApiKey, githubToken, googleOAuthToken };
+  }
+  async resolveGoogleAccessToken(explicitToken) {
+    if (explicitToken && explicitToken.trim()) {
+      return explicitToken.trim();
+    }
+    return await this.google.getValidAccessToken();
+  }
+  /**
+   * Execute an atomic Axon by ID with full input interpolation (`{{$input}}`),
+   * timing telemetry, and strict error reporting.
+   */
+  async execute(actionId, rawInput = {}, options = {}) {
+    const startMs = Date.now();
+    const executedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const action = this.actions.get(actionId);
+    const upstreamText = options.upstreamText || "";
+    if (!action) {
+      return {
+        actionId,
+        axonId: actionId,
+        status: "error",
+        durationMs: Date.now() - startMs,
+        executedAt,
+        summary: `Unknown axon "${actionId}"`,
+        data: { error: `Axon "${actionId}" is not registered.` },
+        errorCode: "UNKNOWN_AXON"
+      };
+    }
+    const mergedInput = { ...action.defaultInput, ...rawInput };
+    for (const [key, val] of Object.entries(mergedInput)) {
+      if (typeof val === "string" && upstreamText) {
+        mergedInput[key] = interpolateValue(val, upstreamText);
+      }
+    }
+    const ctx = {
+      sharedDb: this.sharedDb,
+      ha: this.ha,
+      google: this.google,
+      dataDir: this.dataDir,
+      upstreamText,
+      credentials: this.resolveCredentials(options.credentials)
+    };
+    try {
+      const res = await action.execute(mergedInput, ctx);
+      const durationMs = Math.max(1, Date.now() - startMs);
+      const prev = this.telemetry.get(actionId);
+      this.telemetry.set(actionId, {
+        lastStatus: "success",
+        lastDurationMs: durationMs,
+        lastExecutedAt: executedAt,
+        lastSummary: res.summary,
+        totalRuns: (prev?.totalRuns || 0) + 1
+      });
+      this.persistTelemetry();
+      return {
+        actionId,
+        axonId: actionId,
+        status: "success",
+        durationMs,
+        executedAt,
+        summary: res.summary,
+        data: res.data
+      };
+    } catch (err) {
+      const durationMs = Math.max(1, Date.now() - startMs);
+      const message = err instanceof Error ? err.message : String(err);
+      const prev = this.telemetry.get(actionId);
+      this.telemetry.set(actionId, {
+        lastStatus: "error",
+        lastDurationMs: durationMs,
+        lastExecutedAt: executedAt,
+        lastSummary: message,
+        totalRuns: (prev?.totalRuns || 0) + 1
+      });
+      this.persistTelemetry();
+      return {
+        actionId,
+        axonId: actionId,
+        status: "error",
+        durationMs,
+        executedAt,
+        summary: message,
+        data: { error: message },
+        errorCode: "AXON_EXECUTION_FAILED"
+      };
+    }
+  }
+  registerCoreAxons() {
+    this.register({
+      id: "ha.get_state",
+      name: "Read Entity State",
+      domainCode: "HA",
+      category: "homeassistant",
+      icon: "HA",
+      description: "Reads the live state, unit, and attributes of a single Home Assistant entity.",
+      defaultInput: { entityId: "sensor.shellyhtg3_e4b32331dde0_temperatur" },
+      fields: [
+        {
+          key: "entityId",
+          label: "Entity ID",
+          type: "text",
+          placeholder: "sensor.shellyhtg3_e4b32331dde0_temperatur",
+          required: true
+        }
+      ],
+      execute: async (input, ctx) => {
+        const entityId = String(input.entityId || "").trim();
+        if (!entityId) throw new Error("entityId is required");
+        const stateObj = await ctx.ha.getState(entityId);
+        const unit = String(stateObj.attributes?.unit_of_measurement || "");
+        const friendly = String(stateObj.attributes?.friendly_name || entityId);
+        return {
+          summary: `${friendly}: ${stateObj.state}${unit ? " " + unit : ""}`,
+          data: {
+            entity_id: stateObj.entity_id,
+            state: stateObj.state,
+            unit,
+            friendly_name: friendly,
+            attributes: stateObj.attributes,
+            last_updated: stateObj.last_updated,
+            formattedText: `${friendly} (${stateObj.entity_id}) = ${stateObj.state}${unit ? " " + unit : ""}`
+          }
+        };
+      }
+    });
+    this.register({
+      id: "ha.get_states",
+      name: "Query Entities by Domain / Search",
+      domainCode: "HA",
+      category: "homeassistant",
+      icon: "HA",
+      description: "Filters all 597+ Home Assistant entities by domain (sensor, switch, light, camera, binary_sensor) and search keyword.",
+      defaultInput: { domain: "sensor", search: "", limit: "50" },
+      fields: [
+        { key: "domain", label: "Domain (optional)", type: "text", placeholder: "sensor / switch / light / camera" },
+        { key: "search", label: "Search Filter (optional)", type: "text", placeholder: "shelly / pixel / power" },
+        { key: "limit", label: "Max Rows", type: "number", placeholder: "50" }
+      ],
+      execute: async (input, ctx) => {
+        const domain = String(input.domain || "").trim() || void 0;
+        const search = String(input.search || "").trim().toLowerCase();
+        const limit = Math.max(1, Math.min(600, Number(input.limit || 50)));
+        let states = await ctx.ha.getStates(domain);
+        if (search) {
+          states = states.filter(
+            (s) => s.entity_id.toLowerCase().includes(search) || String(s.attributes?.friendly_name || "").toLowerCase().includes(search)
+          );
+        }
+        const sliced = states.slice(0, limit).map((s) => ({
+          entity_id: s.entity_id,
+          state: s.state,
+          unit: s.attributes?.unit_of_measurement || "",
+          friendly_name: s.attributes?.friendly_name || s.entity_id,
+          last_updated: s.last_updated
+        }));
+        return {
+          summary: `${states.length} matching entities (returning ${sliced.length})`,
+          data: {
+            domain: domain || "all",
+            search: search || null,
+            totalMatches: states.length,
+            returned: sliced.length,
+            entities: sliced
+          }
+        };
+      }
+    });
+    this.register({
+      id: "ha.energy.live_power",
+      name: "Shelly & Smart Home Live Power",
+      domainCode: "HA",
+      category: "homeassistant",
+      icon: "HA",
+      description: "Aggregates all active power sensors (W) and energy counters (kWh/Wh) across all Shelly relays and plugs.",
+      defaultInput: { includeZero: "true" },
+      fields: [
+        { key: "includeZero", label: "Include 0 W Channels", type: "select", options: ["true", "false"] }
+      ],
+      execute: async (input, ctx) => {
+        const includeZero = String(input.includeZero || "true") !== "false";
+        const sensors = await ctx.ha.getStates("sensor");
+        const powerSensors = sensors.filter((s) => {
+          const u = String(s.attributes?.unit_of_measurement || "");
+          const dc = String(s.attributes?.device_class || "");
+          return u === "W" || dc === "power";
+        }).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          watts: Number(s.state),
+          rawState: s.state
+        })).filter((s) => Number.isFinite(s.watts) && (includeZero || s.watts > 0)).sort((a, b) => b.watts - a.watts);
+        const totalWatts = Number(
+          powerSensors.reduce((sum, s) => sum + s.watts, 0).toFixed(1)
+        );
+        return {
+          summary: `${totalWatts} W total across ${powerSensors.length} power channels`,
+          data: {
+            totalWatts,
+            activeChannels: powerSensors.filter((p) => p.watts > 0).length,
+            totalChannels: powerSensors.length,
+            channels: powerSensors
+          }
+        };
+      }
+    });
+    this.register({
+      id: "ha.rooms.snapshot",
+      name: "Spatial Rooms & Devices Snapshot",
+      domainCode: "HA",
+      category: "homeassistant",
+      icon: "HA",
+      description: "Returns live temperatures, humidity, switch states, and power draw grouped by room.",
+      defaultInput: { roomFilter: "" },
+      fields: [
+        { key: "roomFilter", label: "Room ID Filter (optional)", type: "text", placeholder: "buro_og / wohnkuche / vorzimmer_og" }
+      ],
+      execute: async (input, ctx) => {
+        const allStates = await ctx.ha.getStates();
+        const sm = new Map(allStates.map((s) => [s.entity_id, s]));
+        const getNum = (id) => {
+          const v = Number(sm.get(id)?.state);
+          return Number.isFinite(v) ? v : null;
+        };
+        const buildDev = (entityId, label, powerId) => {
+          const st = sm.get(entityId);
+          return {
+            entityId,
+            label,
+            state: st?.state ?? "unavailable",
+            powerW: powerId ? getNum(powerId) : null
+          };
+        };
+        const rooms = [
+          {
+            id: "buro_og",
+            name: "B\xFCro OG",
+            tempC: getNum("sensor.shellyhtg3_e4b32331dde0_temperatur"),
+            humidityPct: getNum("sensor.shellyhtg3_e4b32331dde0_luftfeuchtigkeit"),
+            devices: [
+              buildDev("light.buro_og_grosses_licht", "Gro\xDFes Licht", "sensor.links_power"),
+              buildDev("switch.buro_og_regal_lichter", "Regal Lichter", "sensor.shellyplugsg3_e4b063e4bfd8_power"),
+              buildDev("switch.buro_og_plug_90", "Schreibtisch Plug .90", "sensor.kleines_licht_pumpe_power"),
+              buildDev("switch.buro_og_bewasserung_pumpe", "Bew\xE4sserung Pumpe", "sensor.schalter_neu_power"),
+              buildDev("light.thomasbuero_2pm_oben_output_1", "Schalter Oben Rechts", "sensor.thomasbuero_2pm_oben_switch_1_power")
+            ]
+          },
+          {
+            id: "wohnkuche",
+            name: "Wohnk\xFCche",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("switch.wohnkueche_bodenbeleuchtung_boden", "Bodenbeleuchtung", "sensor.shelly_plus_2pm_a_switch_0_power"),
+              buildDev("switch.wohnkueche_fensterbank_licht", "Fensterbank Licht", "sensor.bodenbeleuchtung_power"),
+              buildDev("media_player.tv_samsung_6_series_49", 'Samsung TV (49")')
+            ]
+          },
+          {
+            id: "vorzimmer_og",
+            name: "Vorzimmer OG",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("switch.vorzimmer_og_grosses_licht", "Gro\xDFes Licht"),
+              buildDev("light.vorzimmer_og_bodenbeleuchtung_led", "Bodenbeleuchtung LED"),
+              buildDev("light.vorzimmer_og_alert_led", "Alert LED"),
+              buildDev("switch.shelly2pmg3_8cbfea9ac754_output_0", "Shelly 2PM Kanal 1", "sensor.shelly2pmg3_8cbfea9ac754_output_0_leistung"),
+              buildDev("switch.shelly2pmg3_8cbfea9ac754_output_1", "Shelly 2PM Kanal 2", "sensor.shelly2pmg3_8cbfea9ac754_output_1_leistung")
+            ]
+          },
+          {
+            id: "bad_gaeste",
+            name: "Bad & G\xE4ste",
+            tempC: null,
+            humidityPct: null,
+            devices: [
+              buildDev("switch.shelly1pmminig4_7c2c676dc6fc", "Waschmaschine Bad OG", "sensor.shelly1pmminig4_7c2c676dc6fc_leistung"),
+              buildDev("switch.gaestezimmer_schalter_rechts", "G\xE4stezimmer Schalter 1", "sensor.shellyplus2pm_c049ef8a3a78_switch_0_power"),
+              buildDev("switch.shellyplus2pm_c049ef8a3a78_switch_1", "G\xE4stezimmer Schalter 2", "sensor.shellyplus2pm_c049ef8a3a78_switch_1_power"),
+              buildDev("sensor.smart_series_8000_75b4_batterie", "Oral-B Smart Series Akku")
+            ]
+          }
+        ];
+        const filter = String(input.roomFilter || "").trim().toLowerCase();
+        const filtered = filter ? rooms.filter((r) => r.id.includes(filter) || r.name.toLowerCase().includes(filter)) : rooms;
+        return {
+          summary: `${filtered.length} rooms inspected (B\xFCro OG: ${rooms[0].tempC ?? "\u2014"} \xB0C / ${rooms[0].humidityPct ?? "\u2014"}%)`,
+          data: { rooms: filtered }
+        };
+      }
+    });
+    this.register({
+      id: "ha.call_service",
+      name: "Call Service / Switch Device",
+      domainCode: "HA",
+      category: "homeassistant",
+      icon: "HA",
+      description: "Invokes any Home Assistant service (light, switch, script, automation, media_player, persistent_notification).",
+      defaultInput: {
+        domain: "persistent_notification",
+        service: "create",
+        targetOrMessage: "{{$input}}"
+      },
+      fields: [
+        {
+          key: "domain",
+          label: "Domain",
+          type: "select",
+          options: ["persistent_notification", "light", "switch", "script", "automation", "media_player", "siren"]
+        },
+        {
+          key: "service",
+          label: "Service",
+          type: "select",
+          options: ["create", "turn_on", "turn_off", "toggle", "trigger"]
+        },
+        {
+          key: "targetOrMessage",
+          label: "Entity ID, Message or JSON Payload",
+          type: "textarea",
+          placeholder: "light.buro_og_grosses_licht or {{$input}}"
+        }
+      ],
+      execute: async (input, ctx) => {
+        const domain = String(input.domain || "persistent_notification").trim();
+        const service = String(input.service || "create").trim();
+        const rawTarget = String(input.targetOrMessage || "").trim();
+        let serviceData = {};
+        if (input.serviceData && typeof input.serviceData === "object") {
+          serviceData = input.serviceData;
+        } else if (rawTarget.startsWith("{") && rawTarget.endsWith("}")) {
+          try {
+            serviceData = JSON.parse(rawTarget);
+          } catch {
+            serviceData = { entity_id: rawTarget };
+          }
+        } else if (domain === "persistent_notification") {
+          serviceData = {
+            title: String(input.title || "Thassi Axon"),
+            message: rawTarget.slice(0, 1e3) || "Executed via Thassi Axons"
+          };
+        } else if (rawTarget) {
+          serviceData = { entity_id: rawTarget };
+        }
+        const response = await ctx.ha.callService(domain, service, serviceData);
+        return {
+          summary: `HA ${domain}.${service} -> ${String(serviceData.entity_id || serviceData.title || "ok")}`,
+          data: { domain, service, serviceData, response }
+        };
+      }
+    });
+    this.register({
+      id: "ha.publish_sensor",
+      name: "Publish Custom Sensor",
+      domainCode: "HA",
+      category: "homeassistant",
+      icon: "HA",
+      description: "Creates or updates a sensor.thassi_* entity in Home Assistant.",
+      defaultInput: {
+        sensorSlug: "custom_metric",
+        state: "100",
+        unit: "",
+        friendlyName: "Thassi Metric"
+      },
+      fields: [
+        { key: "sensorSlug", label: "Sensor Slug", type: "text", placeholder: "custom_metric" },
+        { key: "state", label: "State Value", type: "text", placeholder: "42.5 or {{$input}}" },
+        { key: "unit", label: "Unit", type: "text", placeholder: "EUR / W / %" },
+        { key: "friendlyName", label: "Friendly Name", type: "text", placeholder: "Thassi Metric" }
+      ],
+      execute: async (input, ctx) => {
+        const slug = String(input.sensorSlug || "custom_metric").trim();
+        const stateVal = input.state ?? "";
+        const published = await ctx.ha.publishSensor(slug, String(stateVal), {
+          friendly_name: input.friendlyName || `Thassi ${slug}`,
+          unit_of_measurement: input.unit || void 0,
+          ...typeof input.attributes === "object" ? input.attributes : {}
+        });
+        return {
+          summary: `${published.entity_id} = ${published.state}`,
+          data: published
+        };
+      }
+    });
+    this.register({
+      id: "ha.wearables.biometrics",
+      name: "Wearables & Mobile Telemetry (Pixel 10 / Watch)",
+      domainCode: "FIT",
+      category: "fitness",
+      icon: "FIT",
+      description: "Reads live steps, heart rate, battery, sleep, and activity states from Pixel 10, Pixel Watch, and iPad entities in Home Assistant.",
+      defaultInput: {},
+      fields: [],
+      execute: async (_input, ctx) => {
+        const all = await ctx.ha.getStates();
+        const wearableEntities = all.filter((s) => /pixel|watch|ipad|oralb|smart_series/i.test(s.entity_id)).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          state: s.state,
+          unit: String(s.attributes?.unit_of_measurement || ""),
+          last_updated: s.last_updated
+        }));
+        return {
+          summary: `${wearableEntities.length} wearable & mobile sensors read from Home Assistant`,
+          data: {
+            count: wearableEntities.length,
+            sensors: wearableEntities
+          }
+        };
+      }
+    });
+    this.register({
+      id: "gcal.upcoming",
+      name: "Calendar: Upcoming Events",
+      domainCode: "GCAL",
+      category: "gcal",
+      icon: "GCAL",
+      description: "Fetches upcoming events from Google Calendar REST API v3 (or Home Assistant calendar.* entity).",
+      defaultInput: { calendarId: "primary", maxResults: "10" },
+      fields: [
+        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
+        { key: "maxResults", label: "Max Events", type: "number", placeholder: "10" }
+      ],
+      execute: async (input, ctx) => {
+        const calendarId = String(input.calendarId || "primary").trim();
+        const maxResults = Math.max(1, Math.min(50, Number(input.maxResults || 10)));
+        try {
+          const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+          const timeMin = (/* @__PURE__ */ new Date()).toISOString();
+          const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+            calendarId
+          )}/events?timeMin=${encodeURIComponent(timeMin)}&maxResults=${maxResults}&singleEvents=true&orderBy=startTime`;
+          const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(5e3)
+          });
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => "");
+            throw new Error(`Google Calendar API ${res.status}: ${errBody || res.statusText}`);
+          }
+          const data = await res.json();
+          const items = (data.items || []).map((ev) => ({
+            id: ev.id,
+            summary: ev.summary || "(Ohne Titel)",
+            start: ev.start?.dateTime || ev.start?.date || "",
+            end: ev.end?.dateTime || ev.end?.date || "",
+            location: ev.location || "",
+            description: ev.description || ""
+          }));
+          const formattedText = items.length > 0 ? items.map((e) => `\u2022 ${e.start} \u2014 ${e.summary}`).join("\n") : "Keine anstehenden Termine.";
+          return {
+            summary: `${items.length} events from Google Calendar (${calendarId})`,
+            data: { calendarId, source: "google_calendar_api", count: items.length, events: items, formattedText }
+          };
+        } catch (googleErr) {
+          const haEntityId = calendarId.startsWith("calendar.") ? calendarId : "calendar.thomas_simhofer_gmail_com";
+          const startIso = (/* @__PURE__ */ new Date()).toISOString();
+          const endIso = new Date(Date.now() + 14 * 864e5).toISOString();
+          const haEvents = await ctx.ha.getCalendarEvents(haEntityId, startIso, endIso);
+          const items = haEvents.slice(0, maxResults).map((ev, idx) => ({
+            id: ev.uid || `ha_${idx}`,
+            summary: ev.summary || "(Ohne Titel)",
+            start: ev.start?.dateTime || ev.start?.date || "",
+            end: ev.end?.dateTime || ev.end?.date || "",
+            location: ev.location || "",
+            description: ev.description || ""
+          }));
+          const formattedText = items.length > 0 ? items.map((e) => `\u2022 ${e.start} \u2014 ${e.summary}`).join("\n") : "Keine anstehenden Termine.";
+          return {
+            summary: `${items.length} events via Home Assistant (${haEntityId})`,
+            data: {
+              calendarId: haEntityId,
+              source: "homeassistant_calendar",
+              count: items.length,
+              events: items,
+              formattedText,
+              googleAuthNotice: googleErr instanceof Error ? googleErr.message : String(googleErr)
+            }
+          };
+        }
+      }
+    });
+    this.register({
+      id: "gcal.create_event",
+      name: "Calendar: Create Event",
+      domainCode: "GCAL",
+      category: "gcal",
+      icon: "GCAL",
+      description: "Creates a calendar event via Google Calendar v3 or Home Assistant calendar.create_event.",
+      defaultInput: {
+        calendarId: "primary",
+        summary: "{{$input}}",
+        startIso: "",
+        durationMinutes: "30",
+        description: ""
+      },
+      fields: [
+        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
+        { key: "summary", label: "Summary", type: "text", placeholder: "Meeting / Task" },
+        { key: "startIso", label: "Start ISO (empty = in 1h)", type: "text", placeholder: "2026-10-20T14:00:00+02:00" },
+        { key: "durationMinutes", label: "Duration (min)", type: "number", placeholder: "30" },
+        { key: "description", label: "Description", type: "textarea", placeholder: "Notes" }
+      ],
+      execute: async (input, ctx) => {
+        const calendarId = String(input.calendarId || "primary").trim();
+        const summary = String(input.summary || "New Calendar Event").trim();
+        const durationMin = Math.max(5, Number(input.durationMinutes || 30));
+        const startDate = input.startIso ? new Date(String(input.startIso)) : new Date(Date.now() + 36e5);
+        const endDate = new Date(startDate.getTime() + durationMin * 6e4);
+        try {
+          const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+          const res = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                summary,
+                description: input.description || "",
+                start: { dateTime: startDate.toISOString() },
+                end: { dateTime: endDate.toISOString() }
+              }),
+              signal: AbortSignal.timeout(5e3)
+            }
+          );
+          if (!res.ok) {
+            const errText = await res.text().catch(() => "");
+            throw new Error(`Google Calendar POST ${res.status}: ${errText || res.statusText}`);
+          }
+          const created = await res.json();
+          return {
+            summary: `Created "${summary}" in Google Calendar (${calendarId})`,
+            data: {
+              id: created.id,
+              htmlLink: created.htmlLink,
+              summary,
+              start: startDate.toISOString(),
+              end: endDate.toISOString(),
+              source: "google_calendar_api"
+            }
+          };
+        } catch {
+          const entityId = calendarId.startsWith("calendar.") ? calendarId : "calendar.thomas_simhofer_gmail_com";
+          await ctx.ha.callService("calendar", "create_event", {
+            entity_id: entityId,
+            summary,
+            description: input.description || "",
+            start_date_time: startDate.toISOString(),
+            end_date_time: endDate.toISOString()
+          });
+          return {
+            summary: `Created "${summary}" via Home Assistant (${entityId})`,
+            data: {
+              entityId,
+              summary,
+              start: startDate.toISOString(),
+              end: endDate.toISOString(),
+              source: "homeassistant_calendar_service"
+            }
+          };
+        }
+      }
+    });
+    this.register({
+      id: "gcal.delete_event",
+      name: "Calendar: Delete Event",
+      domainCode: "GCAL",
+      category: "gcal",
+      icon: "GCAL",
+      description: "Deletes an event from Google Calendar by eventId.",
+      defaultInput: { calendarId: "primary", eventId: "" },
+      fields: [
+        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
+        { key: "eventId", label: "Event ID", type: "text", placeholder: "Google Event ID", required: true }
+      ],
+      execute: async (input, ctx) => {
+        const calendarId = String(input.calendarId || "primary").trim();
+        const eventId = String(input.eventId || "").trim();
+        if (!eventId) throw new Error("eventId is required");
+        const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+        const res = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+            calendarId
+          )}/events/${encodeURIComponent(eventId)}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(5e3)
+          }
+        );
+        if (!res.ok && res.status !== 204 && res.status !== 410) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`Google Calendar DELETE ${res.status}: ${errText || res.statusText}`);
+        }
+        return {
+          summary: `Deleted event ${eventId} from ${calendarId}`,
+          data: { calendarId, eventId, deleted: true }
+        };
+      }
+    });
+    this.register({
+      id: "google.fit.daily_summary",
+      name: "Google Fit & Biometrics Summary",
+      domainCode: "FIT",
+      category: "fitness",
+      icon: "FIT",
+      description: "Queries Google Fitness REST API dataset:aggregate (steps, calories, heart rate) and merges with local SQLite biometrics.",
+      defaultInput: { days: "7" },
+      fields: [
+        { key: "days", label: "Lookback Days", type: "number", placeholder: "7" }
+      ],
+      execute: async (input, ctx) => {
+        const days = Math.max(1, Math.min(30, Number(input.days || 7)));
+        let localRows = [];
+        try {
+          const healthDb = openAppDatabaseReadWrite(ctx.dataDir, "google-health");
+          localRows = healthDb.query(
+            "SELECT * FROM daily_biometrics ORDER BY day_date DESC LIMIT ?",
+            [days]
+          );
+        } catch {
+        }
+        let googleFitSteps = null;
+        let googleFitError = null;
+        try {
+          const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+          const endMs = Date.now();
+          const startMs = endMs - 864e5;
+          const fitRes = await fetch(
+            "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                aggregateBy: [{ dataTypeName: "com.google.step_count.delta" }],
+                bucketByTime: { durationMillis: 864e5 },
+                startTimeMillis: startMs,
+                endTimeMillis: endMs
+              }),
+              signal: AbortSignal.timeout(5e3)
+            }
+          );
+          if (fitRes.ok) {
+            const fitJson = await fitRes.json();
+            googleFitSteps = fitJson.bucket?.[0]?.dataset?.[0]?.point?.[0]?.value?.[0]?.intVal ?? 0;
+          } else {
+            googleFitError = `HTTP ${fitRes.status} (Fitness scope requires re-authorization)`;
+          }
+        } catch (e) {
+          googleFitError = e instanceof Error ? e.message : String(e);
+        }
+        const latest = localRows[0];
+        return {
+          summary: latest ? `Readiness ${latest.readiness_score ?? "\u2014"} \xB7 Steps ${latest.steps ?? 0} \xB7 Resting HR ${latest.resting_hr ?? "\u2014"} bpm` : `${localRows.length} biometric records loaded`,
+          data: {
+            days,
+            googleFitLiveSteps24h: googleFitSteps,
+            googleFitNotice: googleFitError,
+            biometricsHistory: localRows
+          }
+        };
+      }
+    });
+    this.register({
+      id: "gmail.list_unread",
+      name: "Gmail: Query Messages",
+      domainCode: "GMAIL",
+      category: "gmail",
+      icon: "GMAIL",
+      description: "Searches Gmail messages via REST API v1 (/users/me/messages).",
+      defaultInput: { query: "is:unread label:INBOX", maxResults: "5" },
+      fields: [
+        { key: "query", label: "Search Query", type: "text", placeholder: "is:unread label:INBOX" },
+        { key: "maxResults", label: "Max Results", type: "number", placeholder: "5" }
+      ],
+      execute: async (input, ctx) => {
+        const query = String(input.query || "is:unread label:INBOX").trim();
+        const maxResults = Math.max(1, Math.min(25, Number(input.maxResults || 5)));
+        const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+        const listRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
+            query
+          )}&maxResults=${maxResults}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(5e3)
+          }
+        );
+        if (!listRes.ok) {
+          const errBody = await listRes.text().catch(() => "");
+          throw new Error(
+            `Gmail API ${listRes.status}: ${errBody || listRes.statusText}. Authorize scope gmail.readonly.`
+          );
+        }
+        const listData = await listRes.json();
+        const messageRefs = listData.messages || [];
+        const details = [];
+        for (const ref of messageRefs.slice(0, 5)) {
+          const msgRes = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(
+              ref.id
+            )}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: AbortSignal.timeout(4e3)
+            }
+          );
+          if (msgRes.ok) {
+            const m = await msgRes.json();
+            const headers = m.payload?.headers || [];
+            const from = headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
+            const subject = headers.find((h) => h.name.toLowerCase() === "subject")?.value || "(No Subject)";
+            details.push({ id: ref.id, from, subject, snippet: m.snippet || "" });
+          }
+        }
+        return {
+          summary: `${details.length} messages matched "${query}"`,
+          data: {
+            query,
+            count: details.length,
+            messages: details,
+            formattedText: details.length > 0 ? details.map((m) => `\u2022 ${m.from}: ${m.subject}`).join("\n") : `No messages for "${query}".`
+          }
+        };
+      }
+    });
+    this.register({
+      id: "gmail.send",
+      name: "Gmail: Send Email",
+      domainCode: "GMAIL",
+      category: "gmail",
+      icon: "GMAIL",
+      description: "Sends an RFC-2822 email via Gmail REST API v1 (/users/me/messages/send).",
+      defaultInput: {
+        to: "thomas.simhofer@gmail.com",
+        subject: "Thassi Notification",
+        body: "{{$input}}"
+      },
+      fields: [
+        { key: "to", label: "To", type: "text", placeholder: "thomas.simhofer@gmail.com", required: true },
+        { key: "subject", label: "Subject", type: "text", placeholder: "Thassi Notification" },
+        { key: "body", label: "Body", type: "textarea", placeholder: "{{$input}}" }
+      ],
+      execute: async (input, ctx) => {
+        const to = String(input.to || "").trim();
+        if (!to) throw new Error('Recipient "to" is required');
+        const subject = String(input.subject || "Thassi Notification").trim();
+        const body = String(input.body || "").trim();
+        const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+        const mimeMessage = [
+          `To: ${to}`,
+          `Subject: =?utf-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`,
+          "MIME-Version: 1.0",
+          'Content-Type: text/plain; charset="UTF-8"',
+          "",
+          body
+        ].join("\r\n");
+        const rawBase64Url = Buffer.from(mimeMessage, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ raw: rawBase64Url }),
+          signal: AbortSignal.timeout(6e3)
+        });
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "");
+          throw new Error(
+            `Gmail Send API ${res.status}: ${errBody || res.statusText}. Authorize scope gmail.send.`
+          );
+        }
+        const sent = await res.json();
+        return {
+          summary: `Sent email to ${to} (id: ${sent.id})`,
+          data: { id: sent.id, threadId: sent.threadId, to, subject, sentAt: (/* @__PURE__ */ new Date()).toISOString() }
+        };
+      }
+    });
+    this.register({
+      id: "google.drive.recent_files",
+      name: "Google Drive: List Recent Files",
+      domainCode: "DRIVE",
+      category: "drive",
+      icon: "DRIVE",
+      description: "Lists recently modified files and folders from Google Drive REST API v3.",
+      defaultInput: { pageSize: "15", query: "trashed = false" },
+      fields: [
+        { key: "pageSize", label: "Max Files", type: "number", placeholder: "15" },
+        { key: "query", label: "Drive Query (q)", type: "text", placeholder: "trashed = false" }
+      ],
+      execute: async (input, ctx) => {
+        const pageSize = Math.max(1, Math.min(50, Number(input.pageSize || 15)));
+        const q = String(input.query || "trashed = false").trim();
+        const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+        const params = new URLSearchParams({
+          pageSize: String(pageSize),
+          q,
+          orderBy: "modifiedTime desc",
+          fields: "files(id,name,mimeType,modifiedTime,size,webViewLink)"
+        });
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(5e3)
+        });
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "");
+          throw new Error(
+            `Google Drive API ${res.status}: ${errBody || res.statusText}. Authorize scope drive.readonly.`
+          );
+        }
+        const data = await res.json();
+        const files = data.files || [];
+        return {
+          summary: `${files.length} files retrieved from Google Drive`,
+          data: { count: files.length, files }
+        };
+      }
+    });
+    this.register({
+      id: "finance.summary.get",
+      name: "Finance: Cashflow & Balance KPIs",
+      domainCode: "FIN",
+      category: "finance",
+      icon: "FIN",
+      description: "Reads current account balance, monthly/weekly/daily expenses, net cashflow, and category budgets.",
+      defaultInput: {},
+      fields: [],
+      execute: async (_input, ctx) => {
+        const finDb = openAppDatabaseReadWrite(ctx.dataDir, "finance-analytics");
+        const balanceCfg = finDb.kvGet("finance_balance_config") || {
+          currentBalance: 4850,
+          accountName: "Sparkasse George Girokonto"
+        };
+        const totals = finDb.queryOne(`
+          SELECT
+            COUNT(*) AS txCount,
+            COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS totalIncome,
+            COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) AS totalExpenses
+          FROM transactions
+        `);
+        const byCategory = finDb.query(`
+          SELECT
+            category,
+            ROUND(SUM(ABS(amount)), 2) AS spend,
+            COUNT(*) AS tx_count
+          FROM transactions
+          WHERE amount < 0
+          GROUP BY category
+          ORDER BY spend DESC
+        `);
+        const budgets = finDb.query("SELECT * FROM category_budgets ORDER BY monthly_limit DESC");
+        return {
+          summary: `Balance: \u20AC${Number(balanceCfg.currentBalance ?? 0).toFixed(2)} \xB7 ${totals?.txCount ?? 0} transactions \xB7 \u20AC${Number(totals?.totalExpenses ?? 0).toFixed(2)} expenses`,
+          data: {
+            account: balanceCfg,
+            totals,
+            spendByCategory: byCategory,
+            budgets
+          }
+        };
+      }
+    });
+    this.register({
+      id: "finance.transactions.query",
+      name: "Finance: Search Ledger Transactions",
+      domainCode: "FIN",
+      category: "finance",
+      icon: "FIN",
+      description: "Searches the SQLite transaction ledger by payee/notes, category, or minimum amount.",
+      defaultInput: { search: "", category: "", limit: "30" },
+      fields: [
+        { key: "search", label: "Payee / Notes", type: "text", placeholder: "SPAR / HOFER / AREC" },
+        { key: "category", label: "Category", type: "text", placeholder: "Groceries / Housing" },
+        { key: "limit", label: "Limit", type: "number", placeholder: "30" }
+      ],
+      execute: async (input, ctx) => {
+        const finDb = openAppDatabaseReadWrite(ctx.dataDir, "finance-analytics");
+        const search = String(input.search || "").trim();
+        const category = String(input.category || "").trim();
+        const limit = Math.max(1, Math.min(250, Number(input.limit || 30)));
+        const clauses = [];
+        const params = [];
+        if (search) {
+          clauses.push("(LOWER(payee) LIKE ? OR LOWER(notes) LIKE ?)");
+          params.push(`%${search.toLowerCase()}%`, `%${search.toLowerCase()}%`);
+        }
+        if (category) {
+          clauses.push("LOWER(category) LIKE ?");
+          params.push(`%${category.toLowerCase()}%`);
+        }
+        const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+        const rows = finDb.query(
+          `SELECT id, tx_date, payee, amount, category, account, is_recurring, notes
+           FROM transactions ${whereSql}
+           ORDER BY tx_date DESC, id DESC LIMIT ?`,
+          [...params, limit]
+        );
+        return {
+          summary: `${rows.length} transactions returned`,
+          data: { count: rows.length, transactions: rows }
+        };
+      }
+    });
+    this.register({
+      id: "meals.week_plan.get",
+      name: "Meals: Weekly Plan & Macro Summary",
+      domainCode: "MEALS",
+      category: "food",
+      icon: "MEALS",
+      description: "Reads the current 7-day meal plan, recipes, and daily calorie/macro totals from meal-planner.",
+      defaultInput: {},
+      fields: [],
+      execute: async (_input, ctx) => {
+        const mealDb = openAppDatabaseReadWrite(ctx.dataDir, "meal-planner");
+        const planRows = mealDb.query(`
+          SELECT plan_date, slot, custom_title, calories, protein_g, carbs_g, fat_g, guest_portions, selected, completed
+          FROM meal_plan
+          ORDER BY plan_date ASC, slot ASC
+        `);
+        const todaySummary = ctx.sharedDb.kvGet("meal_planner_today") || null;
+        return {
+          summary: `${planRows.length} planned meal slots across the week`,
+          data: {
+            todaySummary,
+            count: planRows.length,
+            plan: planRows
+          }
+        };
+      }
+    });
+    this.register({
+      id: "meals.groceries.manage",
+      name: "Meals: Grocery List & Stock Manager",
+      domainCode: "MEALS",
+      category: "food",
+      icon: "MEALS",
+      description: "Lists, adds, or clears items on the persistent grocery shopping list.",
+      defaultInput: { action: "list", itemName: "", category: "Frische & Markt" },
+      fields: [
+        { key: "action", label: "Action", type: "select", options: ["list", "add", "clear_checked"] },
+        { key: "itemName", label: "Item Name (for add)", type: "text", placeholder: "Bio Hafermilch 1L" },
+        { key: "category", label: "Category", type: "text", placeholder: "Frische & Markt" }
+      ],
+      execute: async (input, ctx) => {
+        const mealDb = openAppDatabaseReadWrite(ctx.dataDir, "meal-planner");
+        const act = String(input.action || "list").trim();
+        if (act === "add" && String(input.itemName || "").trim()) {
+          mealDb.execute(
+            "INSERT INTO grocery_items (name, category, checked, source_recipe) VALUES (?, ?, 0, ?)",
+            [String(input.itemName).trim(), String(input.category || "General"), "Axons"]
+          );
+        } else if (act === "clear_checked") {
+          mealDb.execute("DELETE FROM grocery_items WHERE checked = 1");
+        }
+        const items = mealDb.query("SELECT * FROM grocery_items ORDER BY checked ASC, id DESC");
+        const openCount = items.filter((i) => !i.checked).length;
+        return {
+          summary: `${openCount} open items on grocery list (${items.length} total)`,
+          data: { openCount, totalCount: items.length, items }
+        };
+      }
+    });
+    this.register({
+      id: "food.openfoodfacts.barcode",
+      name: "OpenFoodFacts: EAN Barcode Lookup",
+      domainCode: "MEALS",
+      category: "food",
+      icon: "MEALS",
+      description: "Looks up nutritional values (kcal, protein, carbs, fat, fiber) for any EAN/GTIN barcode via OpenFoodFacts v2.",
+      defaultInput: { barcode: "5449000000996" },
+      fields: [
+        { key: "barcode", label: "EAN / GTIN Barcode", type: "text", placeholder: "5449000000996", required: true }
+      ],
+      execute: async (input) => {
+        const barcode = String(input.barcode || "").replace(/[^0-9]/g, "");
+        if (!barcode) throw new Error("Valid numeric EAN barcode is required");
+        const res = await fetch(
+          `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`,
+          {
+            headers: { "User-Agent": "Thassi-Axons/2.0" },
+            signal: AbortSignal.timeout(5e3)
+          }
+        );
+        if (!res.ok) {
+          throw new Error(`OpenFoodFacts HTTP ${res.status}`);
+        }
+        const payload = await res.json();
+        if (payload.status !== 1 || !payload.product) {
+          throw new Error(`Barcode ${barcode} not found in OpenFoodFacts.`);
+        }
+        const p = payload.product;
+        const nut = p.nutriments || {};
+        const name = p.product_name_de || p.product_name || `Product ${barcode}`;
+        const calories = Math.round(Number(nut["energy-kcal_100g"] ?? nut["energy-kcal"] ?? 0));
+        const protein = Number(Number(nut.proteins_100g ?? 0).toFixed(1));
+        const carbs = Number(Number(nut.carbohydrates_100g ?? 0).toFixed(1));
+        const fat = Number(Number(nut.fat_100g ?? 0).toFixed(1));
+        return {
+          summary: `${name} (${calories} kcal/100g \xB7 P:${protein}g C:${carbs}g F:${fat}g)`,
+          data: {
+            barcode,
+            name,
+            brand: p.brands || "",
+            quantity: p.quantity || "100g",
+            calories_per_100g: calories,
+            protein_per_100g: protein,
+            carbs_per_100g: carbs,
+            fat_per_100g: fat,
+            fiber_per_100g: Number(Number(nut.fiber_100g ?? 0).toFixed(1)),
+            sugar_per_100g: Number(Number(nut.sugars_100g ?? 0).toFixed(1)),
+            salt_per_100g: Number(Number(nut.salt_100g ?? 0).toFixed(2)),
+            source: "openfoodfacts_api"
+          }
+        };
+      }
+    });
+    this.register({
+      id: "bambu.printer.telemetry",
+      name: "BambuLab X1C: LAN Probe & Telemetry",
+      domainCode: "3DP",
+      category: "bambu",
+      icon: "3DP",
+      description: "Probes the BambuLab printer on LAN (MQTT TLS :8883 / FTPS :990), checks Shelly plug power, and returns active 3D print projects.",
+      defaultInput: { printerIp: "192.168.188.175", shellyEntity: "switch.buro_og_plug_90" },
+      fields: [
+        { key: "printerIp", label: "Printer IP", type: "text", placeholder: "192.168.188.175" },
+        { key: "shellyEntity", label: "Shelly Power Plug Entity", type: "text", placeholder: "switch.buro_og_plug_90" }
+      ],
+      execute: async (input, ctx) => {
+        const ip = String(input.printerIp || "192.168.188.175").trim();
+        const shellyId = String(input.shellyEntity || "switch.buro_og_plug_90").trim();
+        const probePort = (port) => new Promise((resolve) => {
+          const sock = net.connect(port, ip, () => {
+            sock.destroy();
+            resolve(true);
+          });
+          sock.setTimeout(1500, () => {
+            sock.destroy();
+            resolve(false);
+          });
+          sock.on("error", () => resolve(false));
+        });
+        const [mqttOpen, ftpsOpen, shellyState] = await Promise.all([
+          probePort(8883),
+          probePort(990),
+          ctx.ha.getState(shellyId).catch(() => null)
+        ]);
+        let projects = [];
+        try {
+          const printDb = openAppDatabaseReadWrite(ctx.dataDir, "3d-print");
+          projects = printDb.query(
+            "SELECT id, name, category, status, updated_at FROM print_projects ORDER BY updated_at DESC"
+          );
+        } catch {
+        }
+        return {
+          summary: `Printer ${ip}: MQTT(:8883)=${mqttOpen ? "OPEN" : "OFFLINE"} \xB7 Plug=${shellyState?.state ?? "unknown"} \xB7 ${projects.length} CAD projects`,
+          data: {
+            printerIp: ip,
+            mqttPort8883Reachable: mqttOpen,
+            ftpsPort990Reachable: ftpsOpen,
+            shellyPowerPlug: {
+              entityId: shellyId,
+              state: shellyState?.state ?? "unknown"
+            },
+            projects
+          }
+        };
+      }
+    });
+    this.register({
+      id: "vision.detections.recent",
+      name: "Camera Vision: Recent Object Detections",
+      domainCode: "VISION",
+      category: "vision",
+      icon: "VISION",
+      description: "Reads the latest COCO-SSD object detections, motion scores, and camera health metrics.",
+      defaultInput: { limit: "15" },
+      fields: [
+        { key: "limit", label: "Max Detections", type: "number", placeholder: "15" }
+      ],
+      execute: async (input, ctx) => {
+        const limit = Math.max(1, Math.min(100, Number(input.limit || 15)));
+        const visDb = openAppDatabaseReadWrite(ctx.dataDir, "camera-vision");
+        const cameras = visDb.query(
+          "SELECT id, name, room, source_type, lan_ip, optimization_mode, enabled, last_sampled_at, last_status FROM camera_sources"
+        );
+        const detections = visDb.query(
+          `SELECT id, camera_id, camera_name, sampled_at, status, scene_summary, total_objects, person_count, vehicle_count, motion_pct, processing_ms
+           FROM vision_detections ORDER BY id DESC LIMIT ?`,
+          [limit]
+        );
+        return {
+          summary: `${detections.length} detections across ${cameras.length} configured cameras`,
+          data: { cameras, detections }
+        };
+      }
+    });
+    this.register({
+      id: "weather.openmeteo.forecast",
+      name: "Weather: Open-Meteo Forecast",
+      domainCode: "WX",
+      category: "weather",
+      icon: "WX",
+      description: "Fetches live temperature, wind, humidity, and 24-hour forecast from Open-Meteo.",
+      defaultInput: {
+        lat: "48.0444",
+        lon: "15.6689",
+        locationName: "St. Veit / G\xF6lsen"
+      },
+      fields: [
+        { key: "lat", label: "Latitude", type: "text", placeholder: "48.0444" },
+        { key: "lon", label: "Longitude", type: "text", placeholder: "15.6689" },
+        { key: "locationName", label: "Location Label", type: "text", placeholder: "St. Veit / G\xF6lsen" }
+      ],
+      execute: async (input) => {
+        const lat = Number(input.lat || 48.0444);
+        const lon = Number(input.lon || 15.6689);
+        const locationName = String(input.locationName || "St. Veit / G\xF6lsen");
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FVienna&forecast_days=1`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(5e3) });
+        if (!res.ok) {
+          throw new Error(`Open-Meteo API ${res.status}: ${res.statusText}`);
+        }
+        const data = await res.json();
+        const tempC = data.current?.temperature_2m;
+        const humidity = data.current?.relative_humidity_2m;
+        const windKmh = data.current?.wind_speed_10m;
+        const maxC = data.daily?.temperature_2m_max?.[0];
+        const minC = data.daily?.temperature_2m_min?.[0];
+        return {
+          summary: `${locationName}: ${tempC} \xB0C (Min ${minC}\xB0 / Max ${maxC}\xB0, RH ${humidity}%)`,
+          data: {
+            provider: "open-meteo",
+            locationName,
+            lat,
+            lon,
+            tempC,
+            apparentTempC: data.current?.apparent_temperature,
+            humidityPct: humidity,
+            windKmh,
+            tempMaxC: maxC,
+            tempMinC: minC,
+            formattedText: `${locationName}: ${tempC} \xB0C (${minC}\u2013${maxC} \xB0C, Wind ${windKmh} km/h)`
+          }
+        };
+      }
+    });
+    this.register({
+      id: "github.list_issues",
+      name: "GitHub: List Repository Issues",
+      domainCode: "GH",
+      category: "github",
+      icon: "GH",
+      description: "Fetches open or closed issues from GitHub REST API v3.",
+      defaultInput: { repo: "tsimhofer/thassi", state: "open" },
+      fields: [
+        { key: "repo", label: "Owner / Repository", type: "text", placeholder: "tsimhofer/thassi", required: true },
+        { key: "state", label: "State", type: "select", options: ["open", "closed", "all"] }
+      ],
+      execute: async (input, ctx) => {
+        const repo = String(input.repo || "tsimhofer/thassi").trim();
+        const state = String(input.state || "open").trim();
+        const headers = {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "Thassi-Axons/2.0"
+        };
+        if (ctx.credentials?.githubToken) {
+          headers.Authorization = `Bearer ${ctx.credentials.githubToken}`;
+        }
+        const res = await fetch(
+          `https://api.github.com/repos/${repo}/issues?state=${encodeURIComponent(state)}&per_page=15`,
+          { headers, signal: AbortSignal.timeout(5e3) }
+        );
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`GitHub API ${res.status} (${repo}): ${errText || res.statusText}`);
+        }
+        const rawIssues = await res.json();
+        const issues = rawIssues.map((iss) => ({
+          number: iss.number,
+          title: iss.title,
+          state: iss.state,
+          author: iss.user?.login || "unknown",
+          url: iss.html_url,
+          createdAt: iss.created_at
+        }));
+        const formattedText = issues.length > 0 ? issues.map((i) => `#${i.number} [${i.state}] ${i.title} (@${i.author})`).join("\n") : `No ${state} issues in ${repo}`;
+        return {
+          summary: `${issues.length} issues in ${repo} (${state})`,
+          data: { repo, count: issues.length, issues, formattedText }
+        };
+      }
+    });
+    this.register({
+      id: "github.create_issue",
+      name: "GitHub: Create Issue",
+      domainCode: "GH",
+      category: "github",
+      icon: "GH",
+      description: "Creates a GitHub issue via POST /repos/:owner/:repo/issues.",
+      defaultInput: {
+        repo: "tsimhofer/thassi",
+        title: "[Axon] {{$input}}",
+        body: "{{$input}}"
+      },
+      fields: [
+        { key: "repo", label: "Owner / Repository", type: "text", placeholder: "tsimhofer/thassi", required: true },
+        { key: "title", label: "Issue Title", type: "text", placeholder: "Issue title", required: true },
+        { key: "body", label: "Body (Markdown)", type: "textarea", placeholder: "{{$input}}" }
+      ],
+      execute: async (input, ctx) => {
+        const repo = String(input.repo || "tsimhofer/thassi").trim();
+        const title = String(input.title || "").trim();
+        const body = String(input.body || "").trim();
+        if (!title) throw new Error("Issue title is required");
+        if (!ctx.credentials?.githubToken) {
+          throw new Error("github_token is required to create issues.");
+        }
+        const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+          method: "POST",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${ctx.credentials.githubToken}`,
+            "Content-Type": "application/json",
+            "User-Agent": "Thassi-Axons/2.0"
+          },
+          body: JSON.stringify({ title, body }),
+          signal: AbortSignal.timeout(5e3)
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`GitHub Create Issue ${res.status}: ${errText || res.statusText}`);
+        }
+        const created = await res.json();
+        return {
+          summary: `Created Issue #${created.number} in ${repo}`,
+          data: { repo, issueNumber: created.number, url: created.html_url, title: created.title }
+        };
+      }
+    });
+    this.register({
+      id: "gemini.generate",
+      name: "Gemini AI: Generate & Synthesize",
+      domainCode: "AI",
+      category: "gemini",
+      icon: "AI",
+      description: "Calls Google Gemini API (generateContent) to analyze or transform upstream data.",
+      defaultInput: {
+        model: "gemini-2.5-flash",
+        prompt: "Analyze concisely:\n\n{{$input}}"
+      },
+      fields: [
+        {
+          key: "model",
+          label: "Model",
+          type: "select",
+          options: ["gemini-2.5-flash", "gemini-2.5-pro"]
+        },
+        {
+          key: "prompt",
+          label: "Prompt (supports {{$input}})",
+          type: "textarea",
+          placeholder: "Analyze:\n{{$input}}",
+          required: true
+        }
+      ],
+      execute: async (input, ctx) => {
+        const model = String(input.model || "gemini-2.5-flash").trim();
+        const promptText = String(input.prompt || "").trim();
+        if (!promptText) throw new Error("Prompt is required");
+        if (!ctx.credentials?.geminiApiKey) {
+          throw new Error("gemini_api_key is not configured.");
+        }
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+            model
+          )}:generateContent?key=${encodeURIComponent(ctx.credentials.geminiApiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }]
+            }),
+            signal: AbortSignal.timeout(12e3)
+          }
+        );
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`Gemini API ${res.status}: ${errText || res.statusText}`);
+        }
+        const gemData = await res.json();
+        const replyText = gemData.candidates?.[0]?.content?.parts?.[0]?.text || "Empty response from Gemini.";
+        return {
+          summary: replyText.slice(0, 100).replace(/\n+/g, " "),
+          data: { model, response: replyText, formattedText: replyText }
+        };
+      }
+    });
+    this.register({
+      id: "system.notes.manage",
+      name: "System Notes: Read & Append",
+      domainCode: "SYS",
+      category: "system",
+      icon: "SYS",
+      description: "Reads or creates quick notes in the shared SQLite database.",
+      defaultInput: { action: "list", content: "" },
+      fields: [
+        { key: "action", label: "Action", type: "select", options: ["list", "add"] },
+        { key: "content", label: "Note Content (for add)", type: "textarea", placeholder: "Note text..." }
+      ],
+      execute: async (input, ctx) => {
+        const act = String(input.action || "list").trim();
+        if (act === "add" && String(input.content || "").trim()) {
+          ctx.sharedDb.execute(
+            "INSERT INTO system_notes (content, pinned, created_at) VALUES (?, 0, ?)",
+            [String(input.content).trim(), (/* @__PURE__ */ new Date()).toISOString()]
+          );
+        }
+        const notes = ctx.sharedDb.query(
+          "SELECT id, content, pinned, created_at FROM system_notes ORDER BY pinned DESC, id DESC LIMIT 50"
+        );
+        return {
+          summary: `${notes.length} notes in shared database`,
+          data: { count: notes.length, notes }
+        };
+      }
+    });
+    this.register({
+      id: "http.request",
+      name: "HTTP: Generic REST Connector",
+      domainCode: "HTTP",
+      category: "http",
+      icon: "HTTP",
+      description: "Executes a live HTTP GET/POST/PUT/DELETE call to any endpoint.",
+      defaultInput: {
+        method: "GET",
+        endpoint: "http://192.168.188.92:8099/healthz",
+        headersJson: "{}",
+        payload: ""
+      },
+      fields: [
+        { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "DELETE"] },
+        { key: "endpoint", label: "URL", type: "text", placeholder: "https://api.example.com/v1", required: true },
+        { key: "headersJson", label: "Headers (JSON)", type: "textarea", placeholder: "{}" },
+        { key: "payload", label: "Body (POST/PUT)", type: "textarea", placeholder: "{{$input}}" }
+      ],
+      execute: async (input) => {
+        const method = String(input.method || "GET").toUpperCase();
+        const url = String(input.endpoint || input.url || "").trim();
+        if (!url) throw new Error("Endpoint URL is required");
+        let customHeaders = {};
+        if (input.headersJson && String(input.headersJson).trim()) {
+          try {
+            customHeaders = JSON.parse(String(input.headersJson));
+          } catch {
+            throw new Error("Invalid JSON in headersJson");
+          }
+        }
+        const init = {
+          method,
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            ...customHeaders
+          },
+          signal: AbortSignal.timeout(8e3)
+        };
+        if (method !== "GET" && method !== "HEAD" && input.payload) {
+          const bodyStr = typeof input.payload === "string" ? input.payload : JSON.stringify(input.payload);
+          init.body = bodyStr;
+          if (!customHeaders["Content-Type"] && !customHeaders["content-type"]) {
+            init.headers["Content-Type"] = "application/json";
+          }
+        }
+        const res = await fetch(url, init);
+        const contentType = res.headers.get("content-type") || "";
+        const bodyData = contentType.includes("application/json") ? await res.json().catch(() => null) : await res.text().catch(() => "");
+        if (!res.ok) {
+          throw new Error(
+            `HTTP ${res.status} (${method} ${url}): ${typeof bodyData === "string" ? bodyData.slice(0, 200) : JSON.stringify(bodyData).slice(0, 200)}`
+          );
+        }
+        const formattedText = typeof bodyData === "string" ? bodyData : JSON.stringify(bodyData, null, 2);
+        return {
+          summary: `${method} ${url} -> ${res.status} OK`,
+          data: {
+            status: res.status,
+            url,
+            method,
+            response: bodyData,
+            formattedText: formattedText.slice(0, 2e3)
+          }
+        };
+      }
+    });
+    this.register({
+      id: "trigger.manual",
+      name: "Manual / Webhook Trigger",
+      domainCode: "TRIG",
+      category: "trigger",
+      icon: "TRIG",
+      description: "Starts an Axon chain manually or via HTTP webhook.",
+      defaultInput: { payload: '{"source":"axons"}' },
+      fields: [
+        { key: "payload", label: "Initial Payload", type: "textarea", placeholder: '{"source":"manual"}' }
+      ],
+      execute: async (input) => ({
+        summary: `Triggered at ${(/* @__PURE__ */ new Date()).toLocaleTimeString("de-AT")}`,
+        data: { triggeredAt: (/* @__PURE__ */ new Date()).toISOString(), payload: input.payload || "{}" }
+      })
+    });
+    this.register({
+      id: "trigger.schedule",
+      name: "Cron / Interval Schedule",
+      domainCode: "TRIG",
+      category: "trigger",
+      icon: "TRIG",
+      description: "Triggers an Axon flow on a recurring interval.",
+      defaultInput: { cron: "0 7 * * *", intervalSeconds: "900", timezone: "Europe/Vienna" },
+      fields: [
+        { key: "cron", label: "Cron Expression", type: "text", placeholder: "0 7 * * *" },
+        { key: "intervalSeconds", label: "Interval (s)", type: "number", placeholder: "900" },
+        { key: "timezone", label: "Timezone", type: "text", placeholder: "Europe/Vienna" }
+      ],
+      execute: async (input) => ({
+        summary: `Schedule active (${input.cron || `${input.intervalSeconds}s`})`,
+        data: {
+          triggeredAt: (/* @__PURE__ */ new Date()).toISOString(),
+          cron: input.cron,
+          intervalSeconds: Number(input.intervalSeconds || 900),
+          timezone: input.timezone || "Europe/Vienna"
+        }
+      })
+    });
+  }
+};
+
+// thassi_host/src/hass-sidebar-sync.ts
+import fs3 from "node:fs";
+import path3 from "node:path";
 function getHassSidebarStylerScript() {
   return `
   (function initThassiHassSidebarStyler() {
@@ -825,6 +2353,42 @@ function getHassSidebarStylerScript() {
         transform: none !important;
         box-shadow: none !important;
       }
+      a[href="/home"],
+      a[href="/lovelace"],
+      a[href="/light"],
+      a[href="/security"],
+      a[href="/climate"],
+      a[href="/energy"],
+      a[href="/media-browser"],
+      a[href="/logbook"],
+      a[href="/history"],
+      a[href="/todo"],
+      a[href="/calendar"],
+      a[href="/map"],
+      a[href="/thomas-buero"],
+      a[href="/aishe-diagnose"],
+      a[href="/aishe-details"],
+      a[href="/aishe-security"],
+      a[href="/aishe-energy"],
+      ha-md-list-item[href="/home"],
+      ha-md-list-item[href="/lovelace"],
+      ha-md-list-item[href="/light"],
+      ha-md-list-item[href="/security"],
+      ha-md-list-item[href="/climate"],
+      ha-md-list-item[href="/energy"],
+      ha-md-list-item[href="/media-browser"],
+      ha-md-list-item[href="/logbook"],
+      ha-md-list-item[href="/history"],
+      ha-md-list-item[href="/todo"],
+      ha-md-list-item[href="/calendar"],
+      ha-md-list-item[href="/map"],
+      ha-md-list-item[href="/thomas-buero"],
+      ha-md-list-item[href="/aishe-diagnose"],
+      ha-md-list-item[href="/aishe-details"],
+      ha-md-list-item[href="/aishe-security"],
+      ha-md-list-item[href="/aishe-energy"] {
+        display: none !important;
+      }
     \`;
 
     const LOVELACE_FULLBLEED_CSS = \`
@@ -885,6 +2449,28 @@ function getHassSidebarStylerScript() {
           ensureStyleTag(sidebar.shadowRoot, 'thassi-sidebar-style', SIDEBAR_SHADOW_CSS);
         }
 
+        // Persist clean sidebar order & hidden panels in localStorage for all browser sessions
+        try {
+          const hidden = [
+            "home","lovelace","light","security","climate","energy",
+            "media-browser","logbook","history","todo","calendar",
+            "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy"
+          ];
+          const order = [
+            "44ec3c40_thassi_host",
+            "44ec3c40_thassi_workflows",
+            "44ec3c40_thassi_finance_analytics",
+            "44ec3c40_thassi_google_health",
+            "44ec3c40_thassi_meal_planner",
+            "44ec3c40_thassi_google_calendar",
+            "44ec3c40_thassi_smart_canvas",
+            "44ec3c40_thassi_project_workflow",
+            "hacs"
+          ];
+          window.top.localStorage.setItem('sidebarHiddenPanels', JSON.stringify(hidden));
+          window.top.localStorage.setItem('sidebarPanelOrder', JSON.stringify(order));
+        } catch (_e) {}
+
         const panelLovelace = main.shadowRoot.querySelector('ha-panel-lovelace');
         const huiRoot = panelLovelace && panelLovelace.shadowRoot && panelLovelace.shadowRoot.querySelector('hui-root');
         if (huiRoot && huiRoot.shadowRoot) {
@@ -923,12 +2509,12 @@ function getHassSidebarStylerScript() {
 function syncHassFrontendFiles() {
   const candidateConfigDirs = ["/homeassistant", "/config"];
   for (const cfgDir of candidateConfigDirs) {
-    if (!fs2.existsSync(path2.join(cfgDir, "configuration.yaml"))) continue;
+    if (!fs3.existsSync(path3.join(cfgDir, "configuration.yaml"))) continue;
     try {
-      const wwwDir = path2.join(cfgDir, "www");
-      fs2.mkdirSync(wwwDir, { recursive: true });
+      const wwwDir = path3.join(cfgDir, "www");
+      fs3.mkdirSync(wwwDir, { recursive: true });
       const stylerJs = getHassSidebarStylerScript();
-      fs2.writeFileSync(path2.join(wwwDir, "thassi-ui.js"), stylerJs, "utf-8");
+      fs3.writeFileSync(path3.join(wwwDir, "thassi-ui.js"), stylerJs, "utf-8");
       const loaderHtml = `<!DOCTYPE html>
 <html>
 <head>
@@ -951,7 +2537,7 @@ function syncHassFrontendFiles() {
   </script>
 </body>
 </html>`;
-      fs2.writeFileSync(path2.join(wwwDir, "thassi-loader.html"), loaderHtml, "utf-8");
+      fs3.writeFileSync(path3.join(wwwDir, "thassi-loader.html"), loaderHtml, "utf-8");
       console.log(`[Thassi] Synced /local/thassi-ui.js and /local/thassi-loader.html to ${wwwDir}`);
     } catch (err) {
       console.warn("[Thassi] Could not write to www dir:", err);
@@ -1057,15 +2643,15 @@ function renderUnifiedDashboardHtml(ingressPath) {
     #horizon-cal-filter-popover {
       display: none;
       position: absolute;
-      bottom: calc(100% + 10px);
+      top: calc(100% + 8px);
       left: 0;
       width: 310px;
       max-height: 340px;
       background: rgba(11, 17, 32, 0.96);
       border: 1px solid rgba(56, 189, 248, 0.35);
-      border-radius: 14px;
+      border-radius: 10px;
       padding: 12px;
-      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.72);
+      box-shadow: 0 14px 38px rgba(0, 0, 0, 0.78);
       z-index: 95;
       pointer-events: auto;
       flex-direction: column;
@@ -1192,102 +2778,101 @@ function renderUnifiedDashboardHtml(ingressPath) {
       z-index: 3;
     }
 
-    /* Abstract Sun Sculpture (Concentric Geometric Rings + Singularity Annulus) */
+    /* Abstract Sun Sculpture (Super Subtle & Bottom-Aligned) */
     #sun-assembly {
       position: absolute;
       width: 0;
       height: 0;
-      z-index: 4;
+      z-index: 3;
+      pointer-events: none;
       transform: translate3d(0, 0, 0);
       transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease, transform 0.8s ease;
       will-change: left, top;
     }
     .abstract-sun-bloom {
       position: absolute;
-      width: 220px;
-      height: 220px;
-      left: -110px;
-      top: -110px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(254, 240, 138, 0.36) 0%, rgba(251, 191, 36, 0.16) 42%, rgba(249, 115, 22, 0.05) 68%, transparent 100%);
-      filter: blur(28px);
-      animation: abstractPulse 7s ease-in-out infinite alternate;
-    }
-    .abstract-sun-outer-ring {
-      position: absolute;
-      width: 104px;
-      height: 104px;
-      left: -52px;
-      top: -52px;
-      animation: rotateOrbital 72s linear infinite;
-    }
-    .abstract-sun-mid-ring {
-      position: absolute;
       width: 56px;
       height: 56px;
       left: -28px;
       top: -28px;
       border-radius: 50%;
-      border: 1px solid rgba(254, 240, 138, 0.42);
-      background: radial-gradient(circle, rgba(254, 240, 138, 0.12) 0%, rgba(251, 191, 36, 0.03) 70%, transparent 100%);
-      box-shadow: 0 0 32px rgba(251, 191, 36, 0.22);
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.025) 45%, transparent 72%);
+      filter: blur(10px);
+    }
+    .abstract-sun-outer-ring {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      left: -17px;
+      top: -17px;
+      animation: rotateOrbital 90s linear infinite;
+    }
+    .abstract-sun-mid-ring {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: -9px;
+      top: -9px;
+      border-radius: 50%;
+      border: 0.75px solid rgba(255, 255, 255, 0.16);
+      background: transparent;
+      box-shadow: none;
     }
     .abstract-sun-annulus {
       position: absolute;
-      width: 22px;
-      height: 22px;
-      left: -11px;
-      top: -11px;
+      width: 7px;
+      height: 7px;
+      left: -3.5px;
+      top: -3.5px;
       border-radius: 50%;
-      border: 1.5px solid rgba(255, 255, 255, 0.92);
-      background: rgba(254, 240, 138, 0.18);
-      box-shadow:
-        0 0 20px rgba(251, 191, 36, 0.8),
-        inset 0 0 8px rgba(254, 240, 138, 0.65);
+      border: 0.9px solid rgba(255, 255, 255, 0.34);
+      background: rgba(255, 255, 255, 0.06);
+      box-shadow: none;
     }
     .abstract-sun-singularity {
       position: absolute;
-      width: 4px;
-      height: 4px;
-      left: -2px;
-      top: -2px;
+      width: 2px;
+      height: 2px;
+      left: -1px;
+      top: -1px;
       border-radius: 50%;
-      background: #ffffff;
-      box-shadow: 0 0 10px #ffffff;
+      background: rgba(255, 255, 255, 0.55);
+      box-shadow: none;
     }
     @keyframes abstractPulse {
-      0% { transform: scale(0.94); opacity: 0.78; }
-      100% { transform: scale(1.08); opacity: 1; }
+      0% { transform: scale(0.96); opacity: 0.65; }
+      100% { transform: scale(1.04); opacity: 0.9; }
     }
     @keyframes rotateOrbital {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
 
-    /* Abstract Lunar Sculpture (Geometric Eclipse Crescent & Orbital Ring) */
+    /* Abstract Lunar Sculpture (Slightly More Visible + Dynamic Moon Phase) */
     #moon-assembly {
       position: absolute;
       width: 0;
       height: 0;
       z-index: 4;
+      pointer-events: none;
       transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
     }
     .abstract-moon-bloom {
       position: absolute;
-      width: 150px;
-      height: 150px;
-      left: -75px;
-      top: -75px;
+      width: 68px;
+      height: 68px;
+      left: -34px;
+      top: -34px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(56, 189, 248, 0.24) 0%, rgba(129, 140, 248, 0.1) 48%, transparent 74%);
-      filter: blur(22px);
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.16) 0%, rgba(226, 232, 240, 0.06) 48%, transparent 74%);
+      filter: blur(12px);
     }
     .abstract-moon-svg {
       position: absolute;
-      width: 84px;
-      height: 84px;
-      left: -42px;
-      top: -42px;
+      width: 40px;
+      height: 40px;
+      left: -20px;
+      top: -20px;
       overflow: visible;
     }
 
@@ -1300,6 +2885,9 @@ function renderUnifiedDashboardHtml(ingressPath) {
       text-align: left;
       z-index: 15;
       pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
     }
     .clock-row {
       display: flex;
@@ -1323,23 +2911,46 @@ function renderUnifiedDashboardHtml(ingressPath) {
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
     }
-    #hero-date {
+    #hero-date-row {
       margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+    }
+    #hero-date {
       font-size: clamp(1.0rem, 1.45vw, 1.38rem);
       font-weight: 300;
       letter-spacing: 0.04em;
       color: rgba(255, 255, 255, 0.84);
       text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
+    .hero-cal-icon-btn {
+      background: transparent;
+      border: none;
+      color: rgba(248, 250, 252, 0.42);
+      padding: 3px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+    }
+    .hero-cal-icon-btn:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+      transform: translateY(-1px);
+    }
     #solar-telemetry {
       display: none;
     }
 
-    /* Simplified Minimal Weather Component (St. Veit / G\xF6lsen) */
+    /* Simplified Minimal Weather Component (Directly Below Date) */
     #hero-weather-strip {
-      margin-top: 10px;
+      margin-top: 6px;
       pointer-events: auto;
-      display: inline-flex;
+      display: flex;
       flex-direction: column;
       align-items: flex-start;
       gap: 5px;
@@ -1385,36 +2996,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       font-variant-numeric: tabular-nums;
     }
     .mw-day-slots {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .mw-slot {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      color: rgba(248, 250, 252, 0.56);
-      font-variant-numeric: tabular-nums;
-    }
-    .mw-slot.is-current-slot {
-      color: #38bdf8;
-      font-weight: 500;
-    }
-    .mw-slot-hr {
-      font-size: 10px;
-      opacity: 0.72;
-    }
-    .mw-slot-ico {
-      width: 13px;
-      height: 13px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .mw-slot-temp {
-      font-size: 11px;
-      color: rgba(248, 250, 252, 0.88);
+      display: none !important;
     }
 
     /* 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS (health, meals, finances, notes) */
@@ -1698,7 +3280,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
       width: 100vw;
       height: calc(28vh - 28px);
       min-height: 168px;
-      overflow: hidden;
+      overflow-x: clip;
+      overflow-y: visible;
       cursor: grab;
       pointer-events: auto;
     }
@@ -1758,15 +3341,100 @@ function renderUnifiedDashboardHtml(ingressPath) {
       will-change: transform;
     }
 
-    /* Horizontal Axis Line */
+    /* Horizontal Axis Line (0\xB0 Horizon Line) */
     #timeline-axis-line {
       position: absolute;
       left: -20000px;
       width: 40000px;
       bottom: 38px;
       height: 1px;
-      background: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.22);
+      z-index: 5;
       pointer-events: none;
+    }
+
+    /* Celestial Altitude Layer (Behind Timeline Ticks & Calendar Events) */
+    #timeline-celestial-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      overflow: visible;
+    }
+    #tl-celestial-svg {
+      position: absolute;
+      left: 0;
+      bottom: 38px;
+      width: 1px;
+      height: 1px;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .tl-horizon-node {
+      position: absolute;
+      bottom: 38px;
+      transform: translate(-50%, 50%);
+      pointer-events: none;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .tl-horizon-dot {
+      width: 4.5px;
+      height: 4.5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.75);
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+    }
+    .tl-horizon-node.moon-cross .tl-horizon-dot {
+      background: rgba(186, 230, 253, 0.72);
+    }
+    .tl-horizon-time {
+      position: absolute;
+      top: -15px;
+      font-size: 8.5px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.03em;
+      color: rgba(248, 250, 252, 0.62);
+      white-space: nowrap;
+      background: rgba(4, 7, 17, 0.58);
+      padding: 0.5px 4px;
+      border-radius: 3px;
+    }
+    .tl-horizon-node.moon-cross .tl-horizon-time {
+      top: 6px;
+      color: rgba(186, 230, 253, 0.55);
+    }
+    .tl-celestial-body {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      transform: translate(-50%, 50%);
+      pointer-events: none;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.35s ease, filter 0.35s ease;
+    }
+    .tl-celestial-body.below-horizon {
+      opacity: 0.36;
+      filter: saturate(0.45) brightness(0.72);
+    }
+
+    #timeline-ticks-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      pointer-events: none;
+    }
+    #timeline-events-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      pointer-events: auto;
     }
 
     /* Hour Ticks & Day Dividers */
@@ -1779,6 +3447,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       flex-direction: column;
       align-items: center;
       pointer-events: none;
+      z-index: 6;
     }
     .tl-tick-mark {
       width: 1px;
@@ -1810,53 +3479,81 @@ function renderUnifiedDashboardHtml(ingressPath) {
       font-size: 10.5px;
     }
 
-    /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE */
+    /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE (FLAT + LOCATION, ATTENDEES, DESCRIPTION) */
     .tl-event-rect {
       position: absolute;
-      height: 42px;
-      border-radius: 10px;
-      padding: 5px 12px;
-      background: rgba(12, 19, 36, 0.56);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border-left: 2.5px solid var(--ev-color, #38bdf8);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      height: 54px;
+      border-radius: 4px;
+      padding: 4px 10px;
+      background: rgba(11, 18, 32, 0.94);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-left: 3px solid var(--ev-color, #38bdf8);
+      box-shadow: none;
       display: flex;
       flex-direction: column;
       justify-content: center;
+      gap: 1.5px;
       overflow: hidden;
       cursor: pointer;
-      transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background 0.22s ease, box-shadow 0.22s ease;
+      z-index: 12;
+      transition: background 0.15s ease, border-color 0.15s ease;
     }
     .tl-event-rect:hover {
-      transform: translateY(-3px) scale(1.01);
-      background: rgba(24, 35, 58, 0.85);
-      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 20px var(--ev-glow, rgba(56, 189, 248, 0.25));
+      background: rgba(19, 30, 52, 0.98);
+      border-color: rgba(255, 255, 255, 0.28);
+      border-left-color: var(--ev-color, #38bdf8);
+      box-shadow: none;
       z-index: 18;
     }
     .tl-event-rect.is-now {
-      background: rgba(14, 116, 144, 0.42);
-      box-shadow: 0 0 28px rgba(56, 189, 248, 0.35);
+      background: rgba(12, 42, 64, 0.95);
+      border-color: rgba(56, 189, 248, 0.42);
+      border-left: 3px solid var(--ev-color, #38bdf8);
+      box-shadow: none;
     }
     .tl-event-rect.is-past {
-      opacity: 0.45;
+      opacity: 0.52;
+    }
+    .tl-ev-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px;
+      min-width: 0;
     }
     .tl-ev-title {
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 11.5px;
+      font-weight: 600;
       color: #ffffff;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      line-height: 1.2;
+      line-height: 1.15;
+    }
+    .tl-ev-time {
+      font-size: 9.5px;
+      font-variant-numeric: tabular-nums;
+      color: rgba(248, 250, 252, 0.72);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
     .tl-ev-meta {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.56);
+      font-size: 9.5px;
+      color: rgba(226, 232, 240, 0.75);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-top: 2px;
+      line-height: 1.15;
+    }
+    .tl-ev-desc {
+      font-size: 9px;
+      color: rgba(148, 163, 184, 0.85);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.15;
     }
 
     /* Quick Event Creator Popover */
@@ -1897,13 +3594,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
       border: none;
     }
 
-    /* 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS */
+    /* 6. BORDERED HIGHER ROOM STATUSBAR + UPWARD FLYOUTS OVER UPPER CONTENT */
     #devices-dock {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
-      z-index: 32;
+      z-index: 38;
       background: transparent !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
@@ -1914,12 +3611,12 @@ function renderUnifiedDashboardHtml(ingressPath) {
     /* Subtle hairline separator between Timeline and StatusBar */
     #timeline-devices-separator {
       position: relative;
-      height: 10px;
+      height: 2px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
       padding: 0 28px 0 24px;
-      pointer-events: auto;
+      pointer-events: none;
     }
     #timeline-devices-separator::before {
       content: "";
@@ -1938,42 +3635,39 @@ function renderUnifiedDashboardHtml(ingressPath) {
       pointer-events: none;
     }
     .td-sep-badge {
-      position: relative;
-      z-index: 2;
-      background: transparent;
-      padding: 0 6px 0 0;
-      font-size: 8.5px;
-      font-weight: 600;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: rgba(248, 250, 252, 0.45);
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+      display: none;
     }
     .td-sep-unpin-btn {
-      background: none;
-      border: none;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 6px;
       color: #38bdf8;
-      font-size: 9px;
+      font-size: 9.5px;
       font-weight: 600;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       cursor: pointer;
-      padding: 0 4px;
+      padding: 5px 9px;
+      white-space: nowrap;
     }
     .td-sep-unpin-btn:hover {
-      text-decoration: underline;
+      background: rgba(56, 189, 248, 0.22);
     }
 
-    /* Pinned Room Groups Tray (Expands upwards above the tabview when rooms are pinned) */
+    /* Pinned Room Groups Tray (Expands upwards OVER upper timeline content) */
     #pinned-rooms-tray {
       display: none;
-      padding: 6px 28px 8px 24px;
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 24px;
+      right: 28px;
+      padding: 6px 4px 8px 4px;
       gap: 12px;
       overflow-x: auto;
       scrollbar-width: thin;
-      align-items: stretch;
+      align-items: flex-end;
+      z-index: 65;
+      pointer-events: auto;
     }
     #pinned-rooms-tray.has-pinned {
       display: flex;
@@ -1982,16 +3676,16 @@ function renderUnifiedDashboardHtml(ingressPath) {
       min-width: 265px;
       max-width: 330px;
       flex: 0 0 auto;
-      background: rgba(6, 10, 22, 0.64);
+      background: rgba(8, 13, 26, 0.94);
       backdrop-filter: blur(24px) saturate(140%);
       -webkit-backdrop-filter: blur(24px) saturate(140%);
-      border: 1px solid rgba(56, 189, 248, 0.22);
-      border-radius: 16px;
+      border: 1px solid rgba(56, 189, 248, 0.32);
+      border-radius: 12px;
       padding: 10px 13px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.65);
       animation: pinCardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     }
     @keyframes pinCardIn {
@@ -2046,27 +3740,28 @@ function renderUnifiedDashboardHtml(ingressPath) {
       display: flex;
       flex-direction: column;
       gap: 5px;
-      max-height: 155px;
+      max-height: 175px;
       overflow-y: auto;
       padding-right: 2px;
     }
 
-    /* Minimalistic TabView Bar + Right-Aligned 3D Print & Vision Previews */
+    /* Higher & Bordered Room Bar + Right-Aligned 3D Print & Vision Previews */
     #room-dock-bar {
       position: relative;
-      height: 36px;
+      height: 50px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 28px 4px 24px;
-      gap: 16px;
-      background: transparent;
+      padding: 6px 28px 6px 24px;
+      gap: 12px;
+      background: rgba(7, 11, 22, 0.72);
+      border-top: 1px solid rgba(255, 255, 255, 0.16);
     }
 
     .room-dock-group {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 8px;
       overflow-x: auto;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
@@ -2075,47 +3770,48 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .room-dock-group::-webkit-scrollbar { display: none; }
 
-    /* Minimalistic Tab item */
+    /* Higher, bordered room button */
     .room-pill {
       position: relative;
-      background: transparent;
-      border: none;
-      border-bottom: 1.5px solid transparent;
-      border-radius: 0;
-      padding: 6px 2px;
-      color: rgba(248, 250, 252, 0.52);
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 7px;
+      padding: 7px 12px;
+      color: rgba(248, 250, 252, 0.78);
       font-family: var(--font-sans);
-      font-size: 11px;
-      font-weight: 400;
-      letter-spacing: 0.04em;
+      font-size: 11.5px;
+      font-weight: 500;
+      letter-spacing: 0.03em;
       display: inline-flex;
       align-items: center;
       gap: 6px;
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.2s ease, border-color 0.2s ease;
-      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.18s ease;
     }
     .room-pill:hover {
-      color: rgba(248, 250, 252, 0.95);
-      border-bottom-color: rgba(255, 255, 255, 0.28);
+      color: #ffffff;
+      background: rgba(30, 41, 59, 0.85);
+      border-color: rgba(255, 255, 255, 0.34);
     }
     .room-pill.pinned-tab {
       color: #ffffff;
-      font-weight: 500;
-      border-bottom-color: #38bdf8;
+      font-weight: 600;
+      background: rgba(14, 116, 144, 0.32);
+      border-color: #38bdf8;
     }
     .room-pill.has-on {
-      color: rgba(248, 250, 252, 0.88);
+      color: rgba(248, 250, 252, 0.94);
+      border-color: rgba(251, 191, 36, 0.38);
     }
     .room-pin-ico {
       display: none;
     }
     .room-dot {
-      width: 5px;
-      height: 5px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.24);
+      background: rgba(255, 255, 255, 0.28);
       transition: background 0.25s ease, box-shadow 0.25s ease;
     }
     .room-pill.has-on .room-dot {
@@ -2128,11 +3824,11 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .room-meta {
       font-size: 9.5px;
-      color: rgba(248, 250, 252, 0.38);
+      color: rgba(248, 250, 252, 0.48);
       font-variant-numeric: tabular-nums;
     }
     .room-pill.has-on .room-meta {
-      color: rgba(251, 191, 36, 0.82);
+      color: rgba(251, 191, 36, 0.88);
     }
 
     /* Right-Aligned StatusBar Previews (3D Print & Vision \u2014 NOT inside tabs, expand upwards) */
@@ -2670,42 +4366,9 @@ function renderUnifiedDashboardHtml(ingressPath) {
       <canvas id="weather-fx-canvas"></canvas>
     </div>
     <div id="horizon-glow"></div>
-    <svg id="solar-arc-svg" preserveAspectRatio="none">
-      <!-- Abstract Horizon Datum Line & Zenith Tick Marks -->
-      <line id="horizon-datum-line" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.09)" stroke-width="1" stroke-dasharray="2 8" />
-      <path id="solar-arc-path" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="3 7" />
-      <path id="solar-day-path" fill="none" stroke="rgba(251,191,36,0.16)" stroke-width="1.2" />
-      <path id="solar-progressed-path" fill="none" stroke="rgba(254,240,138,0.48)" stroke-width="1.8" />
-      <line id="celestial-elevation-chord" x1="0" y1="0" x2="0" y2="0" stroke="rgba(254,240,138,0.22)" stroke-width="1" stroke-dasharray="2 4" />
-      <circle id="horizon-node-dot" cx="0" cy="0" r="2.5" fill="rgba(56,189,248,0.65)" />
-    </svg>
-
-    <!-- Abstract Lunar Geometry -->
-    <div id="moon-assembly">
-      <div class="abstract-moon-bloom"></div>
-      <svg class="abstract-moon-svg" viewBox="-42 -42 84 84">
-        <circle cx="0" cy="0" r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.8" stroke-dasharray="2 5" />
-        <circle cx="0" cy="0" r="21" fill="none" stroke="rgba(56,189,248,0.28)" stroke-width="1" />
-        <path d="M -4,-13 A 13,13 0 1,0 10,9 A 10.5,10.5 0 1,1 -4,-13 Z" fill="rgba(226,232,240,0.88)" />
-        <circle cx="-11" cy="-11" r="1.5" fill="#38bdf8" opacity="0.85" />
-      </svg>
-    </div>
-
-    <!-- Abstract Solar Geometry (Concentric Astrolabe Rings + Singularity Annulus) -->
-    <div id="sun-assembly">
-      <div class="abstract-sun-bloom"></div>
-      <svg class="abstract-sun-outer-ring" viewBox="-52 -52 104 104">
-        <circle cx="0" cy="0" r="46" fill="none" stroke="rgba(254,240,138,0.22)" stroke-width="0.9" stroke-dasharray="3 7" />
-        <circle cx="0" cy="0" r="36" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="0.8" />
-        <line x1="-50" y1="0" x2="-39" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-        <line x1="39" y1="0" x2="50" y2="0" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-        <line x1="0" y1="-50" x2="0" y2="-39" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-        <line x1="0" y1="39" x2="0" y2="50" stroke="rgba(254,240,138,0.42)" stroke-width="1" />
-      </svg>
-      <div class="abstract-sun-mid-ring"></div>
-      <div class="abstract-sun-annulus"></div>
-      <div class="abstract-sun-singularity"></div>
-    </div>
+    <svg id="solar-arc-svg" preserveAspectRatio="none" style="display:none;"></svg>
+    <div id="moon-assembly" style="display:none;"></div>
+    <div id="sun-assembly" style="display:none;"></div>
   </div>
 
   <!-- 2. LEFT-ALIGNED DATE, TIME & SIMPLIFIED WEATHER IN UPPER-LEFT -->
@@ -2714,12 +4377,22 @@ function renderUnifiedDashboardHtml(ingressPath) {
       <div id="hero-time">--:--</div>
       <div id="hero-seconds">--</div>
     </div>
-    <div id="hero-date"></div>
+    <div id="hero-date-row">
+      <div id="hero-date"></div>
+      <button class="hero-cal-icon-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+      </button>
+    </div>
     <div id="solar-telemetry">
       <span id="solar-phase-text"></span>
     </div>
 
-    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / G\xD6LSEN -->
+    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / G\xD6LSEN (CURRENT WEATHER ONLY) -->
     <div id="hero-weather-strip" title="St. Veit an der G\xF6lsen">
       <div class="mw-current-row">
         <div class="mw-icon-wrap" id="mw-current-icon"></div>
@@ -2727,7 +4400,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
         <div class="mw-cond-text" id="mw-current-desc">--</div>
         <div class="mw-hi-lo" id="mw-hi-lo">--\xB0 / --\xB0</div>
       </div>
-      <div class="mw-day-slots" id="mw-day-slots"></div>
     </div>
   </div>
 
@@ -2909,29 +4581,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <div id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
-        <button class="horizon-view-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar View">\u25F7 Calendar \u2197</button>
-        <div class="cal-filter-wrap" onclick="event.stopPropagation()">
-          <button class="horizon-view-btn" id="btn-horizon-cal-filter" onclick="toggleCalendarFilterPopover(event)" title="Configure which calendars appear in Horizon">
-            \u2699\uFE0F <span id="cal-filter-btn-label">Calendars</span>
-          </button>
-          <div id="horizon-cal-filter-popover">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">
-              <div>
-                <div style="font-size:12px; font-weight:700; color:#f8fafc;">\u{1F305} Horizon Calendars</div>
-                <div id="cal-filter-oauth-badge" style="font-size:10px; color:#94a3b8; margin-top:2px;">Checking Google OAuth...</div>
-              </div>
-              <div style="display:flex; gap:4px;">
-                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(true)">All</button>
-                <button class="tl-pill" style="padding:3px 7px; font-size:10px;" onclick="setAllHorizonCalendarsFromDash(false)">None</button>
-              </div>
-            </div>
-            <div class="cal-filter-list" id="horizon-cal-filter-list"></div>
-            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
-              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="syncGoogleCalendarsFromDash()">\u{1F504} Sync Google OAuth</button>
-              <button class="w-action-link" style="margin:0; font-size:10.5px; color:#94a3b8;" onclick="openFullService('google-calendar', 'Calendar')">OAuth &amp; Settings \u2197</button>
-            </div>
-          </div>
-        </div>
         <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">\u21BA Return to Now</button>
       </div>
       <div class="tl-controls">
@@ -2950,8 +4599,19 @@ function renderUnifiedDashboardHtml(ingressPath) {
         <div id="fixed-now-orb"></div>
       </div>
 
-      <!-- Continuously moving timeline track -->
+      <!-- Continuously moving timeline track (0\xB0 Horizon Line + Altitude Curves + Events) -->
       <div id="timeline-world">
+        <div id="timeline-celestial-layer">
+          <svg id="tl-celestial-svg" overflow="visible">
+            <path id="tl-moon-below-path" fill="none" stroke="rgba(186, 230, 253, 0.20)" stroke-width="1.0" stroke-dasharray="3 5" />
+            <path id="tl-moon-above-path" fill="none" stroke="rgba(224, 242, 254, 0.48)" stroke-width="1.25" />
+            <path id="tl-sun-below-path" fill="none" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.05" stroke-dasharray="3 5" />
+            <path id="tl-sun-above-path" fill="none" stroke="rgba(255, 255, 255, 0.62)" stroke-width="1.4" />
+          </svg>
+          <div id="tl-horizon-crossings"></div>
+          <div id="tl-moon-node" class="tl-celestial-body" title="Mond"></div>
+          <div id="tl-sun-node" class="tl-celestial-body" title="Sonne &amp; Wetter"></div>
+        </div>
         <div id="timeline-axis-line"></div>
         <div id="timeline-ticks-layer"></div>
         <div id="timeline-events-layer"></div>
@@ -2959,25 +4619,22 @@ function renderUnifiedDashboardHtml(ingressPath) {
     </div>
   </div>
 
-  <!-- 6. TRANSPARENT MINIMALISTIC TABVIEW STATUSBAR + RIGHT-ALIGNED 3D PRINT & VISION UPWARD FLYOUTS -->
+  <!-- 6. BORDERED HIGHER ROOM STATUSBAR + UPWARD FLYOUTS OVER UPPER CONTENT -->
   <div id="devices-dock">
-    <div id="timeline-devices-separator">
-      <div class="td-sep-badge">
-        <span>Timeline \u25BE Rooms &amp; Devices</span>
-        <span id="pinned-rooms-count-label" style="color:#38bdf8; display:none;"></span>
-        <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Alle minimieren</button>
-        <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="pointer-events:auto; margin-left:4px;">\u2302 Smart Home \u2197</button>
-      </div>
-    </div>
+    <div id="timeline-devices-separator"></div>
 
-    <!-- Pinned Room Groups Tray (minimized/collapsed by default until user pins a room tab) -->
+    <!-- Pinned Room Groups Tray (floats over upper timeline content when rooms are pinned) -->
     <div id="pinned-rooms-tray"></div>
 
-    <!-- Transparent Minimalistic TabView StatusBar: Left = Room Tabs, Right = 3D Print & Vision Previews (Expanding Upwards) -->
+    <!-- Higher, bordered Room StatusBar: Left = Smart Home Button + Room Buttons, Right = 3D Print & Vision Previews -->
     <div id="room-dock-bar">
+      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0;">
+        \u2302 Smart Home \u2197
+      </button>
       <div class="room-dock-group" id="room-pills-container"></div>
+      <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>
 
-      <!-- Right-aligned StatusBar Previews (NOT inside room tabs; expand flyouts upwards) -->
+      <!-- Right-aligned StatusBar Previews (3D Print & Vision only; Projekte & n8n removed per screenshot) -->
       <div id="statusbar-right-previews">
         <!-- 3D PRINT STATUSBAR PREVIEW (UPWARD FLYOUT) -->
         <div class="sb-preview-item" id="widget-3dprint">
@@ -3048,29 +4705,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
             </div>
             <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; max-height:180px; overflow-y:auto;"></div>
             <button class="w-action-link" style="margin:0;" onclick="openFullService('camera-vision', 'Camera Vision')">Open Camera Vision \u2192</button>
-          </div>
-        </div>
-
-        <!-- N8N PROJEKTE & MODUL-WORKFLOW STATUSBAR PREVIEW (UPWARD FLYOUT) -->
-        <div class="sb-preview-item" id="widget-workflow">
-          <div style="display:inline-flex; align-items:center; gap:2px;">
-            <button class="sb-preview-trigger" onclick="toggleWidget('workflow', event)" title="n8n Modul-Workflow & Projektverwaltung">
-              <span class="room-dot" id="workflow-dock-dot" style="background:#22c55e; box-shadow:0 0 8px #22c55e;"></span>
-              <span>Projekte &amp; n8n</span>
-              <span class="sb-meta" id="workflow-dock-meta">LIVE</span>
-              <span class="sb-caret">\u25B4</span>
-            </button>
-            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('project-workflow', 'Projekte & Modul-Workflow')" title="Open Projekte & n8n Workflow Panel">\u2197</button>
-          </div>
-          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
-            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
-              <span>n8n modul-workflow \xB7 gemini &amp; github</span>
-              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Panel \u2197</button>
-            </div>
-            <div style="font-size:11.5px; color:rgba(248,250,252,0.85); margin-bottom:8px; line-height:1.45;">
-              Webhook \u2192 Template \u2192 Gemini API \u2192 Python Unit-Tests (4/4 PASS) \u2192 Git \u2192 Samba/HA Deploy
-            </div>
-            <button class="w-action-link" style="margin:0;" onclick="openFullService('project-workflow', 'Projekte & Modul-Workflow')">Projekte &amp; n8n Workflow \xF6ffnen \u2192</button>
           </div>
         </div>
       </div>
@@ -3194,51 +4828,150 @@ function renderUnifiedDashboardHtml(ingressPath) {
       };
     }
 
-    function computeSunPoint(hourFloat, vw, vh) {
-      const isMobile = vw <= 900;
-      const horizonY = vh * (isMobile ? 0.44 : 0.62);
-      const zenithY = vh * (isMobile ? 0.09 : 0.12);
-      const nadirY = vh * (isMobile ? 0.64 : 0.80);
-
-      const xMargin = isMobile ? 0.04 : 0.08;
-      const x = vw * (xMargin + (hourFloat / 24) * (1 - xMargin * 2));
+    function computeSunAltitudeRatio(epochMs) {
+      const d = new Date(epochMs);
+      const h = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
       const daySpan = SUNSET_HOUR - SUNRISE_HOUR;
-      const angle = ((hourFloat - SUNRISE_HOUR) / daySpan) * Math.PI;
-      const sinVal = Math.sin(angle);
-      const y = sinVal >= 0
-        ? horizonY - sinVal * (horizonY - zenithY)
-        : horizonY - sinVal * (nadirY - horizonY);
+      const nightSpan = 24 - daySpan;
+      if (h >= SUNRISE_HOUR && h <= SUNSET_HOUR) {
+        return Math.sin(((h - SUNRISE_HOUR) / daySpan) * Math.PI);
+      }
+      const nightH = h < SUNRISE_HOUR ? h + (24 - SUNSET_HOUR) : h - SUNSET_HOUR;
+      return -Math.sin((nightH / nightSpan) * Math.PI);
+    }
 
-      return { x, y, horizonY, aboveHorizon: sinVal >= -0.06, elevationPct: Math.round(sinVal * 100) };
+    function computeMoonAltitudeRatio(epochMs) {
+      const d = new Date(epochMs);
+      const h = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+      const lunarInfo = computeLunarPhaseInfo(d);
+      const moonPeakHour = (12.625 + lunarInfo.phase * 24) % 24;
+      return Math.cos(((h - moonPeakHour) / 24) * 2 * Math.PI);
+    }
+
+    function computeLunarPhaseInfo(dateObj) {
+      const synodicDays = 29.530588853;
+      const refNewMoonMs = Date.UTC(2000, 0, 6, 18, 14, 0);
+      const daysSince = (dateObj.getTime() - refNewMoonMs) / 86400000;
+      const phase = ((daysSince % synodicDays) + synodicDays) % synodicDays / synodicDays;
+      const r = 10.5;
+      let d = '';
+      if (phase < 0.02 || phase > 0.98) {
+        d = '';
+      } else if (Math.abs(phase - 0.5) < 0.02) {
+        d = \`M 0,-\${r} A \${r},\${r} 0 1,1 0,\${r} A \${r},\${r} 0 1,1 0,-\${r} Z\`;
+      } else if (phase < 0.5) {
+        const k = Math.cos(phase * 2 * Math.PI);
+        const rx = Math.max(0.2, Math.abs(k) * r).toFixed(2);
+        const sweepTerm = k >= 0 ? 0 : 1;
+        d = \`M 0,-\${r} A \${r},\${r} 0 0,1 0,\${r} A \${rx},\${r} 0 0,\${sweepTerm} 0,-\${r} Z\`;
+      } else {
+        const k = -Math.cos(phase * 2 * Math.PI);
+        const rx = Math.max(0.2, Math.abs(k) * r).toFixed(2);
+        const sweepTerm = k >= 0 ? 1 : 0;
+        d = \`M 0,-\${r} A \${r},\${r} 0 0,0 0,\${r} A \${rx},\${r} 0 0,\${sweepTerm} 0,-\${r} Z\`;
+      }
+
+      let phaseLabel = 'Waxing Crescent';
+      if (phase < 0.03 || phase > 0.97) phaseLabel = 'New Moon';
+      else if (phase < 0.22) phaseLabel = 'Waxing Crescent';
+      else if (phase < 0.28) phaseLabel = 'First Quarter';
+      else if (phase < 0.47) phaseLabel = 'Waxing Gibbous';
+      else if (phase < 0.53) phaseLabel = 'Full Moon';
+      else if (phase < 0.72) phaseLabel = 'Waning Gibbous';
+      else if (phase < 0.78) phaseLabel = 'Last Quarter';
+      else phaseLabel = 'Waning Crescent';
+
+      return { phase, d, phaseLabel };
+    }
+
+    function buildSmartMoonSvg(dateObj) {
+      const lunar = computeLunarPhaseInfo(dateObj);
+      return \`
+        <svg width="32" height="32" viewBox="-17 -17 34 34" style="overflow:visible;">
+          <circle cx="0" cy="0" r="14" fill="rgba(186, 230, 253, 0.10)" />
+          <circle cx="0" cy="0" r="10.5" fill="rgba(15, 23, 42, 0.88)" stroke="rgba(226, 232, 240, 0.52)" stroke-width="1" />
+          <path d="\${lunar.d}" fill="rgba(248, 250, 252, 0.95)" />
+        </svg>
+      \`;
+    }
+
+    function buildSmartSunWeatherSvg(rawCond) {
+      const c = String(rawCond || '').toLowerCase();
+      const sunDisc = \`
+        <g>
+          <circle cx="-2" cy="-2" r="6.2" fill="#fde047" stroke="#ffffff" stroke-width="0.9" />
+          <line x1="-2" y1="-11.5" x2="-2" y2="-9.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-2" y1="5.5" x2="-2" y2="7.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-11.5" y1="-2" x2="-9.5" y2="-2" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="5.5" y1="-2" x2="7.5" y2="-2" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-8.8" y1="-8.8" x2="-7.3" y2="-7.3" stroke="#fde047" stroke-width="1.2" stroke-linecap="round" />
+          <line x1="2.8" y1="-8.8" x2="4.3" y2="-7.3" stroke="#fde047" stroke-width="1.2" stroke-linecap="round" />
+          <line x1="-8.8" y1="4.8" x2="-7.3" y2="3.3" stroke="#fde047" stroke-width="1.2" stroke-linecap="round" />
+        </g>
+      \`;
+      const cloudShape = \`
+        <path d="M -5,6.5 H 7.5 A 4.2,4.2 0 0,0 8.2,-1.8 A 5.5,5.5 0 0,0 -2.2,-3.2 A 4.4,4.4 0 0,0 -5,6.5 Z"
+              fill="rgba(226, 232, 240, 0.94)" stroke="rgba(15, 23, 42, 0.55)" stroke-width="0.9" stroke-linejoin="round" />
+      \`;
+
+      if (c.includes('thunder') || c.includes('storm')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+            <polyline points="1,5 -1.5,9.5 1.8,9.5 -0.5,14" fill="none" stroke="#facc15" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        \`;
+      }
+      if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+            <line x1="-2.5" y1="8.2" x2="-3.8" y2="12.5" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" />
+            <line x1="1.5" y1="8.2" x2="0.2" y2="12.5" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" />
+            <line x1="5.5" y1="8.2" x2="4.2" y2="12.5" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" />
+          </svg>
+        \`;
+      }
+      if (c.includes('snow') || c.includes('sleet')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+            <circle cx="-2" cy="10.2" r="1.2" fill="#e0f2fe" />
+            <circle cx="2" cy="11.5" r="1.2" fill="#e0f2fe" />
+            <circle cx="5.5" cy="10.0" r="1.2" fill="#e0f2fe" />
+          </svg>
+        \`;
+      }
+      if (c.includes('cloud') || c.includes('overcast') || c.includes('fog') || c.includes('mist')) {
+        return \`
+          <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+            \${sunDisc}
+            \${cloudShape}
+          </svg>
+        \`;
+      }
+      // Clear / Sunny
+      return \`
+        <svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;">
+          <circle cx="0" cy="0" r="13" fill="rgba(253, 224, 71, 0.16)" />
+          <circle cx="0" cy="0" r="6.8" fill="#fde047" stroke="#ffffff" stroke-width="1.1" />
+          <line x1="0" y1="-12" x2="0" y2="-9.4" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="0" y1="9.4" x2="0" y2="12" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="-12" y1="0" x2="-9.4" y2="0" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="9.4" y1="0" x2="12" y2="0" stroke="#fde047" stroke-width="1.4" stroke-linecap="round" />
+          <line x1="-8.5" y1="-8.5" x2="-6.6" y2="-6.6" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="6.6" y1="-6.6" x2="8.5" y2="-8.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="-8.5" y1="8.5" x2="-6.6" y2="6.6" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+          <line x1="6.6" y1="6.6" x2="8.5" y2="8.5" stroke="#fde047" stroke-width="1.3" stroke-linecap="round" />
+        </svg>
+      \`;
     }
 
     function renderSolarArcPaths() {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const isMobile = vw <= 900;
-      const horizonY = vh * (isMobile ? 0.44 : 0.62);
-
-      const datumEl = document.getElementById('horizon-datum-line');
-      if (datumEl) {
-        datumEl.setAttribute('x1', (vw * (isMobile ? 0.03 : 0.06)).toFixed(1));
-        datumEl.setAttribute('y1', horizonY.toFixed(1));
-        datumEl.setAttribute('x2', (vw * (isMobile ? 0.97 : 0.94)).toFixed(1));
-        datumEl.setAttribute('y2', horizonY.toFixed(1));
-      }
-
-      let fullPath = '';
-      let dayPath = '';
-      for (let h = 0; h <= 24; h += 0.25) {
-        const pt = computeSunPoint(h, vw, vh);
-        fullPath += (h === 0 ? 'M' : 'L') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ' ';
-        if (h >= SUNRISE_HOUR && h <= SUNSET_HOUR) {
-          dayPath += (dayPath === '' ? 'M' : 'L') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ' ';
-        }
-      }
-      const arcEl = document.getElementById('solar-arc-path');
-      const dayEl = document.getElementById('solar-day-path');
-      if (arcEl) arcEl.setAttribute('d', fullPath);
-      if (dayEl) dayEl.setAttribute('d', dayPath);
+      // Curves are now rendered along the moving #timeline-world in renderTimelineGeometry()
     }
 
     function updateSkyAndSun(now) {
@@ -3253,55 +4986,50 @@ function renderUnifiedDashboardHtml(ingressPath) {
         window.syncThassiSidebarSky(palette.sidebarBg);
       }
 
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const isMobile = vw <= 900;
-      const sunPt = computeSunPoint(effectiveHour, vw, vh);
-
-      const sunEl = document.getElementById('sun-assembly');
-      sunEl.style.left = sunPt.x.toFixed(1) + 'px';
-      sunEl.style.top = sunPt.y.toFixed(1) + 'px';
-      sunEl.style.opacity = sunPt.aboveHorizon ? '1' : '0.24';
-      const baseScale = isMobile ? 0.8 : 1;
-      sunEl.style.transform = sunPt.aboveHorizon ? \`scale(\${baseScale})\` : \`scale(\${(baseScale * 0.75).toFixed(2)})\`;
-
-      const moonHour = (effectiveHour + 12) % 24;
-      const moonPt = computeSunPoint(moonHour, vw, vh);
-      const moonEl = document.getElementById('moon-assembly');
-      moonEl.style.left = moonPt.x.toFixed(1) + 'px';
-      moonEl.style.top = moonPt.y.toFixed(1) + 'px';
-      moonEl.style.opacity = sunPt.aboveHorizon ? '0.12' : '0.95';
-
-      // Progressed arc & abstract elevation chord to horizon datum
-      const activePt = sunPt.aboveHorizon ? sunPt : moonPt;
-      const chordEl = document.getElementById('celestial-elevation-chord');
-      const nodeEl = document.getElementById('horizon-node-dot');
-      if (chordEl && nodeEl) {
-        chordEl.setAttribute('x1', activePt.x.toFixed(1));
-        chordEl.setAttribute('y1', activePt.y.toFixed(1));
-        chordEl.setAttribute('x2', activePt.x.toFixed(1));
-        chordEl.setAttribute('y2', sunPt.horizonY.toFixed(1));
-        nodeEl.setAttribute('cx', activePt.x.toFixed(1));
-        nodeEl.setAttribute('cy', sunPt.horizonY.toFixed(1));
-      }
-
-      const progEl = document.getElementById('solar-progressed-path');
-      if (progEl) {
-        let progD = '';
-        if (effectiveHour >= SUNRISE_HOUR) {
-          const endH = Math.min(effectiveHour, SUNSET_HOUR);
-          for (let h = SUNRISE_HOUR; h <= endH; h += 0.2) {
-            const p = computeSunPoint(h, vw, vh);
-            progD += (progD === '' ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
-          }
-          const curP = computeSunPoint(endH, vw, vh);
-          progD += (progD === '' ? 'M' : 'L') + curP.x.toFixed(1) + ',' + curP.y.toFixed(1);
-        }
-        progEl.setAttribute('d', progD);
-      }
-
+      const lunarInfo = computeLunarPhaseInfo(now);
       document.getElementById('solar-phase-text').textContent =
-        \`\${palette.phase}  \xB7  Sunrise 06:45  \xB7  Sunset 18:30\`;
+        \`\${palette.phase}  \xB7  Sunrise 06:45  \xB7  Sunset 18:30  \xB7  \${lunarInfo.phaseLabel}\`;
+
+      // Update live smart Sun & Moon positions along their respective curves at NOW on the timeline
+      const nowEpochMs = now.getTime();
+      const pxPerMs = getPxPerMs();
+      const xNowPx = (nowEpochMs - timelineBaseEpochMs) * pxPerMs;
+      const sunAlt = computeSunAltitudeRatio(nowEpochMs);
+      const moonAlt = computeMoonAltitudeRatio(nowEpochMs);
+
+      const sunYOffsetPx = sunAlt >= 0 ? sunAlt * 112 : sunAlt * 32;
+      const moonYOffsetPx = moonAlt >= 0 ? moonAlt * 92 : moonAlt * 28;
+
+      const sunNode = document.getElementById('tl-sun-node');
+      if (sunNode) {
+        sunNode.style.left = xNowPx.toFixed(1) + 'px';
+        sunNode.style.bottom = (38 + sunYOffsetPx).toFixed(1) + 'px';
+        sunNode.classList.toggle('below-horizon', sunAlt < 0);
+        const rawCond = currentWeatherState && currentWeatherState.current
+          ? (currentWeatherState.current.conditionCode || currentWeatherState.current.effect)
+          : 'partly_cloudy';
+        const condLabel = currentWeatherState && currentWeatherState.current
+          ? (currentWeatherState.current.conditionLabel || currentWeatherState.current.descriptionDe || '')
+          : '';
+        if (sunNode.dataset.cond !== String(rawCond)) {
+          sunNode.dataset.cond = String(rawCond);
+          sunNode.innerHTML = buildSmartSunWeatherSvg(rawCond);
+        }
+        sunNode.title = \`Sonne (\${Math.round(sunAlt * 62)}\xB0) \xB7 \${condLabel || 'Wetter aktiv'}\`;
+      }
+
+      const moonNode = document.getElementById('tl-moon-node');
+      if (moonNode) {
+        moonNode.style.left = xNowPx.toFixed(1) + 'px';
+        moonNode.style.bottom = (38 + moonYOffsetPx).toFixed(1) + 'px';
+        moonNode.classList.toggle('below-horizon', moonAlt < 0);
+        const phaseBucket = lunarInfo.phase.toFixed(2);
+        if (moonNode.dataset.phase !== phaseBucket) {
+          moonNode.dataset.phase = phaseBucket;
+          moonNode.innerHTML = buildSmartMoonSvg(now);
+        }
+        moonNode.title = \`Mond (\${Math.round(moonAlt * 54)}\xB0) \xB7 \${lunarInfo.phaseLabel}\`;
+      }
     }
 
     // ============================================================================
@@ -3359,6 +5087,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
       if (descEl) descEl.textContent = curDesc;
       if (hiloEl && todaySummary) {
         hiloEl.textContent = \`\${Math.round(Number(todaySummary.tempMaxC))}\xB0 / \${Math.round(Number(todaySummary.tempMinC))}\xB0\`;
+      }
+
+      // Refresh smart Sun/Weather icon on timeline immediately when weather updates
+      const sunNode = document.getElementById('tl-sun-node');
+      if (sunNode) {
+        sunNode.dataset.cond = '';
+        updateSkyAndSun(new Date());
       }
 
       // Update subtle cloud veils in background
@@ -3568,7 +5303,105 @@ function renderUnifiedDashboardHtml(ingressPath) {
       document.getElementById('timeline-world').style.transform = \`translate3d(\${worldTranslateX.toFixed(2)}px, 0, 0)\`;
     }
 
-    // 3 & 4. RENDER TIMELINE TICKS & GOOGLE CALENDAR EVENT RECTANGLES
+    // 3 & 4. RENDER TIMELINE TICKS, CELESTIAL ALTITUDE CURVES & GOOGLE CALENDAR EVENT RECTANGLES
+    function renderTimelineCelestialCurves(startSpanMs, endSpanMs, pxPerMs) {
+      const stepMs = (visibleHoursSpan <= 24 ? 10 : 20) * 60 * 1000;
+      const sunAboveMaxPx = 112;
+      const sunBelowMaxPx = 32;
+      const moonAboveMaxPx = 92;
+      const moonBelowMaxPx = 28;
+
+      function traceSplitCurve(evalFn, aboveAmp, belowAmp, isMoon) {
+        let aboveD = '';
+        let belowD = '';
+        const crossings = [];
+        let prevT = startSpanMs;
+        let prevRatio = evalFn(prevT);
+        let prevX = (prevT - timelineBaseEpochMs) * pxPerMs;
+        let prevY = prevRatio >= 0 ? -prevRatio * aboveAmp : -prevRatio * belowAmp;
+
+        if (prevRatio >= 0) {
+          aboveD += \`M \${prevX.toFixed(1)},\${prevY.toFixed(1)} \`;
+        } else {
+          belowD += \`M \${prevX.toFixed(1)},\${prevY.toFixed(1)} \`;
+        }
+
+        for (let t = startSpanMs + stepMs; t <= endSpanMs; t += stepMs) {
+          const curRatio = evalFn(t);
+          const curX = (t - timelineBaseEpochMs) * pxPerMs;
+          const curY = curRatio >= 0 ? -curRatio * aboveAmp : -curRatio * belowAmp;
+
+          if ((prevRatio < 0 && curRatio >= 0) || (prevRatio >= 0 && curRatio < 0)) {
+            const denom = Math.abs(prevRatio) + Math.abs(curRatio);
+            const frac = denom > 1e-6 ? Math.abs(prevRatio) / denom : 0.5;
+            const crossT = prevT + frac * (t - prevT);
+            const crossX = (crossT - timelineBaseEpochMs) * pxPerMs;
+
+            if (prevRatio >= 0) {
+              aboveD += \`L \${crossX.toFixed(1)},0 \`;
+              belowD += \`M \${crossX.toFixed(1)},0 L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            } else {
+              belowD += \`L \${crossX.toFixed(1)},0 \`;
+              aboveD += \`M \${crossX.toFixed(1)},0 L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            }
+
+            crossings.push({
+              epochMs: crossT,
+              xPx: crossX,
+              isRise: prevRatio < 0 && curRatio >= 0,
+              isMoon
+            });
+          } else {
+            if (curRatio >= 0) {
+              aboveD += \`L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            } else {
+              belowD += \`L \${curX.toFixed(1)},\${curY.toFixed(1)} \`;
+            }
+          }
+
+          prevT = t;
+          prevRatio = curRatio;
+          prevX = curX;
+          prevY = curY;
+        }
+        return { aboveD, belowD, crossings };
+      }
+
+      const sunTrace = traceSplitCurve(computeSunAltitudeRatio, sunAboveMaxPx, sunBelowMaxPx, false);
+      const moonTrace = traceSplitCurve(computeMoonAltitudeRatio, moonAboveMaxPx, moonBelowMaxPx, true);
+
+      const sunAboveEl = document.getElementById('tl-sun-above-path');
+      const sunBelowEl = document.getElementById('tl-sun-below-path');
+      const moonAboveEl = document.getElementById('tl-moon-above-path');
+      const moonBelowEl = document.getElementById('tl-moon-below-path');
+      if (sunAboveEl) sunAboveEl.setAttribute('d', sunTrace.aboveD);
+      if (sunBelowEl) sunBelowEl.setAttribute('d', sunTrace.belowD);
+      if (moonAboveEl) moonAboveEl.setAttribute('d', moonTrace.aboveD);
+      if (moonBelowEl) moonBelowEl.setAttribute('d', moonTrace.belowD);
+
+      const crossingsContainer = document.getElementById('tl-horizon-crossings');
+      if (crossingsContainer) {
+        const showLabels = visibleHoursSpan <= 72;
+        const allCrossings = [...sunTrace.crossings, ...moonTrace.crossings];
+        crossingsContainer.innerHTML = allCrossings.map((c) => {
+          const d = new Date(c.epochMs);
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          const arrow = c.isRise ? '\u2191' : '\u2193';
+          const bodySym = c.isMoon ? '\u263E' : '\u2600';
+          const timeText = \`\${arrow} \${hh}:\${mm}\`;
+          return \`
+            <div class="tl-horizon-node \${c.isMoon ? 'moon-cross' : 'sun-cross'}"
+                 style="left:\${c.xPx.toFixed(1)}px;"
+                 title="\${bodySym} \${c.isRise ? 'Aufgang' : 'Untergang'}: \${hh}:\${mm}">
+              <div class="tl-horizon-dot"></div>
+              \${showLabels ? \`<div class="tl-horizon-time">\${timeText}</div>\` : ''}
+            </div>
+          \`;
+        }).join('');
+      }
+    }
+
     function renderTimelineGeometry() {
       const nowMs = Date.now();
       timelineBaseEpochMs = nowMs;
@@ -3576,6 +5409,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
       const startSpanMs = nowMs - 36 * 3600 * 1000;
       const endSpanMs = nowMs + 8 * 24 * 3600 * 1000;
+
+      renderTimelineCelestialCurves(startSpanMs, endSpanMs, pxPerMs);
 
       const stepHours = visibleHoursSpan <= 12 ? 1 : visibleHoursSpan <= 24 ? 2 : visibleHoursSpan <= 72 ? 6 : 12;
       const firstTick = new Date(startSpanMs);
@@ -3633,7 +5468,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       for (const ev of sorted) {
         const leftPx = (ev.s - timelineBaseEpochMs) * pxPerMs;
         const rawWidthPx = (ev.e - ev.s) * pxPerMs;
-        const widthPx = Math.max(135, rawWidthPx);
+        const widthPx = Math.max(155, rawWidthPx);
 
         let lane = 0;
         for (let l = 0; l < laneEndPx.length; l++) {
@@ -3645,7 +5480,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
         laneEndPx[lane] = leftPx + widthPx;
 
-        const bottomPx = 46 + lane * 48;
+        const bottomPx = 42 + lane * 58;
         const pal = catPalette[ev.category] || catPalette.personal;
         const evBorder = calColorMap[ev.calendar_name] || pal.border;
         const isNow = ev.s <= nowMs && ev.e >= nowMs;
@@ -3656,12 +5491,36 @@ function renderUnifiedDashboardHtml(ingressPath) {
         const dayStr = new Date(ev.s).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
         const safeTitle = String(ev.title || '').split('"').join('&quot;');
 
+        const locStr = String(ev.location || '').trim();
+        const attendeesStr = String(ev.attendees || ev.calendar_name || '').trim();
+        const rawDesc = String(ev.description || '')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\\s+/g, ' ')
+          .trim();
+
+        const metaParts = [];
+        if (locStr) metaParts.push('\u{1F4CD} ' + locStr);
+        if (attendeesStr) metaParts.push('\u{1F465} ' + attendeesStr);
+        const metaLine = metaParts.join(' \xB7 ') || (ev.calendar_name || ev.category || '');
+        const descLine = rawDesc || (locStr ? \`\${startStr}\u2013\${endStr} \xB7 \${ev.calendar_name || ''}\` : 'Keine Beschreibung');
+
+        const tooltipParts = [
+          \`\${safeTitle} (\${dayStr}, \${startStr}\u2013\${endStr})\`,
+          locStr ? \`Ort: \${locStr}\` : '',
+          attendeesStr ? \`Teilnehmer: \${attendeesStr}\` : '',
+          rawDesc ? \`Info: \${rawDesc}\` : ''
+        ].filter(Boolean).join(' | ').split('"').join('&quot;');
+
         eventsHtml += \`
           <div class="tl-event-rect \${isNow ? 'is-now' : ''} \${isPast ? 'is-past' : ''}"
                style="left:\${leftPx.toFixed(1)}px; width:\${widthPx.toFixed(1)}px; bottom:\${bottomPx}px; --ev-color:\${evBorder}; --ev-glow:\${pal.glow};"
-               title="\${safeTitle} (\${dayStr}, \${startStr} \u2013 \${endStr}) \xB7 \${ev.calendar_name || 'Google Calendar'}">
-            <div class="tl-ev-title">\${ev.title}</div>
-            <div class="tl-ev-meta">\${startStr}\u2013\${endStr} \xB7 \${ev.calendar_name || ev.category}</div>
+               title="\${tooltipParts}">
+            <div class="tl-ev-head">
+              <div class="tl-ev-title">\${ev.title}</div>
+              <div class="tl-ev-time">\${startStr}\u2013\${endStr}</div>
+            </div>
+            <div class="tl-ev-meta">\${metaLine}</div>
+            <div class="tl-ev-desc">\${descLine}</div>
           </div>
         \`;
       }
@@ -3730,12 +5589,11 @@ function renderUnifiedDashboardHtml(ingressPath) {
     });
 
     // ============================================================================
-    // 6. MINIMIZED-BY-DEFAULT ROOM TABS & PINNABLE ROOM GROUPS BELOW SEPARATOR
+    // 6. MINIMIZED-BY-DEFAULT ROOM TABS & PINNABLE ROOM GROUPS (EXPAND OVER UPPER CONTENT)
     // ============================================================================
     function syncDevicesDockHeight() {
-      const dock = document.getElementById('devices-dock');
-      if (!dock) return;
-      const h = dock.getBoundingClientRect().height || 44;
+      const bar = document.getElementById('room-dock-bar');
+      const h = (bar && bar.getBoundingClientRect().height) ? bar.getBoundingClientRect().height + 2 : 52;
       document.documentElement.style.setProperty('--devices-dock-height', Math.round(h) + 'px');
     }
 
@@ -4486,12 +6344,28 @@ function renderUnifiedDashboardHtml(ingressPath) {
       return false;
     }
 
+    let isRefreshingHealthLive = false;
+
     async function refreshHealthWidget(summaryFromSys) {
-      if (applyHealthWidgetData(summaryFromSys)) return;
+      if (summaryFromSys) {
+        applyHealthWidgetData(summaryFromSys);
+      }
+      if (isRefreshingHealthLive) return;
+      isRefreshingHealthLive = true;
       try {
-        const res = await fetch(base + '/api/apps/google-health/dashboard');
+        const liveRes = await fetch(base + '/api/apps/google-health/live?t=' + Date.now(), {
+          cache: 'no-store',
+        });
+        if (liveRes.ok) {
+          const liveData = await liveRes.json();
+          if (applyHealthWidgetData(liveData)) return;
+        }
+        const res = await fetch(base + '/api/apps/google-health/dashboard?t=' + Date.now(), {
+          cache: 'no-store',
+        });
         if (res.ok) {
           const d = await res.json();
+          if (d.live && applyHealthWidgetData(d.live)) return;
           const t = d.today || {};
           const r = d.readiness || {};
           const normalized = {
@@ -4509,15 +6383,15 @@ function renderUnifiedDashboardHtml(ingressPath) {
           };
           if (applyHealthWidgetData(normalized)) return;
         }
-      } catch (_e) {}
+      } catch (_e) {
+      } finally {
+        isRefreshingHealthLive = false;
+      }
+      if (summaryFromSys) return;
       const hrInsideEl = document.getElementById('health-hr-inside');
-      if (hrInsideEl) hrInsideEl.textContent = '--';
+      if (hrInsideEl && !hrInsideEl.textContent.trim()) hrInsideEl.textContent = '--';
       const stepsInsideEl = document.getElementById('health-steps-inside');
-      if (stepsInsideEl) stepsInsideEl.textContent = '--';
-      const compactEl = document.getElementById('compact-health');
-      if (compactEl) compactEl.textContent = 'No data';
-      const subEl = document.getElementById('sub-health');
-      if (subEl) subEl.textContent = 'Waiting for Pixel 10 telemetry';
+      if (stepsInsideEl && !stepsInsideEl.textContent.trim()) stepsInsideEl.textContent = '--';
     }
 
     function applyMealsWidgetData(m) {
@@ -5271,10 +7145,16 @@ function renderUnifiedDashboardHtml(ingressPath) {
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
     void loadWeatherData();
+    void refreshHealthWidget();
+    setInterval(() => void refreshHealthWidget(), 2000);
     setInterval(loadAllLiveData, 60000);
     setInterval(() => void loadWeatherData(), 600000);
     setInterval(() => refreshMini3dData(), 5000);
     setInterval(loadRoomsQuickAccess, 12000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void refreshHealthWidget();
+    });
+    window.addEventListener('focus', () => void refreshHealthWidget());
 
     function checkHashFor3dPrint() {
       try {
@@ -5293,7 +7173,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
 // thassi_host/src/server.ts
 var __filename = fileURLToPath(import.meta.url);
-var __dirname = path3.dirname(__filename);
+var __dirname = path4.dirname(__filename);
 process.on("unhandledRejection", (reason) => {
   console.warn("[Thassi] Ignored background unhandledRejection:", reason instanceof Error ? reason.message : reason);
 });
@@ -5301,9 +7181,9 @@ process.on("uncaughtException", (err) => {
   console.error("[Thassi] Caught uncaughtException (keeping server alive):", err instanceof Error ? err.message : err);
 });
 function loadDotEnv() {
-  const envPath = path3.resolve(process.cwd(), ".env");
-  if (!fs3.existsSync(envPath)) return;
-  const content = fs3.readFileSync(envPath, "utf-8");
+  const envPath = path4.resolve(process.cwd(), ".env");
+  if (!fs4.existsSync(envPath)) return;
+  const content = fs4.readFileSync(envPath, "utf-8");
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -5319,17 +7199,17 @@ function loadDotEnv() {
 }
 loadDotEnv();
 var PORT = Number(process.env.PORT || 8099);
-var DATA_DIR = path3.resolve(
-  process.env.THASSI_DATA_DIR || (fs3.existsSync("/data") ? "/data" : "./data")
+var DATA_DIR = path4.resolve(
+  process.env.THASSI_DATA_DIR || (fs4.existsSync("/data") ? "/data" : "./data")
 );
 var STANDALONE_APP_ID = process.env.THASSI_STANDALONE_APP || "";
-fs3.mkdirSync(path3.join(DATA_DIR, "apps"), { recursive: true });
-fs3.mkdirSync(path3.join(DATA_DIR, "deployed_apps"), { recursive: true });
-var legacyStarterDir = path3.join(DATA_DIR, "deployed_apps", "data-workbench");
-if (fs3.existsSync(legacyStarterDir)) {
-  fs3.rmSync(legacyStarterDir, { recursive: true, force: true });
+fs4.mkdirSync(path4.join(DATA_DIR, "apps"), { recursive: true });
+fs4.mkdirSync(path4.join(DATA_DIR, "deployed_apps"), { recursive: true });
+var legacyStarterDir = path4.join(DATA_DIR, "deployed_apps", "data-workbench");
+if (fs4.existsSync(legacyStarterDir)) {
+  fs4.rmSync(legacyStarterDir, { recursive: true, force: true });
 }
-var sharedDb = new ThassiAppDatabase(path3.join(DATA_DIR, "shared.db"));
+var sharedDb = new ThassiAppDatabase(path4.join(DATA_DIR, "shared.db"));
 sharedDb.exec(`
   CREATE TABLE IF NOT EXISTS system_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5341,6 +7221,7 @@ sharedDb.exec(`
 var scheduler = new ThassiCronScheduler();
 var googleOAuth = new ThassiGoogleOAuthManager(sharedDb);
 var systemHaBridge = new ThassiHaBridge("hub", sharedDb);
+var actionRegistry = new ThassiActionRegistry(sharedDb, systemHaBridge, googleOAuth);
 var ST_VEIT_GOELSEN = {
   name: "St. Veit / G\xF6lsen",
   region: "Bezirk Lilienfeld \xB7 N\xD6 (3161)",
@@ -5525,8 +7406,8 @@ async function fetchStVeitGoelsenWeather(forceRefresh = false) {
     if (res.ok) {
       const data = await res.json();
       const cur = data.current || {};
-      const isDay2 = Boolean(cur.is_day ?? 1);
-      const curMapped = mapWmoCode(Number(cur.weather_code ?? 1), isDay2);
+      const isDay = Boolean(cur.is_day ?? 1);
+      const curMapped = mapWmoCode(Number(cur.weather_code ?? 1), isDay);
       const hTimes = data.hourly?.time || [];
       const hTemps = data.hourly?.temperature_2m || [];
       const hProbs = data.hourly?.precipitation_probability || [];
@@ -5570,7 +7451,7 @@ async function fetchStVeitGoelsenWeather(forceRefresh = false) {
         location: ST_VEIT_GOELSEN.name,
         region: ST_VEIT_GOELSEN.region,
         coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
-        provider: "Google Weather \xB7 St. Veit / G\xF6lsen",
+        provider: "Open-Meteo API \xB7 St. Veit / G\xF6lsen",
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         current: {
           tempC: Math.round(Number(cur.temperature_2m ?? 14) * 10) / 10,
@@ -5580,7 +7461,7 @@ async function fetchStVeitGoelsenWeather(forceRefresh = false) {
           humidityPct: Math.round(Number(cur.relative_humidity_2m ?? 65)),
           windKmh: Math.round(Number(cur.wind_speed_10m ?? 9)),
           precipProbPct: maxPrecipProb,
-          isDay: isDay2
+          isDay
         },
         today: {
           tempMaxC,
@@ -5603,63 +7484,18 @@ async function fetchStVeitGoelsenWeather(forceRefresh = false) {
   }
   const persisted = sharedDb.kvGet("weather_st_veit_goelsen");
   if (persisted) return persisted;
-  const now = /* @__PURE__ */ new Date();
-  const curHr = now.getHours();
-  const isDay = curHr >= 7 && curHr <= 18;
-  const fallbackSlots = [6, 9, 12, 15, 18, 21].map((hr) => {
-    const curve = Math.sin((hr - 6) / 14 * Math.PI);
-    const t = Math.round((8 + curve * 8.5) * 10) / 10;
-    return {
-      timeIso: new Date(now.getFullYear(), now.getMonth(), now.getDate(), hr, 0, 0).toISOString(),
-      hourLabel: `${String(hr).padStart(2, "0")}:00`,
-      hour: hr,
-      tempC: t,
-      precipProbPct: hr === 15 || hr === 18 ? 20 : 10,
-      precipMm: 0,
-      conditionCode: hr >= 12 && hr <= 18 ? "partly_cloudy" : "clear",
-      conditionLabel: hr >= 12 && hr <= 18 ? "Leicht bew\xF6lkt" : "Klar",
-      isDay: hr >= 7 && hr <= 18
-    };
-  });
-  return {
-    location: ST_VEIT_GOELSEN.name,
-    region: ST_VEIT_GOELSEN.region,
-    coordinates: { lat: ST_VEIT_GOELSEN.lat, lon: ST_VEIT_GOELSEN.lon },
-    provider: "Google Weather \xB7 St. Veit / G\xF6lsen",
-    updatedAt: now.toISOString(),
-    current: {
-      tempC: 13.5,
-      feelsLikeC: 12.8,
-      conditionCode: "partly_cloudy",
-      conditionLabel: "Leicht bew\xF6lkt",
-      humidityPct: 64,
-      windKmh: 9,
-      precipProbPct: 15,
-      isDay
-    },
-    today: {
-      tempMaxC: 16.5,
-      tempMinC: 7.5,
-      sunriseHour: 6.75,
-      sunsetHour: 18.5,
-      sunriseLabel: "06:45",
-      sunsetLabel: "18:30",
-      summary: "Leicht bew\xF6lkt \xB7 H: 17\xB0 T: 8\xB0 in St. Veit / G\xF6lsen"
-    },
-    daySlots: fallbackSlots,
-    hourly24: fallbackSlots
-  };
+  throw new Error("Wetterdienst (Google Weather & Open-Meteo) nicht erreichbar und kein Cache vorhanden.");
 }
 var loadedApps = /* @__PURE__ */ new Map();
 async function loadAppFromDirectory(appDir, source) {
-  const manifestPath = path3.join(appDir, "thassi.app.json");
-  if (!fs3.existsSync(manifestPath)) return;
-  const manifest = JSON.parse(fs3.readFileSync(manifestPath, "utf-8"));
+  const manifestPath = path4.join(appDir, "thassi.app.json");
+  if (!fs4.existsSync(manifestPath)) return;
+  const manifest = JSON.parse(fs4.readFileSync(manifestPath, "utf-8"));
   const appId = manifest.id;
   if (appId === "data-workbench") return;
   scheduler.clearAppJobs(appId);
   const existing = loadedApps.get(appId);
-  const appDb = existing?.db || new ThassiAppDatabase(path3.join(DATA_DIR, "apps", `${appId}.db`));
+  const appDb = existing?.db || new ThassiAppDatabase(path4.join(DATA_DIR, "apps", `${appId}.db`));
   const appHa = new ThassiHaBridge(appId, sharedDb);
   const routes = /* @__PURE__ */ new Map();
   const ctx = {
@@ -5668,15 +7504,16 @@ async function loadAppFromDirectory(appDir, source) {
     sharedDb,
     ha: appHa,
     google: googleOAuth,
+    actions: actionRegistry,
     scheduleJob: (job) => scheduler.registerJob(appId, job),
     route: (method, routePath, handler) => {
       const normalized = routePath.startsWith("/") ? routePath : `/${routePath}`;
       routes.set(`${method.toUpperCase()} ${normalized}`, handler);
     }
   };
-  const compiledBackend = path3.join(appDir, "backend.mjs");
-  const devBackend = path3.join(appDir, "backend", "index.ts");
-  const backendFile = fs3.existsSync(compiledBackend) ? compiledBackend : fs3.existsSync(devBackend) ? devBackend : null;
+  const compiledBackend = path4.join(appDir, "backend.mjs");
+  const devBackend = path4.join(appDir, "backend", "index.ts");
+  const backendFile = fs4.existsSync(compiledBackend) ? compiledBackend : fs4.existsSync(devBackend) ? devBackend : null;
   if (backendFile) {
     const fileUrl = `${pathToFileURL(backendFile).href}?t=${Date.now()}`;
     const mod = await import(fileUrl);
@@ -5684,7 +7521,7 @@ async function loadAppFromDirectory(appDir, source) {
       await mod.default.setup(ctx);
     }
   }
-  const distFrontend = path3.join(appDir, "frontend");
+  const distFrontend = path4.join(appDir, "frontend");
   loadedApps.set(appId, {
     manifest,
     source,
@@ -5698,15 +7535,15 @@ async function loadAppFromDirectory(appDir, source) {
 }
 async function discoverAllApps() {
   const candidateBuiltInDirs = [
-    path3.join(__dirname, "apps"),
-    path3.resolve(process.cwd(), "thassi_host", "dist", "apps"),
-    path3.resolve(process.cwd(), "apps")
+    path4.join(__dirname, "apps"),
+    path4.resolve(process.cwd(), "thassi_host", "dist", "apps"),
+    path4.resolve(process.cwd(), "apps")
   ];
   for (const baseDir of candidateBuiltInDirs) {
-    if (!fs3.existsSync(baseDir)) continue;
-    for (const entry of fs3.readdirSync(baseDir, { withFileTypes: true })) {
+    if (!fs4.existsSync(baseDir)) continue;
+    for (const entry of fs4.readdirSync(baseDir, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== "data-workbench") {
-        const appDir = path3.join(baseDir, entry.name);
+        const appDir = path4.join(baseDir, entry.name);
         if (!loadedApps.has(entry.name)) {
           try {
             await loadAppFromDirectory(appDir, "built-in");
@@ -5717,12 +7554,12 @@ async function discoverAllApps() {
       }
     }
   }
-  const deployedBase = path3.join(DATA_DIR, "deployed_apps");
-  if (fs3.existsSync(deployedBase)) {
-    for (const entry of fs3.readdirSync(deployedBase, { withFileTypes: true })) {
+  const deployedBase = path4.join(DATA_DIR, "deployed_apps");
+  if (fs4.existsSync(deployedBase)) {
+    for (const entry of fs4.readdirSync(deployedBase, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== "data-workbench") {
         try {
-          await loadAppFromDirectory(path3.join(deployedBase, entry.name), "hot-deployed");
+          await loadAppFromDirectory(path4.join(deployedBase, entry.name), "hot-deployed");
         } catch (err) {
           console.error(`[Thassi] Error loading hot-deployed app ${entry.name}:`, err);
         }
@@ -5761,19 +7598,19 @@ var MIME_TYPES = {
 function serveAppStaticFile(req, res, app, subPath, mountPrefix = "") {
   const ingressPath = (req.headers["x-ingress-path"] || "").replace(/\/+$/, "");
   const cleanSub = subPath.replace(/^\/+/, "") || "index.html";
-  let filePath = path3.join(app.frontendDir, cleanSub);
-  if (!fs3.existsSync(filePath) || fs3.statSync(filePath).isDirectory()) {
-    filePath = path3.join(app.frontendDir, "index.html");
+  let filePath = path4.join(app.frontendDir, cleanSub);
+  if (!fs4.existsSync(filePath) || fs4.statSync(filePath).isDirectory()) {
+    filePath = path4.join(app.frontendDir, "index.html");
   }
-  if (!fs3.existsSync(filePath)) {
+  if (!fs4.existsSync(filePath)) {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end(`Frontend bundle not found for app "${app.manifest.id}". Run "npm run build" first.`);
     return;
   }
-  const ext = path3.extname(filePath).toLowerCase();
+  const ext = path4.extname(filePath).toLowerCase();
   const mime = MIME_TYPES[ext] || "application/octet-stream";
   if (ext === ".html") {
-    let html = fs3.readFileSync(filePath, "utf-8");
+    let html = fs4.readFileSync(filePath, "utf-8");
     const assetBase = `${ingressPath}${mountPrefix}`.replace(/\/+$/, "");
     html = html.replace(/(src|href)="\.\/assets\//g, `$1="${assetBase}/assets/`).replace(/(src|href)="\/assets\//g, `$1="${assetBase}/assets/`);
     const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};${getHassSidebarStylerScript()}</script>`;
@@ -5783,7 +7620,7 @@ function serveAppStaticFile(req, res, app, subPath, mountPrefix = "") {
     return;
   }
   res.writeHead(200, { "Content-Type": mime });
-  fs3.createReadStream(filePath).pipe(res);
+  fs4.createReadStream(filePath).pipe(res);
 }
 async function handleAppApiRequest(req, res, app, subRoute, queryObj) {
   const method = (req.method || "GET").toUpperCase();
@@ -5865,6 +7702,19 @@ async function handleAppApiRequest(req, res, app, subRoute, queryObj) {
     const events = await googleOAuth.fetchUpcomingCalendarEvents(Number(queryObj.maxResults) || 15);
     return sendJson(res, 200, { events });
   }
+  if (subRoute === "/_actions" && method === "GET") {
+    return sendJson(res, 200, { actions: actionRegistry.listActions() });
+  }
+  if (subRoute === "/_actions/execute" && method === "POST") {
+    const body = parsedBody;
+    if (!body?.actionId) {
+      return sendJson(res, 400, { error: "actionId is required" });
+    }
+    const result2 = await actionRegistry.execute(body.actionId, body.input || {}, {
+      upstreamText: body.upstreamText
+    });
+    return sendJson(res, 200, result2);
+  }
   const handler = app.routes.get(`${method} ${subRoute}`);
   if (!handler) {
     return sendJson(res, 404, {
@@ -5877,6 +7727,7 @@ async function handleAppApiRequest(req, res, app, subRoute, queryObj) {
     sharedDb,
     ha: app.ha,
     google: googleOAuth,
+    actions: actionRegistry,
     scheduleJob: (j) => scheduler.registerJob(app.manifest.id, j),
     route: () => {
     }
@@ -5959,24 +7810,24 @@ async function startServer() {
       if (pathname === "/api/orchestrator/apk-upload" && req.method === "POST") {
         const body = JSON.parse(await readRequestBody(req) || "{}");
         if (!body.base64) return sendJson(res, 400, { error: "Missing base64 APK payload" });
-        const apkPath = path3.join(DATA_DIR, "thassi-control.apk");
-        fs3.writeFileSync(apkPath, Buffer.from(body.base64, "base64"));
-        return sendJson(res, 200, { uploaded: true, size: fs3.statSync(apkPath).size });
+        const apkPath = path4.join(DATA_DIR, "thassi-control.apk");
+        fs4.writeFileSync(apkPath, Buffer.from(body.base64, "base64"));
+        return sendJson(res, 200, { uploaded: true, size: fs4.statSync(apkPath).size });
       }
       if (pathname === "/download/thassi-control.apk" && req.method === "GET") {
-        const apkPath = path3.join(DATA_DIR, "thassi-control.apk");
-        if (!fs3.existsSync(apkPath)) {
+        const apkPath = path4.join(DATA_DIR, "thassi-control.apk");
+        if (!fs4.existsSync(apkPath)) {
           res.writeHead(404, { "Content-Type": "text/plain" });
           res.end("APK not uploaded yet.");
           return;
         }
-        const stat = fs3.statSync(apkPath);
+        const stat = fs4.statSync(apkPath);
         res.writeHead(200, {
           "Content-Type": "application/vnd.android.package-archive",
           "Content-Disposition": 'attachment; filename="ThassiControl.apk"',
           "Content-Length": String(stat.size)
         });
-        fs3.createReadStream(apkPath).pipe(res);
+        fs4.createReadStream(apkPath).pipe(res);
         return;
       }
       if (pathname === "/api/system/rooms" && req.method === "GET") {
@@ -6156,6 +8007,19 @@ async function startServer() {
         const weather = await fetchStVeitGoelsenWeather(forceRefresh);
         return sendJson(res, 200, weather);
       }
+      if (pathname === "/api/system/actions" && req.method === "GET") {
+        return sendJson(res, 200, { actions: actionRegistry.listActions() });
+      }
+      if (pathname === "/api/system/actions/execute" && req.method === "POST") {
+        const body = JSON.parse(await readRequestBody(req) || "{}");
+        if (!body.actionId) {
+          return sendJson(res, 400, { error: "actionId is required" });
+        }
+        const result = await actionRegistry.execute(body.actionId, body.input || {}, {
+          upstreamText: body.upstreamText
+        });
+        return sendJson(res, 200, result);
+      }
       if (pathname === "/api/system/weather/config" && req.method === "POST") {
         const body = JSON.parse(await readRequestBody(req) || "{}");
         if (typeof body.googleApiKey === "string") {
@@ -6218,23 +8082,23 @@ async function startServer() {
           return sendJson(res, 400, { error: "Invalid deployment bundle: missing manifest.id" });
         }
         const appId = payload.manifest.id.replace(/[^a-z0-9-_]/gi, "");
-        const targetDir = path3.join(DATA_DIR, "deployed_apps", appId);
-        fs3.mkdirSync(targetDir, { recursive: true });
-        fs3.writeFileSync(
-          path3.join(targetDir, "thassi.app.json"),
+        const targetDir = path4.join(DATA_DIR, "deployed_apps", appId);
+        fs4.mkdirSync(targetDir, { recursive: true });
+        fs4.writeFileSync(
+          path4.join(targetDir, "thassi.app.json"),
           JSON.stringify(payload.manifest, null, 2)
         );
         if (payload.backendCode) {
-          fs3.writeFileSync(path3.join(targetDir, "backend.mjs"), payload.backendCode, "utf-8");
+          fs4.writeFileSync(path4.join(targetDir, "backend.mjs"), payload.backendCode, "utf-8");
         }
-        const frontendDir = path3.join(targetDir, "frontend");
-        fs3.rmSync(frontendDir, { recursive: true, force: true });
-        fs3.mkdirSync(frontendDir, { recursive: true });
+        const frontendDir = path4.join(targetDir, "frontend");
+        fs4.rmSync(frontendDir, { recursive: true, force: true });
+        fs4.mkdirSync(frontendDir, { recursive: true });
         for (const [relFile, b64] of Object.entries(payload.frontendFiles || {})) {
           const safeRel = relFile.replace(/^(\.\.[/\\])+/, "");
-          const destFile = path3.join(frontendDir, safeRel);
-          fs3.mkdirSync(path3.dirname(destFile), { recursive: true });
-          fs3.writeFileSync(destFile, Buffer.from(b64, "base64"));
+          const destFile = path4.join(frontendDir, safeRel);
+          fs4.mkdirSync(path4.dirname(destFile), { recursive: true });
+          fs4.writeFileSync(destFile, Buffer.from(b64, "base64"));
         }
         await loadAppFromDirectory(targetDir, "hot-deployed");
         return sendJson(res, 200, {

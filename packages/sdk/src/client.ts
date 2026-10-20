@@ -2,6 +2,7 @@ import type { TableSummary, CsvImportResult } from './db.js';
 import type { HaEntityState, HaConnectionStatus } from './ha-bridge.js';
 import type { ThassiJobStatus } from './cron.js';
 import type { GoogleOAuthStatus, GoogleCalendarEventSummary } from './google-oauth.js';
+import type { ThassiActionMetadata, ThassiActionResult } from './actions.js';
 
 export type {
   TableSummary,
@@ -11,6 +12,8 @@ export type {
   ThassiJobStatus,
   GoogleOAuthStatus,
   GoogleCalendarEventSummary,
+  ThassiActionMetadata,
+  ThassiActionResult,
 };
 
 declare global {
@@ -143,6 +146,20 @@ export function createAppClient(appId: string) {
         request<{ events: GoogleCalendarEventSummary[] }>(
           `/_google/calendar/upcoming?maxResults=${maxResults}`
         ),
+    },
+
+    /** Built-in Atomic Action & Connector Registry endpoints reusable across all Dashboards */
+    actions: {
+      list: () => request<{ actions: ThassiActionMetadata[] }>('/_actions'),
+      run: <TOutput = unknown>(
+        actionId: string,
+        input: Record<string, unknown> = {},
+        upstreamText?: string
+      ) =>
+        request<ThassiActionResult<TOutput>>('/_actions/execute', {
+          method: 'POST',
+          body: JSON.stringify({ actionId, input, upstreamText }),
+        }),
     },
   };
 }

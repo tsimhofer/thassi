@@ -5,6 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
+// packages/sdk/src/actions.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
+import net from "node:net";
+
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {
   return { setup };
@@ -220,8 +225,8 @@ var MODULE_TEMPLATE_PRESETS = [
 
 // apps/project-workflow/backend/github-client.ts
 import { execSync } from "node:child_process";
-import fs2 from "node:fs";
-import path2 from "node:path";
+import fs3 from "node:fs";
+import path3 from "node:path";
 var cachedSnapshot = null;
 function getLocalGitFallback(owner, repoName, errorDetails) {
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -285,12 +290,12 @@ function getLocalGitFallback(owner, repoName, errorDetails) {
   }
   const rootFiles = [];
   try {
-    for (const entry of fs2.readdirSync(process.cwd(), { withFileTypes: true })) {
+    for (const entry of fs3.readdirSync(process.cwd(), { withFileTypes: true })) {
       if (entry.name.startsWith(".git") || entry.name === "node_modules") continue;
       let size = 0;
       if (!entry.isDirectory()) {
         try {
-          size = fs2.statSync(path2.join(process.cwd(), entry.name)).size;
+          size = fs3.statSync(path3.join(process.cwd(), entry.name)).size;
         } catch {
         }
       }
@@ -1714,9 +1719,9 @@ async function buildMonitoredProjectsPortfolio(github, custom, latestRuns, githu
 
 // apps/project-workflow/backend/n8n-engine.ts
 import { execSync as execSync2 } from "node:child_process";
-import fs3 from "node:fs";
-import net from "node:net";
-import path3 from "node:path";
+import fs4 from "node:fs";
+import net2 from "node:net";
+import path4 from "node:path";
 function discoverGeminiApiKey(customKey) {
   if (customKey && customKey.trim()) {
     return { key: customKey.trim(), source: "Custom / Vault" };
@@ -1733,8 +1738,8 @@ function discoverGeminiApiKey(customKey) {
   ];
   for (const sp of storagePaths) {
     try {
-      if (fs3.existsSync(sp)) {
-        const raw = JSON.parse(fs3.readFileSync(sp, "utf-8"));
+      if (fs4.existsSync(sp)) {
+        const raw = JSON.parse(fs4.readFileSync(sp, "utf-8"));
         const entries = raw?.data?.entries || [];
         for (let i = entries.length - 1; i >= 0; i--) {
           const e = entries[i];
@@ -1753,7 +1758,7 @@ function discoverGeminiApiKey(customKey) {
 }
 function checkTcpEndpoint(host, port, timeoutMs = 1200) {
   return new Promise((resolve) => {
-    const socket = net.connect({ host, port, timeout: timeoutMs }, () => {
+    const socket = net2.connect({ host, port, timeout: timeoutMs }, () => {
       socket.destroy();
       resolve(true);
     });
@@ -2421,31 +2426,31 @@ Generated Home Assistant Python Module:`
 }
 function runPythonUnitTestsForModule(slug, repoRoot, files) {
   const startMs = Date.now();
-  const pyModulesRoot = path3.join(repoRoot, "python_modules");
-  const modDir = path3.join(pyModulesRoot, slug);
+  const pyModulesRoot = path4.join(repoRoot, "python_modules");
+  const modDir = path4.join(pyModulesRoot, slug);
   try {
-    fs3.mkdirSync(modDir, { recursive: true });
-    if (!fs3.existsSync(path3.join(pyModulesRoot, "__init__.py"))) {
-      fs3.writeFileSync(
-        path3.join(pyModulesRoot, "__init__.py"),
+    fs4.mkdirSync(modDir, { recursive: true });
+    if (!fs4.existsSync(path4.join(pyModulesRoot, "__init__.py"))) {
+      fs4.writeFileSync(
+        path4.join(pyModulesRoot, "__init__.py"),
         '"""Thassi Generated Home Assistant Python Modules Package."""\n',
         "utf-8"
       );
     }
-    fs3.writeFileSync(path3.join(modDir, "manifest.json"), files.manifestJson, "utf-8");
-    fs3.writeFileSync(path3.join(modDir, "__init__.py"), files.initPy, "utf-8");
-    fs3.writeFileSync(path3.join(modDir, "sensor.py"), files.sensorPy, "utf-8");
-    fs3.writeFileSync(path3.join(modDir, `test_${slug}.py`), files.testPy, "utf-8");
+    fs4.writeFileSync(path4.join(modDir, "manifest.json"), files.manifestJson, "utf-8");
+    fs4.writeFileSync(path4.join(modDir, "__init__.py"), files.initPy, "utf-8");
+    fs4.writeFileSync(path4.join(modDir, "sensor.py"), files.sensorPy, "utf-8");
+    fs4.writeFileSync(path4.join(modDir, `test_${slug}.py`), files.testPy, "utf-8");
   } catch {
   }
   const py = detectPythonCommand();
   const command = `${py.cmd || "python"} -m unittest discover -s python_modules/${slug} -p "test_*.py" -v`;
-  if (py.cmd && fs3.existsSync(path3.join(modDir, "sensor.py"))) {
+  if (py.cmd && fs4.existsSync(path4.join(modDir, "sensor.py"))) {
     try {
-      const astCheckCmd = `${py.cmd} -c "import ast, pathlib; ast.parse(pathlib.Path(r'${path3.join(
+      const astCheckCmd = `${py.cmd} -c "import ast, pathlib; ast.parse(pathlib.Path(r'${path4.join(
         modDir,
         "sensor.py"
-      )}').read_text(encoding='utf-8')); ast.parse(pathlib.Path(r'${path3.join(
+      )}').read_text(encoding='utf-8')); ast.parse(pathlib.Path(r'${path4.join(
         modDir,
         `test_${slug}.py`
       )}').read_text(encoding='utf-8')); print('AST_OK')"`;
@@ -2911,13 +2916,13 @@ async function executeN8nModuleWorkflow(rawInput, ctx, options = {}) {
   const candidateHaDirs = ["/homeassistant", "/config"];
   for (const cfgDir of candidateHaDirs) {
     try {
-      if (fs3.existsSync(cfgDir)) {
-        const customCompDir = path3.join(cfgDir, "custom_components", slug);
-        fs3.mkdirSync(customCompDir, { recursive: true });
-        fs3.writeFileSync(path3.join(customCompDir, "manifest.json"), generatedFiles.manifestJson, "utf-8");
-        fs3.writeFileSync(path3.join(customCompDir, "__init__.py"), generatedFiles.initPy, "utf-8");
-        fs3.writeFileSync(path3.join(customCompDir, "sensor.py"), generatedFiles.sensorPy, "utf-8");
-        fs3.writeFileSync(path3.join(customCompDir, `test_${slug}.py`), generatedFiles.testPy, "utf-8");
+      if (fs4.existsSync(cfgDir)) {
+        const customCompDir = path4.join(cfgDir, "custom_components", slug);
+        fs4.mkdirSync(customCompDir, { recursive: true });
+        fs4.writeFileSync(path4.join(customCompDir, "manifest.json"), generatedFiles.manifestJson, "utf-8");
+        fs4.writeFileSync(path4.join(customCompDir, "__init__.py"), generatedFiles.initPy, "utf-8");
+        fs4.writeFileSync(path4.join(customCompDir, "sensor.py"), generatedFiles.sensorPy, "utf-8");
+        fs4.writeFileSync(path4.join(customCompDir, `test_${slug}.py`), generatedFiles.testPy, "utf-8");
         deployedPath = `${cfgDir}/custom_components/${slug}`;
         break;
       }
@@ -3430,6 +3435,7 @@ var index_default = defineThassiApp((ctx) => {
     };
   };
   ctx.route("POST", "/workflow/execute", handleWorkflowTrigger);
+  ctx.route("POST", "/workflow/trigger", handleWorkflowTrigger);
   ctx.route("POST", "/webhook/trigger", handleWorkflowTrigger);
   ctx.route("POST", "/tests/run", (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
@@ -3464,20 +3470,24 @@ var index_default = defineThassiApp((ctx) => {
     });
     return snapshot;
   });
-  ctx.route("POST", "/config/keys", (req) => {
+  const handleSaveConfigKeys = (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
-    if (typeof body.geminiApiKey === "string") {
+    if (typeof body.geminiApiKey === "string" && body.geminiApiKey.trim()) {
       ctx.db.kvSet("gemini_api_key", body.geminiApiKey.trim());
+      ctx.sharedDb.kvSet("gemini_api_key", body.geminiApiKey.trim());
     }
-    if (typeof body.githubToken === "string") {
+    if (typeof body.githubToken === "string" && body.githubToken.trim()) {
       ctx.db.kvSet("github_token", body.githubToken.trim());
+      ctx.sharedDb.kvSet("github_token", body.githubToken.trim());
     }
     return {
       saved: true,
-      hasGeminiKey: Boolean(ctx.db.kvGet("gemini_api_key")),
-      hasGithubToken: Boolean(ctx.db.kvGet("github_token"))
+      hasGeminiKey: Boolean(ctx.db.kvGet("gemini_api_key") || ctx.sharedDb.kvGet("gemini_api_key")),
+      hasGithubToken: Boolean(ctx.db.kvGet("github_token") || ctx.sharedDb.kvGet("github_token"))
     };
-  });
+  };
+  ctx.route("POST", "/config/keys", handleSaveConfigKeys);
+  ctx.route("POST", "/config", handleSaveConfigKeys);
   ctx.route("GET", "/n8n-workflow-json", () => {
     return EMBEDDED_N8N_WORKFLOW_JSON;
   });

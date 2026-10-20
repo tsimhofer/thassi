@@ -193,7 +193,12 @@ export class ThassiHaBridge {
     };
 
     const nowIso = new Date().toISOString();
-    // Record published sensor in shared DB so the Thassi Hub can display all published entities
+    const result = await this.request<HaEntityState>(`/states/${entityId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    // Record published sensor in shared DB only when actually published to Home Assistant
     const published = this.sharedDb.kvGet<Record<string, { entityId: string; appId: string; state: string; updatedAt: string }>>('published_sensors', {}) || {};
     published[entityId] = {
       entityId,
@@ -203,20 +208,7 @@ export class ThassiHaBridge {
     };
     this.sharedDb.kvSet('published_sensors', published);
 
-    try {
-      return await this.request<HaEntityState>(`/states/${entityId}`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-    } catch {
-      return {
-        entity_id: entityId,
-        state: payload.state,
-        attributes: payload.attributes,
-        last_changed: nowIso,
-        last_updated: nowIso,
-      };
-    }
+    return result;
   }
 
   /** Fire a custom event on the Home Assistant event bus */

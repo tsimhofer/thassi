@@ -525,6 +525,7 @@ export default defineThassiApp((ctx) => {
   };
 
   ctx.route('POST', '/workflow/execute', handleWorkflowTrigger);
+  ctx.route('POST', '/workflow/trigger', handleWorkflowTrigger);
   ctx.route('POST', '/webhook/trigger', handleWorkflowTrigger);
 
   // 3. Standalone Python Unit-Test Runner Endpoint (Phase 5)
@@ -572,23 +573,27 @@ export default defineThassiApp((ctx) => {
   });
 
   // 5. Save API Keys (Gemini API Key / GitHub Personal Access Token)
-  ctx.route('POST', '/config/keys', (req) => {
+  const handleSaveConfigKeys = (req: { body?: unknown }) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
       geminiApiKey?: string;
       githubToken?: string;
     };
-    if (typeof body.geminiApiKey === 'string') {
+    if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.trim()) {
       ctx.db.kvSet('gemini_api_key', body.geminiApiKey.trim());
+      ctx.sharedDb.kvSet('gemini_api_key', body.geminiApiKey.trim());
     }
-    if (typeof body.githubToken === 'string') {
+    if (typeof body.githubToken === 'string' && body.githubToken.trim()) {
       ctx.db.kvSet('github_token', body.githubToken.trim());
+      ctx.sharedDb.kvSet('github_token', body.githubToken.trim());
     }
     return {
       saved: true,
-      hasGeminiKey: Boolean(ctx.db.kvGet<string>('gemini_api_key')),
-      hasGithubToken: Boolean(ctx.db.kvGet<string>('github_token')),
+      hasGeminiKey: Boolean(ctx.db.kvGet<string>('gemini_api_key') || ctx.sharedDb.kvGet<string>('gemini_api_key')),
+      hasGithubToken: Boolean(ctx.db.kvGet<string>('github_token') || ctx.sharedDb.kvGet<string>('github_token')),
     };
-  });
+  };
+  ctx.route('POST', '/config/keys', handleSaveConfigKeys);
+  ctx.route('POST', '/config', handleSaveConfigKeys);
 
   // 6. Export n8n Workflow JSON
   ctx.route('GET', '/n8n-workflow-json', () => {
