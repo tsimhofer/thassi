@@ -1285,6 +1285,14 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     .room-pill.has-on .room-meta {
       color: rgba(251, 191, 36, 0.88);
     }
+    .room-lightbulb-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fbbf24;
+      filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.7));
+      margin-left: 1px;
+    }
 
     /* Right-Aligned StatusBar Previews (3D Print & Vision — NOT inside tabs, expand upwards) */
     #statusbar-right-previews {
@@ -2401,16 +2409,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     <!-- Pinned Room Groups Tray (floats over upper timeline content when rooms are pinned) -->
     <div id="pinned-rooms-tray"></div>
 
-    <!-- Higher, bordered Room StatusBar: Left = Smart Home Button + Room Buttons, Right = 3D Print & Vision Previews -->
+    <!-- Higher, bordered Room StatusBar: Left = Smart Home Icon Button + Room Buttons, Right = 3D Print & Vision Previews -->
     <div id="room-dock-bar">
-      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0;">
-        ⌂ Smart Home ↗
-      </button>
-      <button class="room-pill" onclick="openFullService('memo', 'Memo')" title="Open Memo Knowledge Base" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
-        Memo ↗
-      </button>
-      <button class="room-pill" onclick="openFullService('cortex', 'Cortex')" title="Open Cortex Gemini Workspace" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
-        Cortex ↗
+      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Smart Home öffnen" aria-label="Smart Home" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0; padding:7px 9px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 10.5L12 3l9 7.5"></path>
+          <path d="M5 9.5V19a1 1 0 0 0 1 1h4.5v-5.5h3V20H18a1 1 0 0 0 1-1V9.5"></path>
+        </svg>
       </button>
       <div class="room-dock-group" id="room-pills-container"></div>
       <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>
@@ -3404,14 +3409,30 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
       container.innerHTML = roomTabs
         .map((r) => {
-          const hasOn = r.activeCount > 0;
+          const hasLightsOn = Array.isArray(r.devices)
+            ? r.devices.some(
+                (d) =>
+                  d.isOn &&
+                  (d.kind === 'rgbw' ||
+                    String(d.entityId || '').startsWith('light.') ||
+                    /licht|beleuchtung|led|schalter/i.test(
+                      String(d.label || '') + ' ' + String(d.entityId || '')
+                    ))
+              )
+            : r.activeCount > 0;
+          const hasOn = hasLightsOn;
           const hasMotion = Boolean(r.motionActive);
           const isPinned = pinnedRoomIds.has(r.id);
 
-          const metaParts = [];
-          if (r.tempC != null) metaParts.push(r.tempC.toFixed(1) + '°');
-          if (r.activeCount > 0) metaParts.push(r.activeCount + ' an');
-          if (r.totalPowerW > 0.5) metaParts.push(Math.round(r.totalPowerW) + 'W');
+          const lightbulbHtml = hasLightsOn
+            ? \`<span class="room-lightbulb-icon" title="Licht eingeschaltet">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="rgba(251, 191, 36, 0.28)" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18h6"></path>
+                  <path d="M10 22h4"></path>
+                  <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"></path>
+                </svg>
+              </span>\`
+            : '';
 
           return \`
             <button id="room-pill-\${r.id}"
@@ -3420,7 +3441,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
                     onclick="toggleRoomPin('\${r.id}', event)">
               <span class="room-dot"></span>
               <span>\${r.name}</span>
-              \${metaParts.length > 0 ? \`<span class="room-meta">\${metaParts.join(' · ')}</span>\` : ''}
+              \${lightbulbHtml}
             </button>
           \`;
         })

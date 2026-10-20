@@ -3047,6 +3047,86 @@ var ThassiActionRegistry = class {
       }
     });
     this.register({
+      id: "pc.antigravity.prompt",
+      name: "Workstation: Send Prompt to Antigravity (thassi)",
+      domainCode: "PC",
+      category: "system",
+      icon: "PC",
+      description: "Creates a new Chat in the thassi project (or targets an existing Chat) in the running Antigravity desktop app on DESKTOP-M8TJERB and dispatches a prompt directly via ConnectRPC.",
+      defaultInput: {
+        prompt: "",
+        newChat: "true",
+        cascadeId: "",
+        projectName: "thassi",
+        focusWindow: "true",
+        agentUrl: "http://192.168.188.46:5185"
+      },
+      fields: [
+        {
+          key: "prompt",
+          label: "Antigravity Prompt",
+          type: "textarea",
+          placeholder: "Describe the coding or automation task for Antigravity in thassi...",
+          required: true
+        },
+        {
+          key: "newChat",
+          label: "Create New Chat in thassi",
+          type: "select",
+          options: ["true", "false"]
+        },
+        {
+          key: "cascadeId",
+          label: "Target Cascade ID (optional, when newChat=false)",
+          type: "text",
+          placeholder: "Leave empty for new chat or active chat"
+        },
+        {
+          key: "projectName",
+          label: "Antigravity Project Name",
+          type: "text",
+          placeholder: "thassi"
+        },
+        {
+          key: "focusWindow",
+          label: "Navigate Antigravity Window to Chat",
+          type: "select",
+          options: ["true", "false"]
+        },
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+      ],
+      execute: async (input) => {
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const prompt = String(input.prompt || "").trim();
+        if (!prompt) {
+          throw new Error("Antigravity prompt text is required");
+        }
+        const newChat = String(input.newChat ?? "true").toLowerCase() !== "false";
+        const cascadeId = String(input.cascadeId || "").trim() || void 0;
+        const projectName = String(input.projectName || "thassi").trim();
+        const focusWindow = String(input.focusWindow ?? "true").toLowerCase() !== "false";
+        const data = await PcAgentReverseBridge.callEndpoint(
+          baseUrl,
+          "/api/antigravity/prompt",
+          {
+            prompt,
+            newChat,
+            cascadeId,
+            projectName,
+            focusWindow
+          },
+          15e3
+        );
+        if (data.ok === false) {
+          throw new Error(data.error || "Antigravity prompt dispatch failed");
+        }
+        return {
+          summary: data.message || `Antigravity (${projectName}): ${String(data.cascadeId || "").slice(0, 8)}`,
+          data
+        };
+      }
+    });
+    this.register({
       id: "google.drive.read_file",
       name: "Google Drive: Read / Export File Content",
       domainCode: "DRIVE",
@@ -4746,6 +4826,26 @@ var index_default = defineThassiApp((ctx) => {
       4e3
     );
     return { ok: true, result: res };
+  });
+  ctx.route("POST", "/pc-bridge/antigravity", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const prompt = String(body.prompt || "").trim();
+    if (!prompt) {
+      return { ok: false, error: "Missing prompt text" };
+    }
+    const res = await PcAgentReverseBridge.callEndpoint(
+      "http://192.168.188.46:5185",
+      "/api/antigravity/prompt",
+      {
+        prompt,
+        newChat: body.newChat ?? !body.cascadeId,
+        cascadeId: body.cascadeId || void 0,
+        projectName: body.projectName || "thassi",
+        focusWindow: body.focusWindow ?? true
+      },
+      15e3
+    );
+    return { ok: res.ok !== false, result: res };
   });
   const FULL_GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/calendar",

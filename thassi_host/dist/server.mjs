@@ -3470,6 +3470,86 @@ var ThassiActionRegistry = class {
       }
     });
     this.register({
+      id: "pc.antigravity.prompt",
+      name: "Workstation: Send Prompt to Antigravity (thassi)",
+      domainCode: "PC",
+      category: "system",
+      icon: "PC",
+      description: "Creates a new Chat in the thassi project (or targets an existing Chat) in the running Antigravity desktop app on DESKTOP-M8TJERB and dispatches a prompt directly via ConnectRPC.",
+      defaultInput: {
+        prompt: "",
+        newChat: "true",
+        cascadeId: "",
+        projectName: "thassi",
+        focusWindow: "true",
+        agentUrl: "http://192.168.188.46:5185"
+      },
+      fields: [
+        {
+          key: "prompt",
+          label: "Antigravity Prompt",
+          type: "textarea",
+          placeholder: "Describe the coding or automation task for Antigravity in thassi...",
+          required: true
+        },
+        {
+          key: "newChat",
+          label: "Create New Chat in thassi",
+          type: "select",
+          options: ["true", "false"]
+        },
+        {
+          key: "cascadeId",
+          label: "Target Cascade ID (optional, when newChat=false)",
+          type: "text",
+          placeholder: "Leave empty for new chat or active chat"
+        },
+        {
+          key: "projectName",
+          label: "Antigravity Project Name",
+          type: "text",
+          placeholder: "thassi"
+        },
+        {
+          key: "focusWindow",
+          label: "Navigate Antigravity Window to Chat",
+          type: "select",
+          options: ["true", "false"]
+        },
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+      ],
+      execute: async (input) => {
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const prompt = String(input.prompt || "").trim();
+        if (!prompt) {
+          throw new Error("Antigravity prompt text is required");
+        }
+        const newChat = String(input.newChat ?? "true").toLowerCase() !== "false";
+        const cascadeId = String(input.cascadeId || "").trim() || void 0;
+        const projectName = String(input.projectName || "thassi").trim();
+        const focusWindow = String(input.focusWindow ?? "true").toLowerCase() !== "false";
+        const data = await PcAgentReverseBridge.callEndpoint(
+          baseUrl,
+          "/api/antigravity/prompt",
+          {
+            prompt,
+            newChat,
+            cascadeId,
+            projectName,
+            focusWindow
+          },
+          15e3
+        );
+        if (data.ok === false) {
+          throw new Error(data.error || "Antigravity prompt dispatch failed");
+        }
+        return {
+          summary: data.message || `Antigravity (${projectName}): ${String(data.cascadeId || "").slice(0, 8)}`,
+          data
+        };
+      }
+    });
+    this.register({
       id: "google.drive.read_file",
       name: "Google Drive: Read / Export File Content",
       domainCode: "DRIVE",
@@ -5785,6 +5865,14 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .room-pill.has-on .room-meta {
       color: rgba(251, 191, 36, 0.88);
     }
+    .room-lightbulb-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fbbf24;
+      filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.7));
+      margin-left: 1px;
+    }
 
     /* Right-Aligned StatusBar Previews (3D Print & Vision \u2014 NOT inside tabs, expand upwards) */
     #statusbar-right-previews {
@@ -6901,16 +6989,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
     <!-- Pinned Room Groups Tray (floats over upper timeline content when rooms are pinned) -->
     <div id="pinned-rooms-tray"></div>
 
-    <!-- Higher, bordered Room StatusBar: Left = Smart Home Button + Room Buttons, Right = 3D Print & Vision Previews -->
+    <!-- Higher, bordered Room StatusBar: Left = Smart Home Icon Button + Room Buttons, Right = 3D Print & Vision Previews -->
     <div id="room-dock-bar">
-      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0;">
-        \u2302 Smart Home \u2197
-      </button>
-      <button class="room-pill" onclick="openFullService('memo', 'Memo')" title="Open Memo Knowledge Base" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
-        Memo \u2197
-      </button>
-      <button class="room-pill" onclick="openFullService('cortex', 'Cortex')" title="Open Cortex Gemini Workspace" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
-        Cortex \u2197
+      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Smart Home \xF6ffnen" aria-label="Smart Home" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0; padding:7px 9px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 10.5L12 3l9 7.5"></path>
+          <path d="M5 9.5V19a1 1 0 0 0 1 1h4.5v-5.5h3V20H18a1 1 0 0 0 1-1V9.5"></path>
+        </svg>
       </button>
       <div class="room-dock-group" id="room-pills-container"></div>
       <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>
@@ -7904,14 +7989,30 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
       container.innerHTML = roomTabs
         .map((r) => {
-          const hasOn = r.activeCount > 0;
+          const hasLightsOn = Array.isArray(r.devices)
+            ? r.devices.some(
+                (d) =>
+                  d.isOn &&
+                  (d.kind === 'rgbw' ||
+                    String(d.entityId || '').startsWith('light.') ||
+                    /licht|beleuchtung|led|schalter/i.test(
+                      String(d.label || '') + ' ' + String(d.entityId || '')
+                    ))
+              )
+            : r.activeCount > 0;
+          const hasOn = hasLightsOn;
           const hasMotion = Boolean(r.motionActive);
           const isPinned = pinnedRoomIds.has(r.id);
 
-          const metaParts = [];
-          if (r.tempC != null) metaParts.push(r.tempC.toFixed(1) + '\xB0');
-          if (r.activeCount > 0) metaParts.push(r.activeCount + ' an');
-          if (r.totalPowerW > 0.5) metaParts.push(Math.round(r.totalPowerW) + 'W');
+          const lightbulbHtml = hasLightsOn
+            ? \`<span class="room-lightbulb-icon" title="Licht eingeschaltet">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="rgba(251, 191, 36, 0.28)" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18h6"></path>
+                  <path d="M10 22h4"></path>
+                  <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"></path>
+                </svg>
+              </span>\`
+            : '';
 
           return \`
             <button id="room-pill-\${r.id}"
@@ -7920,7 +8021,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
                     onclick="toggleRoomPin('\${r.id}', event)">
               <span class="room-dot"></span>
               <span>\${r.name}</span>
-              \${metaParts.length > 0 ? \`<span class="room-meta">\${metaParts.join(' \xB7 ')}</span>\` : ''}
+              \${lightbulbHtml}
             </button>
           \`;
         })
@@ -10379,7 +10480,7 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.2.6",
+          version: "1.2.7",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
