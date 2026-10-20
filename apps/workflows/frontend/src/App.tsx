@@ -52,7 +52,14 @@ interface HaEntityOption {
 
 const DOMAIN_FILTERS: Array<{ code: string; label: string }> = [
   { code: 'ALL', label: 'All' },
+  { code: 'PC', label: 'Developer PC' },
   { code: 'HA', label: 'Home Assistant' },
+  { code: 'MARKET', label: 'Supermarkets & EAN' },
+  { code: 'ENERGY', label: 'Energy & Fuel' },
+  { code: 'NET', label: 'Network' },
+  { code: 'MEDIA', label: 'Media' },
+  { code: 'YT', label: 'YouTube' },
+  { code: 'MAPS', label: 'Maps & Routes' },
   { code: 'GCAL', label: 'Calendar' },
   { code: 'FIT', label: 'Health & Fit' },
   { code: 'GMAIL', label: 'Gmail' },
@@ -100,6 +107,9 @@ const GLOBAL_CSS = `
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    user-select: text !important;
   }
 
   .tabular {
@@ -732,6 +742,11 @@ export default function App() {
                 borderLeft: '1px solid var(--line-hairline)',
                 paddingLeft: 32,
                 paddingTop: 16,
+                position: 'sticky',
+                top: 16,
+                alignSelf: 'start',
+                maxHeight: 'calc(100vh - 32px)',
+                overflowY: 'auto',
               }}
             >
               {selectedAxon ? (
@@ -778,6 +793,8 @@ export default function App() {
                       {selectedAxon.description}
                     </p>
                   </div>
+
+                  {selectedAxon.domainCode === 'PC' && <PcBridgeKvmWidget />}
 
                   {/* Parameters Form */}
                   <div
@@ -1314,6 +1331,180 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PcBridgeKvmWidget() {
+  const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
+  const [monitor, setMonitor] = useState<string>('primary');
+  const [keyText, setKeyText] = useState<string>('');
+  const [status, setStatus] = useState<Record<string, any> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/pc-bridge/frame`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+        if (data.frameDataUrl) setFrameDataUrl(data.frameDataUrl);
+        if (data.status) setStatus(data.status);
+        if (data.requestedMonitor) setMonitor(data.requestedMonitor);
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 750);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const switchMonitor = async (m: string) => {
+    setMonitor(m);
+    await fetch(`${API_BASE}/pc-bridge/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setMonitor: m }),
+    }).catch(() => {});
+  };
+
+  const handleImageClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const normalizedX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const normalizedY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    await fetch(`${API_BASE}/pc-bridge/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'click',
+        monitor,
+        normalizedX,
+        normalizedY,
+      }),
+    }).catch(() => {});
+  };
+
+  const handleSendText = async () => {
+    if (!keyText) return;
+    const txt = keyText;
+    setKeyText('');
+    await fetch(`${API_BASE}/pc-bridge/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'text', monitor, text: txt }),
+    }).catch(() => {});
+  };
+
+  return (
+    <div
+      style={{
+        padding: '14px 0',
+        borderBottom: '1px solid var(--line-hairline)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 500,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--text-muted)',
+          }}
+        >
+          Interactive Web-VNC · {status?.hostname || 'DESKTOP-M8TJERB'}
+        </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {[
+            { id: 'primary', label: 'Center' },
+            { id: '0', label: 'Right' },
+            { id: '1', label: 'Left' },
+            { id: 'all', label: 'All 3' },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => switchMonitor(m.id)}
+              className="mono"
+              style={{
+                background: monitor === m.id ? 'var(--text-primary)' : 'var(--bg-input)',
+                color: monitor === m.id ? 'var(--bg-canvas)' : 'var(--text-secondary)',
+                border: '1px solid var(--line-hairline)',
+                borderRadius: 3,
+                padding: '2px 6px',
+                fontSize: 10.5,
+                cursor: 'pointer',
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {frameDataUrl ? (
+        <img
+          src={frameDataUrl}
+          onClick={handleImageClick}
+          alt="Live PC Screen Mirror"
+          title="Click anywhere to send mouse click to DESKTOP-M8TJERB"
+          style={{
+            width: '100%',
+            borderRadius: 4,
+            border: '1px solid var(--line-hairline)',
+            display: 'block',
+            cursor: 'crosshair',
+            background: '#050506',
+          }}
+        />
+      ) : (
+        <div
+          className="mono"
+          style={{
+            padding: '24px 12px',
+            textAlign: 'center',
+            fontSize: 11.5,
+            color: 'var(--text-muted)',
+            border: '1px solid var(--line-hairline)',
+            borderRadius: 4,
+          }}
+        >
+          Syncing live frame from DESKTOP-M8TJERB...
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+        <input
+          type="text"
+          className="field-input"
+          value={keyText}
+          onChange={(e) => setKeyText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSendText();
+            }
+          }}
+          placeholder="Type text / PIN to PC + Enter..."
+          style={{ flex: 1, padding: '5px 8px', fontSize: 11.5 }}
+        />
+        <button
+          className="btn-ghost"
+          onClick={handleSendText}
+          style={{ padding: '4px 10px', fontSize: 11 }}
+        >
+          Send
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,9 @@
-import { defineThassiApp, ThassiActionRegistry } from '@thassi/sdk';
+import {
+  defineThassiApp,
+  ThassiActionRegistry,
+  PcAgentReverseBridge,
+  discoverGeminiApiKeyFromHass,
+} from '@thassi/sdk';
 import {
   STARTER_NODE_PALETTE,
   DEFAULT_STARTER_WORKFLOWS,
@@ -11,8 +16,8 @@ import {
 } from '../shared/types.js';
 
 export default defineThassiApp((ctx) => {
-  const actionRegistry =
-    ctx.actions || new ThassiActionRegistry(ctx.sharedDb, ctx.ha, ctx.google);
+  const actionRegistry = new ThassiActionRegistry(ctx.sharedDb, ctx.ha, ctx.google);
+  (ctx as any).actions = actionRegistry;
   function getSavedWorkflows(): SavedWorkflow[] {
     const stored = ctx.db.kvGet<SavedWorkflow[]>('saved_workflows');
     if (stored && Array.isArray(stored) && stored.length > 0) {
@@ -27,12 +32,18 @@ export default defineThassiApp((ctx) => {
   }
 
   function getCredentials() {
-    const geminiApiKey = (
+    let geminiApiKey = (
       ctx.db.kvGet<string>('gemini_api_key') ||
       ctx.sharedDb.kvGet<string>('gemini_api_key') ||
       process.env.GEMINI_API_KEY ||
+      discoverGeminiApiKeyFromHass() ||
       ''
     ).trim();
+    if (geminiApiKey && !ctx.sharedDb.kvGet<string>('gemini_api_key')) {
+      try {
+        ctx.sharedDb.kvSet('gemini_api_key', geminiApiKey);
+      } catch {}
+    }
     const githubToken = (
       ctx.db.kvGet<string>('github_token') ||
       ctx.sharedDb.kvGet<string>('github_token') ||
@@ -460,5 +471,113 @@ export default defineThassiApp((ctx) => {
     }
     const report = await executeFullWorkflow(wf);
     return { ok: true, report };
+  });
+
+  // =========================================================================
+  // PC AGENT REVERSE BRIDGE (DESKTOP-M8TJERB <-> Home Assistant / Axons)
+  // =========================================================================
+  ctx.route('POST', '/pc-bridge/sync', async (req) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+      status?: Record<string, any>;
+      frameBase64?: string;
+      monitor?: string;
+    };
+    return PcAgentReverseBridge.ingestSync(body);
+  });
+
+  ctx.route('POST', '/pc-bridge/result', async (req) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+      id?: string;
+      result?: Record<string, any>;
+      error?: string;
+    };
+    if (body.id) {
+      PcAgentReverseBridge.resolveCommand(body.id, body.result || {}, body.error);
+    }
+    return { ok: true };
+  });
+
+  ctx.route('GET', '/pc-bridge/frame', async () => {
+    return {
+      ok: Boolean(PcAgentReverseBridge.latestFrameJpeg),
+      lastSeenAt: PcAgentReverseBridge.lastSeenAt,
+      requestedMonitor: PcAgentReverseBridge.requestedMonitor,
+      status: PcAgentReverseBridge.latestStatus,
+      frameDataUrl: PcAgentReverseBridge.latestFrameJpeg
+        ? `data:image/jpeg;base64,${PcAgentReverseBridge.latestFrameJpeg.toString('base64')}`
+        : null,
+    };
+  });
+
+  ctx.route('POST', '/pc-bridge/input', async (req) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, any>;
+    if (body.setMonitor) {
+      PcAgentReverseBridge.requestedMonitor = String(body.setMonitor);
+      return { ok: true, requestedMonitor: PcAgentReverseBridge.requestedMonitor };
+    }
+    const res = await PcAgentReverseBridge.callEndpoint(
+      'http://192.168.188.46:5185',
+      '/api/screen/input',
+      {
+        ...body,
+        monitor: body.monitor || PcAgentReverseBridge.requestedMonitor,
+      },
+      4000
+    );
+    return { ok: true, result: res };
+  });
+
+  // =========================================================================
+  // GOOGLE OAUTH FULL-SCOPE AUTHORIZATION (via localhost:5185 or nip.io)
+  // =========================================================================
+  const FULL_GOOGLE_SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/fitness.activity.read',
+    'https://www.googleapis.com/auth/fitness.body.read',
+    'https://www.googleapis.com/auth/fitness.sleep.read',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/youtube.readonly',
+  ];
+
+  ctx.route('GET', '/google-oauth/url', async (req) => {
+    const redirectUri =
+      req.query.redirectUri || 'http://localhost:5185/api/google/callback';
+    const cur = ctx.google.getConfig();
+    ctx.google.saveConfig({
+      clientId: cur?.clientId || process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: cur?.clientSecret || process.env.GOOGLE_CLIENT_SECRET || '',
+      redirectUri,
+      scopes: FULL_GOOGLE_SCOPES,
+    });
+    const authUrl = ctx.google.getAuthorizationUrl(FULL_GOOGLE_SCOPES);
+    return {
+      ok: true,
+      redirectUri,
+      scopes: FULL_GOOGLE_SCOPES,
+      authUrl,
+    };
+  });
+
+  ctx.route('POST', '/google-oauth/exchange', async (req) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+      code?: string;
+      redirectUri?: string;
+    };
+    if (!body.code) {
+      return { ok: false, error: 'Missing OAuth code' };
+    }
+    if (body.redirectUri) {
+      ctx.google.saveConfig({ redirectUri: body.redirectUri, scopes: FULL_GOOGLE_SCOPES });
+    }
+    const status = await ctx.google.exchangeCode(body.code);
+    const tokens = ctx.google.getTokens();
+    if (tokens?.accessToken) {
+      ctx.db.kvSet('google_oauth_token', tokens.accessToken);
+      ctx.sharedDb.kvSet('google_oauth_token', tokens.accessToken);
+    }
+    return { ok: true, status };
   });
 });

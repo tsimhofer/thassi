@@ -1,0 +1,8 @@
+{
+  "id": "cortex",
+  "name": "Cortex",
+  "version": "1.0.0",
+  "description": "Cortex — Gemini KI-Schnittstelle mit lokaler Daten-Anreicherung (Memo, HA, Finanzen, Kalender, PC) & quasi-agentischen Antwort-Mustern.",
+  "icon": "mdi:brain",
+  "category": "automation"
+}

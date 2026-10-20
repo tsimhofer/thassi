@@ -1,0 +1,8 @@
+{
+  "id": "memo",
+  "name": "Memo",
+  "version": "1.0.0",
+  "description": "Memo — Unified Knowledge & Memory Engine: Google Drive, Google Notizen, lokale .md-Dateien & SQLite-Datenbanksuche.",
+  "icon": "mdi:text-search-variant",
+  "category": "notes"
+}

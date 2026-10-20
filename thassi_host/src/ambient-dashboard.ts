@@ -1810,6 +1810,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     <button class="lnav-item" id="lnav-smart-canvas" onclick="openFullService('smart-canvas', 'Smart Home')"></button>
     <button class="lnav-item" id="lnav-camera-vision" onclick="openFullService('camera-vision', 'Camera Vision')"></button>
     <button class="lnav-item" id="lnav-3d-print" onclick="openFullService('3d-print', '3D Druck Studio')"></button>
+    <button class="lnav-item" id="lnav-memo" onclick="openFullService('memo', 'Memo')"></button>
+    <button class="lnav-item" id="lnav-cortex" onclick="openFullService('cortex', 'Cortex')"></button>
   </nav>
 
   <!-- 1. LIVING SKY, SUBTLE WEATHER EFFECTS & ABSTRACT CELESTIAL HORIZON -->
@@ -2085,6 +2087,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     <div id="room-dock-bar">
       <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0;">
         ⌂ Smart Home ↗
+      </button>
+      <button class="room-pill" onclick="openFullService('memo', 'Memo')" title="Open Memo Knowledge Base" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
+        Memo ↗
+      </button>
+      <button class="room-pill" onclick="openFullService('cortex', 'Cortex')" title="Open Cortex Gemini Workspace" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
+        Cortex ↗
       </button>
       <div class="room-dock-group" id="room-pills-container"></div>
       <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>

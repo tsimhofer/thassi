@@ -192,6 +192,8 @@ export function getHassSidebarStylerScript(): string {
           const order = [
             "44ec3c40_thassi_host",
             "44ec3c40_thassi_workflows",
+            "44ec3c40_thassi_memo",
+            "44ec3c40_thassi_cortex",
             "44ec3c40_thassi_finance_analytics",
             "44ec3c40_thassi_google_health",
             "44ec3c40_thassi_meal_planner",

@@ -1,0 +1,18 @@
+name: "Memo"
+version: "1.0.0"
+slug: "thassi_memo"
+description: "Memo — Unified Knowledge & Memory Engine: Google Drive, Google Notizen, lokale .md-Dateien & SQLite-Datenbanksuche."
+url: "https://github.com/tsimhofer/thassi"
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:text-search-variant"
+panel_title: "Memo"
+panel_admin: false
+homeassistant_api: true
+hassio_api: true

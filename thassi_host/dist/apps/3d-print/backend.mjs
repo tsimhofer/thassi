@@ -12,6 +12,86 @@ import path from "node:path";
 import fs2 from "node:fs";
 import path2 from "node:path";
 import net from "node:net";
+import dgram from "node:dgram";
+var PcAgentReverseBridgeImpl = class {
+  latestStatus = null;
+  lastSeenAt = 0;
+  latestFrameJpeg = null;
+  requestedMonitor = "primary";
+  queue = [];
+  resolvers = /* @__PURE__ */ new Map();
+  ingestSync(body) {
+    this.lastSeenAt = Date.now();
+    if (body.status && typeof body.status === "object") {
+      this.latestStatus = body.status;
+    }
+    if (body.frameBase64 && typeof body.frameBase64 === "string") {
+      this.latestFrameJpeg = Buffer.from(body.frameBase64, "base64");
+    }
+    const commands = this.queue.splice(0, this.queue.length);
+    return {
+      requestedMonitor: this.requestedMonitor,
+      commands
+    };
+  }
+  resolveCommand(id, result, error) {
+    const pending = this.resolvers.get(id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.resolvers.delete(id);
+    if (error) {
+      pending.reject(new Error(error));
+    } else {
+      pending.resolve(result);
+    }
+  }
+  async getStatusOrCall(baseUrl) {
+    if (this.latestStatus && Date.now() - this.lastSeenAt < 15e3) {
+      return this.latestStatus;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/status`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(1200)
+      });
+      if (res.ok) {
+        const snap = await res.json();
+        this.latestStatus = snap;
+        this.lastSeenAt = Date.now();
+        return snap;
+      }
+    } catch {
+    }
+    if (this.latestStatus) {
+      return this.latestStatus;
+    }
+    throw new Error("Thassi.PcAgent on DESKTOP-M8TJERB is currently offline or unreachable.");
+  }
+  async callEndpoint(baseUrl, endpoint, payload, timeoutMs = 8e3) {
+    try {
+      const res = await fetch(`${baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(700)
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+    }
+    const id = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.resolvers.delete(id);
+        reject(new Error(`Timeout waiting for Thassi.PcAgent (${endpoint}) after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.resolvers.set(id, { resolve, reject, timer });
+      this.queue.push({ id, endpoint, payload, createdAt: Date.now() });
+    });
+  }
+};
+var PcAgentReverseBridge = new PcAgentReverseBridgeImpl();
 
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {
@@ -207,6 +287,8 @@ function getHassSidebarStylerScript() {
           const order = [
             "44ec3c40_thassi_host",
             "44ec3c40_thassi_workflows",
+            "44ec3c40_thassi_memo",
+            "44ec3c40_thassi_cortex",
             "44ec3c40_thassi_finance_analytics",
             "44ec3c40_thassi_google_health",
             "44ec3c40_thassi_meal_planner",
@@ -2103,6 +2185,8 @@ function renderUnifiedDashboardHtml(ingressPath) {
     <button class="lnav-item" id="lnav-smart-canvas" onclick="openFullService('smart-canvas', 'Smart Home')"></button>
     <button class="lnav-item" id="lnav-camera-vision" onclick="openFullService('camera-vision', 'Camera Vision')"></button>
     <button class="lnav-item" id="lnav-3d-print" onclick="openFullService('3d-print', '3D Druck Studio')"></button>
+    <button class="lnav-item" id="lnav-memo" onclick="openFullService('memo', 'Memo')"></button>
+    <button class="lnav-item" id="lnav-cortex" onclick="openFullService('cortex', 'Cortex')"></button>
   </nav>
 
   <!-- 1. LIVING SKY, SUBTLE WEATHER EFFECTS & ABSTRACT CELESTIAL HORIZON -->
@@ -2378,6 +2462,12 @@ function renderUnifiedDashboardHtml(ingressPath) {
     <div id="room-dock-bar">
       <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Open Smart Home View" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0;">
         \u2302 Smart Home \u2197
+      </button>
+      <button class="room-pill" onclick="openFullService('memo', 'Memo')" title="Open Memo Knowledge Base" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
+        Memo \u2197
+      </button>
+      <button class="room-pill" onclick="openFullService('cortex', 'Cortex')" title="Open Cortex Gemini Workspace" style="border-color:rgba(255,255,255,0.18); color:#f8fafc; flex-shrink:0;">
+        Cortex \u2197
       </button>
       <div class="room-dock-group" id="room-pills-container"></div>
       <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>
@@ -6248,7 +6338,7 @@ var PRESET_TEMPLATES = {
 // apps/3d-print/backend/bambu-lan.ts
 import net2 from "node:net";
 import tls from "node:tls";
-import dgram from "node:dgram";
+import dgram2 from "node:dgram";
 var BAMBU_API_SPECIFICATION = {
   manufacturer: "Bambu Lab",
   detectedProfileModel: "Bambu X1C WHG \u2014 Bambu Lab X1-Carbon (BL-P001 \xB7 192.168.188.175 \xB7 SN 00M09A391700992 \xB7 FW 01.11.02.00)",
@@ -6432,7 +6522,7 @@ async function listenBambuSsdp(timeoutMs = 2200) {
   await Promise.all(
     ports.map(
       (port) => new Promise((resolve) => {
-        const sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
+        const sock = dgram2.createSocket({ type: "udp4", reuseAddr: true });
         sock.on("error", () => {
           try {
             sock.close();

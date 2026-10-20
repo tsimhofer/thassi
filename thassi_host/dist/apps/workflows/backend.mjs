@@ -318,6 +318,152 @@ var ThassiAppDatabase = class {
 import fs2 from "node:fs";
 import path2 from "node:path";
 import net from "node:net";
+import dgram from "node:dgram";
+function discoverAllGeminiApiKeysFromHass() {
+  const keys = [];
+  if (process.env.GEMINI_API_KEY) keys.push(process.env.GEMINI_API_KEY.trim());
+  const candidatePaths = [
+    "/homeassistant/.storage/core.config_entries",
+    "/config/.storage/core.config_entries"
+  ];
+  for (const storagePath of candidatePaths) {
+    try {
+      if (fs2.existsSync(storagePath)) {
+        const raw = JSON.parse(fs2.readFileSync(storagePath, "utf-8"));
+        const entries = raw?.data?.entries || [];
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const e = entries[i];
+          if (e.domain === "google_generative_ai_conversation" && e.data?.api_key) {
+            const k = String(e.data.api_key).trim();
+            if (k && !keys.includes(k)) keys.push(k);
+          }
+        }
+      }
+    } catch {
+    }
+  }
+  return keys;
+}
+function discoverGeminiApiKeyFromHass() {
+  return discoverAllGeminiApiKeysFromHass()[0] || "";
+}
+var _cachedLiveGeminiModels = null;
+var _workingGeminiKey = null;
+async function resolveAvailableGeminiModels(apiKey) {
+  if (_cachedLiveGeminiModels && _cachedLiveGeminiModels.length > 0) {
+    return _cachedLiveGeminiModels;
+  }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+      { signal: AbortSignal.timeout(4e3) }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const generateModels = (data.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, "")).filter(
+        (name) => /gemini|gemma/i.test(name) && !/embedding|vision-only|imagen|veo|computer-use|robotics|tts|audio|thinking-exp|image/i.test(name)
+      );
+      if (generateModels.length > 0) {
+        const preferredOrder = [
+          "gemini-3.8-flash",
+          "gemini-3-flash-preview",
+          "gemini-2.5-flash-lite",
+          "gemini-2.0-flash",
+          "gemini-2.0-flash-lite",
+          "gemma-3-27b-it",
+          "gemma-3-12b-it",
+          "gemini-2.5-flash"
+        ];
+        generateModels.sort((a, b) => {
+          const ia = preferredOrder.indexOf(a);
+          const ib = preferredOrder.indexOf(b);
+          if (ia !== -1 && ib !== -1) return ia - ib;
+          if (ia !== -1) return -1;
+          if (ib !== -1) return 1;
+          return a.localeCompare(b);
+        });
+        _cachedLiveGeminiModels = generateModels;
+        return generateModels;
+      }
+    }
+  } catch {
+  }
+  return [
+    "gemini-3.8-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemma-3-27b-it"
+  ];
+}
+async function callGeminiGenerateContent(options) {
+  const allKeys = Array.from(
+    new Set(
+      [
+        _workingGeminiKey || "",
+        options.apiKey.trim(),
+        ...discoverAllGeminiApiKeysFromHass()
+      ].filter(Boolean)
+    )
+  );
+  if (allKeys.length === 0) {
+    throw new Error("Gemini API Key ist nicht konfiguriert.");
+  }
+  let lastError = "";
+  for (const keyCandidate of allKeys) {
+    const discovered = await resolveAvailableGeminiModels(keyCandidate);
+    const requested = (options.model || "gemini-3.8-flash").trim();
+    const candidates = Array.from(
+      /* @__PURE__ */ new Set([requested, "gemini-3.8-flash", ...discovered])
+    ).slice(0, 8);
+    for (const model of candidates) {
+      try {
+        const isGemma = model.startsWith("gemma");
+        const combinedPrompt = isGemma && options.systemInstruction ? `${options.systemInstruction}
+
+${options.prompt}` : options.prompt;
+        const payload = {
+          contents: [{ role: "user", parts: [{ text: combinedPrompt }] }],
+          generationConfig: {
+            temperature: options.temperature ?? 0.25,
+            ...options.responseMimeType && !isGemma ? { responseMimeType: options.responseMimeType } : {}
+          }
+        };
+        if (options.systemInstruction && !isGemma) {
+          payload.systemInstruction = {
+            parts: [{ text: options.systemInstruction }]
+          };
+        }
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+            model
+          )}:generateContent?key=${encodeURIComponent(keyCandidate)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(options.timeoutMs ?? 2e4)
+          }
+        );
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "");
+          lastError = `Gemini ${model} HTTP ${res.status}: ${errBody.slice(0, 200)}`;
+          if ([400, 402, 403, 404, 429].includes(res.status)) continue;
+          throw new Error(lastError);
+        }
+        const gemData = await res.json();
+        const text = gemData.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim() || "";
+        if (text) {
+          _workingGeminiKey = keyCandidate;
+          return { text, modelUsed: model };
+        }
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+  }
+  throw new Error(lastError || "Gemini API request failed");
+}
 function interpolateValue(template, upstreamText) {
   if (!template) return "";
   return template.replace(/\{\{\$input\}\}/g, upstreamText || "");
@@ -398,7 +544,17 @@ var ThassiActionRegistry = class {
     return this.actions.get(actionId);
   }
   resolveCredentials(override) {
-    const geminiApiKey = override?.geminiApiKey || this.sharedDb.kvGet("gemini_api_key", "") || process.env.GEMINI_API_KEY || "";
+    let geminiApiKey = override?.geminiApiKey || this.sharedDb.kvGet("gemini_api_key", "") || process.env.GEMINI_API_KEY || "";
+    if (!geminiApiKey) {
+      const discovered = discoverGeminiApiKeyFromHass();
+      if (discovered) {
+        geminiApiKey = discovered;
+        try {
+          this.sharedDb.kvSet("gemini_api_key", discovered);
+        } catch {
+        }
+      }
+    }
     const githubToken = override?.githubToken || this.sharedDb.kvGet("github_token", "") || process.env.GITHUB_TOKEN || "";
     const googleOAuthToken = override?.googleOAuthToken || this.sharedDb.kvGet("google_oauth_token", "") || "";
     return { geminiApiKey, githubToken, googleOAuthToken };
@@ -1678,34 +1834,21 @@ var ThassiActionRegistry = class {
         }
       ],
       execute: async (input, ctx) => {
-        const model = String(input.model || "gemini-2.5-flash").trim();
+        const model = String(input.model || "gemini-3.8-flash").trim();
         const promptText = String(input.prompt || "").trim();
         if (!promptText) throw new Error("Prompt is required");
-        if (!ctx.credentials?.geminiApiKey) {
+        const apiKey = ctx.credentials?.geminiApiKey || discoverGeminiApiKeyFromHass();
+        if (!apiKey) {
           throw new Error("gemini_api_key is not configured.");
         }
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-            model
-          )}:generateContent?key=${encodeURIComponent(ctx.credentials.geminiApiKey)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: promptText }] }]
-            }),
-            signal: AbortSignal.timeout(12e3)
-          }
-        );
-        if (!res.ok) {
-          const errText = await res.text().catch(() => "");
-          throw new Error(`Gemini API ${res.status}: ${errText || res.statusText}`);
-        }
-        const gemData = await res.json();
-        const replyText = gemData.candidates?.[0]?.content?.parts?.[0]?.text || "Empty response from Gemini.";
+        const { text: replyText, modelUsed } = await callGeminiGenerateContent({
+          apiKey,
+          model,
+          prompt: promptText
+        });
         return {
           summary: replyText.slice(0, 100).replace(/\n+/g, " "),
-          data: { model, response: replyText, formattedText: replyText }
+          data: { model: modelUsed, response: replyText, formattedText: replyText }
         };
       }
     });
@@ -1844,8 +1987,1818 @@ var ThassiActionRegistry = class {
         }
       })
     });
+    this.register({
+      id: "market.spar.search",
+      name: "SPAR Austria: Live Product & Price Search",
+      domainCode: "MARKET",
+      category: "market",
+      icon: "MARKET",
+      description: "Queries the live SPAR Austria Fact-Finder API for current shelf prices, unit prices, and promotions.",
+      defaultInput: { query: "Bio Vollmilch", hitsPerPage: "8" },
+      fields: [
+        { key: "query", label: "Search Query / Product", type: "text", placeholder: "Bio Vollmilch / Skyr / Eier", required: true },
+        { key: "hitsPerPage", label: "Max Results", type: "number", placeholder: "8" }
+      ],
+      execute: async (input) => {
+        const query = String(input.query || "Bio Vollmilch").trim();
+        const hitsPerPage = Math.max(1, Math.min(30, Number(input.hitsPerPage || 8)));
+        const url = `https://search-spar.spar-ics.com/fact-finder/rest/v4/search/products_lmos_at?query=${encodeURIComponent(
+          query
+        )}&page=1&hitsPerPage=${hitsPerPage}`;
+        const res = await fetch(url, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Thassi-Axons/2.0"
+          },
+          signal: AbortSignal.timeout(7e3)
+        });
+        if (!res.ok) {
+          throw new Error(`SPAR Austria API HTTP ${res.status}: ${res.statusText}`);
+        }
+        const data = await res.json();
+        const products = (data.hits || []).map((h) => {
+          const mv = h.masterValues || {};
+          const brand = mv.title || "";
+          const desc = mv["short-description-2"] || mv["short-description"] || mv.name || "";
+          const fullName = `${brand} ${desc}`.trim() || mv.name || "SPAR Produkt";
+          const price = Number(mv.price ?? mv["regular-price"] ?? 0);
+          const regularPrice = Number(mv["regular-price"] ?? price);
+          const unitPriceStr = String(mv["price-per-unit"] || "");
+          return {
+            code: mv["code-internal"] || mv["product-number"] || "",
+            name: fullName,
+            brand,
+            priceEur: price,
+            regularPriceEur: regularPrice,
+            isOnSale: regularPrice > price && price > 0,
+            unitPrice: unitPriceStr,
+            url: mv.url ? `https://www.interspar.at/shop/lebensmittel${mv.url}` : ""
+          };
+        });
+        const cheapest = [...products].filter((p) => p.priceEur > 0).sort((a, b) => a.priceEur - b.priceEur)[0];
+        return {
+          summary: cheapest ? `SPAR "${query}": ${products.length} hits \xB7 Best: ${cheapest.name} (\u20AC${cheapest.priceEur.toFixed(2)})` : `SPAR "${query}": ${products.length} products found`,
+          data: {
+            store: "SPAR AT",
+            query,
+            count: products.length,
+            cheapest: cheapest || null,
+            products
+          }
+        };
+      }
+    });
+    this.register({
+      id: "market.billa.search",
+      name: "BILLA Austria: Live Product & Category Discovery",
+      domainCode: "MARKET",
+      category: "market",
+      icon: "MARKET",
+      description: "Queries the live BILLA Online Shop API for Austrian product prices, base unit prices, and promotions.",
+      defaultInput: { query: "Milch", categorySlug: "kuehlwaren-15416", maxResults: "10" },
+      fields: [
+        { key: "query", label: "Filter Keyword", type: "text", placeholder: "Milch / Butter / Brot / Apfel" },
+        {
+          key: "categorySlug",
+          label: "BILLA Category",
+          type: "select",
+          options: [
+            "kuehlwaren-15416",
+            "obst-und-gemuese-13751",
+            "fleisch-15571",
+            "brot-und-gebaeck-15520",
+            "vorratsschrank-15012",
+            "tiefkuehl-15415"
+          ]
+        },
+        { key: "maxResults", label: "Max Results", type: "number", placeholder: "10" }
+      ],
+      execute: async (input) => {
+        const query = String(input.query || "").trim().toLowerCase();
+        const categorySlug = String(input.categorySlug || "kuehlwaren-15416").trim();
+        const maxResults = Math.max(1, Math.min(40, Number(input.maxResults || 10)));
+        const url = `https://shop.billa.at/api/product-discovery/categories/${encodeURIComponent(
+          categorySlug
+        )}/products?pageSize=100`;
+        const res = await fetch(url, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Thassi-Axons/2.0"
+          },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) {
+          throw new Error(`BILLA Austria API HTTP ${res.status}: ${res.statusText}`);
+        }
+        const data = await res.json();
+        const rawResults = data.results || [];
+        const mapped = rawResults.map((item) => {
+          const regularCents = Number(item.price?.regular?.value ?? 0);
+          const unitCents = Number(item.price?.regular?.perStandardizedQuantity ?? regularCents);
+          const priceEur = Number((regularCents / 100).toFixed(2));
+          const unitPriceEur = Number((unitCents / 100).toFixed(2));
+          const baseUnit = String(item.price?.baseUnitShort || item.price?.baseUnitLong || "Stk");
+          const brand = String(item.brand?.name || "");
+          const name = String(item.name || "");
+          return {
+            sku: item.sku || item.productId || "",
+            name: brand && !name.toLowerCase().startsWith(brand.toLowerCase()) ? `${brand} ${name}` : name,
+            brand,
+            priceEur,
+            unitPriceEur,
+            baseUnit,
+            amount: `${item.amount || ""} ${item.volumeLabelShort || ""}`.trim(),
+            url: item.slug ? `https://shop.billa.at/produkte/${item.slug}` : ""
+          };
+        }).filter((p) => p.priceEur > 0 && (!query || p.name.toLowerCase().includes(query)));
+        const products = mapped.slice(0, maxResults);
+        const cheapest = [...products].sort((a, b) => a.priceEur - b.priceEur)[0];
+        return {
+          summary: cheapest ? `BILLA (${categorySlug}): ${products.length} matches \xB7 Best: ${cheapest.name} (\u20AC${cheapest.priceEur.toFixed(2)})` : `BILLA (${categorySlug}): ${products.length} products returned`,
+          data: {
+            store: "BILLA AT",
+            categorySlug,
+            query,
+            count: products.length,
+            cheapest: cheapest || null,
+            products
+          }
+        };
+      }
+    });
+    this.register({
+      id: "market.basket.compare",
+      name: "Supermarket Basket: SPAR vs. BILLA Optimizer",
+      domainCode: "MARKET",
+      category: "market",
+      icon: "MARKET",
+      description: "Compares a shopping basket across SPAR Austria and BILLA Austria in real time to find the cheapest store and split-basket savings.",
+      defaultInput: { itemsCsv: "Milch, Butter, Eier, Haferflocken, Skyr" },
+      fields: [
+        {
+          key: "itemsCsv",
+          label: "Shopping Basket Items (comma-separated)",
+          type: "textarea",
+          placeholder: "Milch, Butter, Eier, Haferflocken, Skyr"
+        }
+      ],
+      execute: async (input) => {
+        const items = String(input.itemsCsv || "Milch, Butter, Eier").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 12);
+        const comparisons = [];
+        let sparTotal = 0;
+        for (const item of items) {
+          const url = `https://search-spar.spar-ics.com/fact-finder/rest/v4/search/products_lmos_at?query=${encodeURIComponent(
+            item
+          )}&page=1&hitsPerPage=4`;
+          const res = await fetch(url, {
+            headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 Thassi-Axons/2.0" },
+            signal: AbortSignal.timeout(5e3)
+          }).catch(() => null);
+          if (res && res.ok) {
+            const json = await res.json().catch(() => ({}));
+            const hits = (json.hits || []).map((h) => ({
+              name: `${h.masterValues?.title || ""} ${h.masterValues?.["short-description-2"] || h.masterValues?.name || ""}`.trim(),
+              price: Number(h.masterValues?.price ?? 0)
+            })).filter((p) => p.price > 0).sort((a, b) => a.price - b.price);
+            const best = hits[0];
+            if (best) {
+              sparTotal += best.price;
+              comparisons.push({ item, sparName: best.name, sparPriceEur: best.price });
+              continue;
+            }
+          }
+          comparisons.push({ item, sparName: null, sparPriceEur: null });
+        }
+        return {
+          summary: `Basket (${items.length} items) \xB7 SPAR Live Total: \u20AC${sparTotal.toFixed(2)}`,
+          data: {
+            itemCount: items.length,
+            sparTotalEur: Number(sparTotal.toFixed(2)),
+            items: comparisons
+          }
+        };
+      }
+    });
+    this.register({
+      id: "product.barcode.resolve",
+      name: "Universal Barcode / EAN Resolver (Multi-Stage)",
+      domainCode: "MARKET",
+      category: "market",
+      icon: "MARKET",
+      description: "Resolves any EAN/GTIN/UPC barcode across 5 stages: OpenFoodFacts -> OpenBeautyFacts -> OpenProductsFacts -> UPCitemdb -> SPAR Austria.",
+      defaultInput: { barcode: "9002490100070" },
+      fields: [
+        {
+          key: "barcode",
+          label: "EAN-13 / EAN-8 / UPC Barcode",
+          type: "text",
+          placeholder: "9002490100070 (Red Bull) / 5449000000996",
+          required: true
+        }
+      ],
+      execute: async (input) => {
+        const barcode = String(input.barcode || "").replace(/[^0-9]/g, "");
+        if (!barcode) throw new Error("Numeric EAN/GTIN barcode is required");
+        const stagesChecked = [];
+        let resolvedProduct = null;
+        const openFactsEndpoints = [
+          { source: "openfoodfacts", domain: "world.openfoodfacts.org", type: "food" },
+          { source: "openbeautyfacts", domain: "world.openbeautyfacts.org", type: "drogerie_beauty" },
+          { source: "openproductsfacts", domain: "world.openproductsfacts.org", type: "non_food_product" }
+        ];
+        for (const ep of openFactsEndpoints) {
+          stagesChecked.push(ep.source);
+          try {
+            const res = await fetch(
+              `https://${ep.domain}/api/v2/product/${encodeURIComponent(barcode)}.json`,
+              {
+                headers: { "User-Agent": "Thassi-Axons/2.0" },
+                signal: AbortSignal.timeout(4e3)
+              }
+            );
+            if (res.ok) {
+              const payload = await res.json();
+              if (payload.status === 1 && payload.product) {
+                const p = payload.product;
+                const nut = p.nutriments || {};
+                resolvedProduct = {
+                  barcode,
+                  source: ep.source,
+                  productType: ep.type,
+                  name: p.product_name_de || p.product_name || p.generic_name || `Product ${barcode}`,
+                  brand: p.brands || "",
+                  quantity: p.quantity || "",
+                  categories: p.categories || "",
+                  imageUrl: p.image_front_small_url || p.image_url || "",
+                  nutriments: ep.type === "food" ? {
+                    calories_kcal_100g: Math.round(Number(nut["energy-kcal_100g"] ?? nut["energy-kcal"] ?? 0)),
+                    protein_100g: Number(Number(nut.proteins_100g ?? 0).toFixed(1)),
+                    carbs_100g: Number(Number(nut.carbohydrates_100g ?? 0).toFixed(1)),
+                    fat_100g: Number(Number(nut.fat_100g ?? 0).toFixed(1))
+                  } : null
+                };
+                break;
+              }
+            }
+          } catch {
+          }
+        }
+        if (!resolvedProduct) {
+          stagesChecked.push("upcitemdb");
+          try {
+            const res = await fetch(
+              `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`,
+              {
+                headers: { Accept: "application/json", "User-Agent": "Thassi-Axons/2.0" },
+                signal: AbortSignal.timeout(4500)
+              }
+            );
+            if (res.ok) {
+              const payload = await res.json();
+              const first = payload.items?.[0];
+              if (first) {
+                resolvedProduct = {
+                  barcode,
+                  source: "upcitemdb",
+                  productType: "retail_general",
+                  name: first.title || `Product ${barcode}`,
+                  brand: first.brand || "",
+                  quantity: first.size || first.weight || "",
+                  categories: first.category || "",
+                  imageUrl: first.images?.[0] || "",
+                  nutriments: null
+                };
+              }
+            }
+          } catch {
+          }
+        }
+        stagesChecked.push("spar_at_ean");
+        let sparMatch = null;
+        try {
+          const searchTerm = resolvedProduct ? `${resolvedProduct.brand} ${resolvedProduct.name}`.trim() : barcode;
+          const sparRes = await fetch(
+            `https://search-spar.spar-ics.com/fact-finder/rest/v4/search/products_lmos_at?query=${encodeURIComponent(
+              searchTerm
+            )}&page=1&hitsPerPage=3`,
+            {
+              headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 Thassi-Axons/2.0" },
+              signal: AbortSignal.timeout(4500)
+            }
+          );
+          if (sparRes.ok) {
+            const sparJson = await sparRes.json();
+            const firstHit = sparJson.hits?.[0]?.masterValues;
+            if (firstHit) {
+              sparMatch = {
+                name: `${firstHit.title || ""} ${firstHit["short-description-2"] || firstHit.name || ""}`.trim(),
+                priceEur: Number(firstHit.price ?? 0),
+                unitPrice: firstHit["price-per-unit"] || ""
+              };
+              if (!resolvedProduct) {
+                resolvedProduct = {
+                  barcode,
+                  source: "spar_at_ean",
+                  productType: "supermarket_item",
+                  name: sparMatch.name,
+                  brand: firstHit.title || "",
+                  quantity: "",
+                  categories: "",
+                  imageUrl: firstHit["image-url"] || "",
+                  nutriments: null
+                };
+              }
+            }
+          }
+        } catch {
+        }
+        if (!resolvedProduct) {
+          throw new Error(
+            `Barcode ${barcode} could not be resolved across [${stagesChecked.join(" -> ")}]`
+          );
+        }
+        return {
+          summary: `${resolvedProduct.name} (${resolvedProduct.brand || resolvedProduct.source})${sparMatch?.priceEur ? ` \xB7 SPAR \u20AC${sparMatch.priceEur.toFixed(2)}` : ""}`,
+          data: {
+            ...resolvedProduct,
+            austrianRetailMatch: sparMatch,
+            stagesChecked
+          }
+        };
+      }
+    });
+    this.register({
+      id: "mobility.econtrol.fuel_prices",
+      name: "E-Control Austria: Live Fuel Prices (Spritpreisrechner)",
+      domainCode: "ENERGY",
+      category: "mobility",
+      icon: "ENERGY",
+      description: "Queries the official Austrian E-Control Spritpreisrechner API for live Diesel (DIE) and Super 95 (SUP) prices around St. Veit an der G\xF6lsen.",
+      defaultInput: {
+        lat: "48.0444",
+        lon: "15.6689",
+        fuelType: "DIE",
+        includeClosed: "false"
+      },
+      fields: [
+        { key: "fuelType", label: "Fuel Type", type: "select", options: ["DIE", "SUP", "GAS"] },
+        { key: "lat", label: "Latitude", type: "text", placeholder: "48.0444 (St. Veit/G\xF6lsen)" },
+        { key: "lon", label: "Longitude", type: "text", placeholder: "15.6689 (St. Veit/G\xF6lsen)" },
+        { key: "includeClosed", label: "Include Closed Stations", type: "select", options: ["false", "true"] }
+      ],
+      execute: async (input) => {
+        const lat = Number(input.lat || 48.0444);
+        const lon = Number(input.lon || 15.6689);
+        const fuelType = String(input.fuelType || "DIE").toUpperCase();
+        const includeClosed = String(input.includeClosed || "false") === "true";
+        const url = `https://api.e-control.at/sprit/1.0/search/gas-stations/by-address?latitude=${lat}&longitude=${lon}&fuelType=${encodeURIComponent(
+          fuelType
+        )}&includeClosed=${includeClosed}`;
+        const res = await fetch(url, {
+          headers: { Accept: "application/json", "User-Agent": "Thassi-Axons/2.0" },
+          signal: AbortSignal.timeout(6e3)
+        });
+        if (!res.ok) {
+          throw new Error(`E-Control API HTTP ${res.status}: ${res.statusText}`);
+        }
+        const rawStations = await res.json();
+        const stations = rawStations.map((st) => {
+          const priceEntry = (st.prices || [])[0];
+          return {
+            id: st.id,
+            name: st.name || "Tankstelle",
+            address: `${st.location?.address || ""}, ${st.location?.postalCode || ""} ${st.location?.city || ""}`.trim(),
+            distanceKm: Number(Number(st.distance ?? 0).toFixed(2)),
+            open: Boolean(st.open),
+            fuelType: priceEntry?.fuelType || fuelType,
+            priceEurPerLiter: priceEntry?.amount ?? null
+          };
+        }).filter((s) => s.priceEurPerLiter !== null);
+        const cheapest = stations[0];
+        return {
+          summary: cheapest ? `Cheapest ${fuelType}: \u20AC${Number(cheapest.priceEurPerLiter).toFixed(3)}/L at ${cheapest.name} (${cheapest.distanceKm} km)` : `${stations.length} stations found near (${lat}, ${lon})`,
+          data: {
+            provider: "e-control.at",
+            fuelType,
+            coordinates: { lat, lon },
+            stationCount: stations.length,
+            cheapestStation: cheapest || null,
+            stations: stations.slice(0, 12)
+          }
+        };
+      }
+    });
+    this.register({
+      id: "energy.awattar.prices_at",
+      name: "aWATTar Austria: EPEX Spot Hourly Electricity Prices",
+      domainCode: "ENERGY",
+      category: "energy",
+      icon: "ENERGY",
+      description: "Fetches hourly Austrian EPEX Spot electricity prices (ct/kWh) from aWATTar AT and calculates the cheapest 3-hour window for high-load appliances or 3D printing.",
+      defaultInput: {},
+      fields: [],
+      execute: async () => {
+        const res = await fetch("https://api.awattar.at/v1/marketdata", {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(6e3)
+        });
+        if (!res.ok) {
+          throw new Error(`aWATTar AT API HTTP ${res.status}: ${res.statusText}`);
+        }
+        const payload = await res.json();
+        const slots = (payload.data || []).map((slot) => {
+          const ctPerKwh = Number((Number(slot.marketprice ?? 0) / 10).toFixed(2));
+          const startIso = new Date(Number(slot.start_timestamp)).toISOString();
+          const endIso = new Date(Number(slot.end_timestamp)).toISOString();
+          const hourLabel = new Date(Number(slot.start_timestamp)).toLocaleTimeString("de-AT", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "Europe/Vienna"
+          });
+          return {
+            hourLabel,
+            startIso,
+            endIso,
+            ctPerKwhNet: ctPerKwh,
+            eurPerMwh: Number(slot.marketprice ?? 0)
+          };
+        });
+        const currentSlot = slots[0] || null;
+        const sortedByPrice = [...slots].sort((a, b) => a.ctPerKwhNet - b.ctPerKwhNet);
+        const minSlot = sortedByPrice[0] || null;
+        const maxSlot = sortedByPrice[sortedByPrice.length - 1] || null;
+        return {
+          summary: currentSlot ? `Current: ${currentSlot.ctPerKwhNet} ct/kWh \xB7 Low: ${minSlot?.ctPerKwhNet} ct (${minSlot?.hourLabel}) \xB7 High: ${maxSlot?.ctPerKwhNet} ct (${maxSlot?.hourLabel})` : `${slots.length} hourly EPEX Spot slots loaded`,
+          data: {
+            provider: "awattar.at",
+            unit: "ct/kWh (net spot)",
+            currentSlot,
+            cheapestSlot: minSlot,
+            mostExpensiveSlot: maxSlot,
+            hourlySlots: slots
+          }
+        };
+      }
+    });
+    this.register({
+      id: "network.fritzbox.status",
+      name: "FRITZ!Box 6890 LTE & WLAN Mesh Telemetry",
+      domainCode: "NET",
+      category: "network",
+      icon: "NET",
+      description: "Probes the FRITZ!Box gateway (192.168.188.1 :80/:49000 TR-064) and reads live Wi-Fi SSID (Obi-WLAN Kenobi), BSSID, signal strength, Tailscale VPN, and public WAN IP sensors.",
+      defaultInput: { gatewayIp: "192.168.188.1" },
+      fields: [
+        { key: "gatewayIp", label: "FRITZ!Box Gateway IP", type: "text", placeholder: "192.168.188.1" }
+      ],
+      execute: async (input, ctx) => {
+        const gwIp = String(input.gatewayIp || "192.168.188.1").trim();
+        const probePort = (port) => new Promise((resolve) => {
+          const sock = net.connect(port, gwIp, () => {
+            sock.destroy();
+            resolve(true);
+          });
+          sock.setTimeout(1200, () => {
+            sock.destroy();
+            resolve(false);
+          });
+          sock.on("error", () => resolve(false));
+        });
+        const [httpOpen, tr064Open, all] = await Promise.all([
+          probePort(80),
+          probePort(49e3),
+          ctx.ha.getStates()
+        ]);
+        const netEntities = all.filter(
+          (s) => /fritz|6890|repeater|wi_fi|ssid|bssid|public_ip|ip_address|network_type|link_speed|signal_strength|tailscale/i.test(
+            s.entity_id
+          )
+        ).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          state: s.state,
+          unit: String(s.attributes?.unit_of_measurement || "")
+        }));
+        const publicIp = netEntities.find((e) => /public_ip/i.test(e.entity_id))?.state || "dynamic";
+        const ssid = netEntities.find((e) => /ssid|wi_fi_connection/i.test(e.entity_id) && e.state !== "unknown")?.state || "Obi-WLAN Kenobi";
+        return {
+          summary: `Gateway ${gwIp} (${httpOpen ? "ONLINE" : "OFFLINE"}) \xB7 SSID: ${ssid} \xB7 WAN IP: ${publicIp} \xB7 ${netEntities.length} sensors`,
+          data: {
+            gatewayIp: gwIp,
+            httpPort80Online: httpOpen,
+            tr064Port49000Online: tr064Open,
+            ssid,
+            publicIp,
+            sensorCount: netEntities.length,
+            sensors: netEntities
+          }
+        };
+      }
+    });
+    this.register({
+      id: "hardware.peripherals.status",
+      name: "Peripherals: Printers (Epson/Brother), PC & Battery Fleet",
+      domainCode: "SYS",
+      category: "system",
+      icon: "SYS",
+      description: "Aggregates Epson XP-7100 ink levels, Brother MFC-L2700DW toner/page counters, THOMAS-PC status, and low-battery warnings across all home devices.",
+      defaultInput: { batteryWarningThreshold: "25" },
+      fields: [
+        { key: "batteryWarningThreshold", label: "Low Battery Warning (%)", type: "number", placeholder: "25" }
+      ],
+      execute: async (input, ctx) => {
+        const threshold = Number(input.batteryWarningThreshold || 25);
+        const all = await ctx.ha.getStates();
+        const printers = all.filter((s) => /epson|xp_7100|brother|mfc_l2700dw|toner|black_ink|cyan|magenta|yellow/i.test(s.entity_id)).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          state: s.state,
+          unit: String(s.attributes?.unit_of_measurement || "")
+        }));
+        const pcEntities = all.filter((s) => /thomas_pc|hass_agent/i.test(s.entity_id)).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          state: s.state
+        }));
+        const batteries = all.filter(
+          (s) => s.attributes?.device_class === "battery" || _sHasNumericPct(s) && /battery|batterie|akku/i.test(s.entity_id)
+        ).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          levelPct: Number(s.state)
+        })).filter((b) => !Number.isNaN(b.levelPct)).sort((a, b) => a.levelPct - b.levelPct);
+        const lowBatteries = batteries.filter((b) => b.levelPct <= threshold);
+        return {
+          summary: `${printers.length} printer sensors \xB7 ${pcEntities.length} PC sensors \xB7 ${lowBatteries.length}/${batteries.length} batteries <= ${threshold}%`,
+          data: {
+            printers,
+            thomasPc: pcEntities,
+            lowBatteries,
+            allBatteries: batteries
+          }
+        };
+      }
+    });
+    this.register({
+      id: "media.now_playing",
+      name: "Media & YouTube Music: Active Players & Control",
+      domainCode: "MEDIA",
+      category: "media",
+      icon: "MEDIA",
+      description: "Reads all Home Assistant media_player entities (Music Assistant / YouTube Music, Samsung TV, Google Cast, Xbox) and optionally dispatches media commands.",
+      defaultInput: { action: "status", entityId: "", command: "media_play_pause" },
+      fields: [
+        { key: "action", label: "Mode", type: "select", options: ["status", "control"] },
+        { key: "entityId", label: "Target Media Player (optional)", type: "text", placeholder: "media_player.samsung_6_series_49" },
+        {
+          key: "command",
+          label: "Media Command (when mode=control)",
+          type: "select",
+          options: ["media_play_pause", "media_next_track", "media_previous_track", "volume_up", "volume_down", "turn_off"]
+        }
+      ],
+      execute: async (input, ctx) => {
+        const mode = String(input.action || "status");
+        const targetId = String(input.entityId || "").trim();
+        const command = String(input.command || "media_play_pause").trim();
+        if (mode === "control" && targetId) {
+          await ctx.ha.callService("media_player", command, { entity_id: targetId });
+        }
+        const all = await ctx.ha.getStates();
+        const players = all.filter((s) => s.entity_id.startsWith("media_player.") || s.entity_id.startsWith("xbox.")).map((s) => ({
+          entity_id: s.entity_id,
+          name: String(s.attributes?.friendly_name || s.entity_id),
+          state: s.state,
+          mediaTitle: s.attributes?.media_title || null,
+          mediaArtist: s.attributes?.media_artist || null,
+          appName: s.attributes?.app_name || null,
+          volumeLevel: s.attributes?.volume_level ?? null
+        }));
+        const active = players.filter((p) => p.state === "playing" || p.state === "paused" || p.state === "on");
+        return {
+          summary: `${active.length} active media players (${players.length} total registered)`,
+          data: {
+            activeCount: active.length,
+            totalCount: players.length,
+            players
+          }
+        };
+      }
+    });
+    this.register({
+      id: "youtube.videos.search",
+      name: "YouTube: Search Videos & Channels",
+      domainCode: "YT",
+      category: "youtube",
+      icon: "YT",
+      description: "Searches YouTube videos with live metadata, view counts, duration, and channel details (supports YouTube Data API v3 or zero-key live extraction).",
+      defaultInput: { query: "BambuLab X1C Gridfinity", maxResults: "8" },
+      fields: [
+        { key: "query", label: "Search Query", type: "text", placeholder: "BambuLab X1C / Home Assistant / Finanzen", required: true },
+        { key: "maxResults", label: "Max Results", type: "number", placeholder: "8" }
+      ],
+      execute: async (input, ctx) => {
+        const query = String(input.query || "BambuLab X1C").trim();
+        const maxResults = Math.max(1, Math.min(20, Number(input.maxResults || 8)));
+        try {
+          const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+          const apiRes = await fetch(
+            `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${maxResults}&q=${encodeURIComponent(
+              query
+            )}`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: AbortSignal.timeout(5e3)
+            }
+          );
+          if (apiRes.ok) {
+            const apiJson = await apiRes.json();
+            const videos2 = (apiJson.items || []).map((it) => ({
+              videoId: it.id?.videoId,
+              title: it.snippet?.title,
+              channel: it.snippet?.channelTitle,
+              publishedAt: it.snippet?.publishedAt,
+              url: `https://www.youtube.com/watch?v=${it.id?.videoId}`
+            }));
+            return {
+              summary: `YouTube API: ${videos2.length} videos for "${query}"`,
+              data: { source: "youtube_data_api_v3", query, count: videos2.length, videos: videos2 }
+            };
+          }
+        } catch {
+        }
+        const res = await fetch(
+          `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&hl=de`,
+          {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept-Language": "de-AT,de;q=0.9,en;q=0.8"
+            },
+            signal: AbortSignal.timeout(7e3)
+          }
+        );
+        if (!res.ok) {
+          throw new Error(`YouTube HTTP ${res.status}: ${res.statusText}`);
+        }
+        const html = await res.text();
+        const match = html.match(/var ytInitialData = (\{.*?\});<\/script>/s);
+        if (!match) {
+          throw new Error("Could not parse ytInitialData from YouTube response");
+        }
+        const ytData = JSON.parse(match[1]);
+        const contents = ytData.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+        const videos = [];
+        for (const item of contents) {
+          const vr = item.videoRenderer;
+          if (!vr || !vr.videoId) continue;
+          videos.push({
+            videoId: vr.videoId,
+            title: vr.title?.runs?.[0]?.text || "",
+            channel: vr.ownerText?.runs?.[0]?.text || "",
+            duration: vr.lengthText?.simpleText || "LIVE",
+            views: vr.viewCountText?.simpleText || "",
+            publishedTime: vr.publishedTimeText?.simpleText || "",
+            url: `https://www.youtube.com/watch?v=${vr.videoId}`
+          });
+          if (videos.length >= maxResults) break;
+        }
+        return {
+          summary: `YouTube "${query}": ${videos.length} videos (${videos[0]?.title || "ok"})`,
+          data: {
+            source: "youtube_live_search",
+            query,
+            count: videos.length,
+            videos
+          }
+        };
+      }
+    });
+    this.register({
+      id: "youtube.channel.feed",
+      name: "YouTube: Channel RSS Video Feed",
+      domainCode: "YT",
+      category: "youtube",
+      icon: "YT",
+      description: "Fetches the latest uploads from any YouTube channel via its official XML Atom feed without requiring API keys.",
+      defaultInput: { channelId: "UCsBjURrPoezykLs9EqgamOA", maxVideos: "8" },
+      fields: [
+        {
+          key: "channelId",
+          label: "YouTube Channel ID",
+          type: "text",
+          placeholder: "UCsBjURrPoezykLs9EqgamOA (Fireship)",
+          required: true
+        },
+        { key: "maxVideos", label: "Max Videos", type: "number", placeholder: "8" }
+      ],
+      execute: async (input) => {
+        const channelId = String(input.channelId || "UCsBjURrPoezykLs9EqgamOA").trim();
+        const maxVideos = Math.max(1, Math.min(15, Number(input.maxVideos || 8)));
+        const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+        const res = await fetch(url, {
+          headers: { "User-Agent": "Thassi-Axons/2.0" },
+          signal: AbortSignal.timeout(6e3)
+        });
+        if (!res.ok) {
+          throw new Error(`YouTube Feed HTTP ${res.status} for channel ${channelId}`);
+        }
+        const xml = await res.text();
+        const channelTitle = xml.match(/<author>\s*<name>(.*?)<\/name>/s)?.[1] || channelId;
+        const entryMatches = [...xml.matchAll(/<entry>(.*?)<\/entry>/gs)];
+        const videos = entryMatches.slice(0, maxVideos).map((m) => {
+          const block = m[1];
+          const videoId = block.match(/<yt:videoId>(.*?)<\/yt:videoId>/)?.[1] || "";
+          const title = block.match(/<title>(.*?)<\/title>/)?.[1] || "";
+          const published = block.match(/<published>(.*?)<\/published>/)?.[1] || "";
+          const views = block.match(/views="(\d+)"/)?.[1] || "0";
+          return {
+            videoId,
+            title,
+            publishedAt: published,
+            views: Number(views),
+            url: `https://www.youtube.com/watch?v=${videoId}`
+          };
+        });
+        return {
+          summary: `${channelTitle}: ${videos.length} recent uploads \xB7 Latest: "${videos[0]?.title || "\u2014"}"`,
+          data: {
+            channelId,
+            channelTitle,
+            count: videos.length,
+            videos
+          }
+        };
+      }
+    });
+    this.register({
+      id: "maps.routes.commute",
+      name: "Maps & Routing: Live Travel Time & Distance",
+      domainCode: "MAPS",
+      category: "maps",
+      icon: "MAPS",
+      description: "Geocodes addresses and calculates live driving distance, duration, and route geometry from St. Veit an der G\xF6lsen (or any origin) to any destination.",
+      defaultInput: {
+        origin: "St. Veit an der G\xF6lsen, Austria",
+        destination: "St. P\xF6lten Hauptbahnhof, Austria"
+      },
+      fields: [
+        { key: "origin", label: 'Origin Address or "lat,lon"', type: "text", placeholder: "St. Veit an der G\xF6lsen, Austria", required: true },
+        { key: "destination", label: 'Destination Address or "lat,lon"', type: "text", placeholder: "St. P\xF6lten Hauptbahnhof, Austria", required: true }
+      ],
+      execute: async (input) => {
+        const geocode = async (queryStr) => {
+          const coordMatch = queryStr.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+          if (coordMatch) {
+            return { lat: Number(coordMatch[1]), lon: Number(coordMatch[2]), label: queryStr };
+          }
+          const nomUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+            queryStr
+          )}&format=json&limit=1`;
+          const res = await fetch(nomUrl, {
+            headers: { "User-Agent": "Thassi-Axons-HomeAssistant/2.0 (thomas.simhofer@gmail.com)" },
+            signal: AbortSignal.timeout(5e3)
+          });
+          if (!res.ok) throw new Error(`Geocoding HTTP ${res.status}`);
+          const hits = await res.json();
+          if (!hits.length) throw new Error(`Location not found: "${queryStr}"`);
+          return {
+            lat: Number(hits[0].lat),
+            lon: Number(hits[0].lon),
+            label: String(hits[0].display_name || queryStr)
+          };
+        };
+        const originStr = String(input.origin || "48.0444, 15.6689").trim();
+        const destStr = String(input.destination || "St. P\xF6lten, Austria").trim();
+        const [orig, dest] = await Promise.all([geocode(originStr), geocode(destStr)]);
+        const routeUrl = `https://router.project-osrm.org/route/v1/driving/${orig.lon},${orig.lat};${dest.lon},${dest.lat}?overview=false&steps=true`;
+        const routeRes = await fetch(routeUrl, {
+          headers: { "User-Agent": "Thassi-Axons/2.0" },
+          signal: AbortSignal.timeout(6e3)
+        });
+        if (!routeRes.ok) {
+          throw new Error(`Routing Engine HTTP ${routeRes.status}`);
+        }
+        const routeData = await routeRes.json();
+        const primaryRoute = routeData.routes?.[0];
+        if (!primaryRoute) {
+          throw new Error("No driving route found between origin and destination");
+        }
+        const distanceKm = Number((Number(primaryRoute.distance || 0) / 1e3).toFixed(1));
+        const durationMin = Math.round(Number(primaryRoute.duration || 0) / 60);
+        return {
+          summary: `${originStr} -> ${destStr}: ${distanceKm} km \xB7 ${durationMin} min driving`,
+          data: {
+            origin: orig,
+            destination: dest,
+            distanceKm,
+            durationMinutes: durationMin,
+            summaryRoute: primaryRoute.legs?.[0]?.summary || ""
+          }
+        };
+      }
+    });
+    this.register({
+      id: "finance.market.rates",
+      name: "Finance: EZB Live FX & Currency Reference Rates",
+      domainCode: "FIN",
+      category: "finance",
+      icon: "FIN",
+      description: "Fetches daily European Central Bank (EZB) foreign exchange reference rates via Frankfurter API.",
+      defaultInput: { base: "EUR", symbols: "USD,CHF,GBP,JPY,PLN,CZK,HUF" },
+      fields: [
+        { key: "base", label: "Base Currency", type: "text", placeholder: "EUR" },
+        { key: "symbols", label: "Target Currencies (CSV)", type: "text", placeholder: "USD,CHF,GBP,JPY,PLN,CZK,HUF" }
+      ],
+      execute: async (input) => {
+        const base = String(input.base || "EUR").trim().toUpperCase();
+        const symbols = String(input.symbols || "USD,CHF,GBP,JPY,PLN,CZK,HUF").trim().toUpperCase();
+        const url = `https://api.frankfurter.app/latest?from=${encodeURIComponent(base)}&to=${encodeURIComponent(
+          symbols
+        )}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(5e3) });
+        if (!res.ok) {
+          throw new Error(`Frankfurter EZB API HTTP ${res.status}: ${res.statusText}`);
+        }
+        const data = await res.json();
+        const ratePairs = Object.entries(data.rates || {}).map(([k, v]) => `${k}: ${v}`);
+        return {
+          summary: `1 ${data.base} (${data.date}) -> ${ratePairs.slice(0, 4).join(" \xB7 ")}`,
+          data
+        };
+      }
+    });
+    this.register({
+      id: "pc.status.telemetry",
+      name: "Workstation: Live Telemetry, Monitors & KVM Link",
+      domainCode: "PC",
+      category: "system",
+      icon: "PC",
+      description: "Reads live CPU/RAM usage, active window, attached displays (DISPLAY1-3), audio volume, and Web-VNC/KVM stream URL from Thassi.PcAgent on DESKTOP-M8TJERB.",
+      defaultInput: { agentUrl: "http://192.168.188.46:5185" },
+      fields: [
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+      ],
+      execute: async (input) => {
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const snap = await PcAgentReverseBridge.getStatusOrCall(baseUrl);
+        return {
+          summary: `${snap.hostname} (${snap.sessionLocked ? "LOCKED" : "ACTIVE"}) \xB7 CPU ${snap.cpuUsagePercent}% \xB7 RAM ${snap.memoryUsedGb}/${snap.memoryTotalGb} GB \xB7 ${snap.displayCount} Displays`,
+          data: snap
+        };
+      }
+    });
+    this.register({
+      id: "pc.power.control",
+      name: "Workstation: Power, Wake-on-LAN & Monitor Control",
+      domainCode: "PC",
+      category: "system",
+      icon: "PC",
+      description: "Powers DESKTOP-M8TJERB ON via UDP Wake-on-LAN Magic Packet (30:9C:23:E1:03:96) or executes Shutdown, Reboot, Standby, Hibernate, Lock, and Monitor Off/On via Thassi.PcAgent.",
+      defaultInput: {
+        action: "wake_on_lan",
+        macAddress: "30:9C:23:E1:03:96",
+        broadcastIp: "192.168.188.255",
+        agentUrl: "http://192.168.188.46:5185",
+        delaySeconds: "5"
+      },
+      fields: [
+        {
+          key: "action",
+          label: "Power Action",
+          type: "select",
+          options: [
+            "wake_on_lan",
+            "monitors_on",
+            "monitors_off",
+            "lock",
+            "sleep",
+            "hibernate",
+            "reboot",
+            "shutdown",
+            "abort_shutdown"
+          ]
+        },
+        { key: "macAddress", label: "MAC Address (for WOL)", type: "text", placeholder: "30:9C:23:E1:03:96" },
+        { key: "broadcastIp", label: "LAN Broadcast IP", type: "text", placeholder: "192.168.188.255" },
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" },
+        { key: "delaySeconds", label: "Shutdown/Reboot Delay (s)", type: "number", placeholder: "5" }
+      ],
+      execute: async (input, ctx) => {
+        const action = String(input.action || "wake_on_lan").trim().toLowerCase();
+        const mac = String(input.macAddress || "30:9C:23:E1:03:96").trim();
+        const broadcastIp = String(input.broadcastIp || "192.168.188.255").trim();
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const delaySeconds = Number(input.delaySeconds || 5);
+        if (action === "wake_on_lan" || action === "wol" || action === "on") {
+          await _sendWakeOnLanMagicPacket(mac, broadcastIp);
+          await ctx.ha.callService("script", "turn_on", { entity_id: "script.1770343452594" }).catch(() => null);
+          return {
+            summary: `Wake-on-LAN Magic Packet dispatched to ${mac} (${broadcastIp}:9)`,
+            data: {
+              action: "wake_on_lan",
+              macAddress: mac,
+              broadcastIp,
+              ports: [9, 7]
+            }
+          };
+        }
+        const data = await PcAgentReverseBridge.callEndpoint(baseUrl, "/api/power", { action, delaySeconds }, 6e3);
+        return {
+          summary: `PC Power [${action}]: ${data.message || "executed"}`,
+          data
+        };
+      }
+    });
+    this.register({
+      id: "pc.session.login",
+      name: "Workstation: User Login, Unlock & Winlogon Auto-Logon",
+      domainCode: "PC",
+      category: "system",
+      icon: "PC",
+      description: "Wakes displays, unlocks the Windows session (or injects PIN/Password), reattaches console sessions (tscon), or configures Winlogon AutoAdminLogon.",
+      defaultInput: {
+        mode: "unlock",
+        username: "thoma",
+        pinOrPassword: "",
+        agentUrl: "http://192.168.188.46:5185"
+      },
+      fields: [
+        {
+          key: "mode",
+          label: "Login / Session Mode",
+          type: "select",
+          options: ["unlock", "tscon", "enable_autologon", "disable_autologon"]
+        },
+        { key: "username", label: "Windows Username", type: "text", placeholder: "thoma" },
+        { key: "pinOrPassword", label: "PIN or Password (optional)", type: "text", placeholder: "Leave empty for curtain wake only" },
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+      ],
+      execute: async (input) => {
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const data = await PcAgentReverseBridge.callEndpoint(
+          baseUrl,
+          "/api/session/login",
+          {
+            mode: input.mode || "unlock",
+            username: input.username || "thoma",
+            pinOrPassword: input.pinOrPassword || ""
+          },
+          7e3
+        );
+        if (data.ok === false) {
+          throw new Error(data.error || "PC Session Login failed");
+        }
+        return {
+          summary: `${data.message || "Session login command executed"}`,
+          data
+        };
+      }
+    });
+    this.register({
+      id: "pc.powershell.exec",
+      name: "Workstation: Execute PowerShell Command",
+      domainCode: "PC",
+      category: "system",
+      icon: "PC",
+      description: "Executes any PowerShell command or script directly on DESKTOP-M8TJERB via Thassi.PcAgent and returns stdout, stderr, and exit code.",
+      defaultInput: {
+        command: "Get-Process | Sort-Object CPU -Descending | Select-Object -First 6 Name, Id, CPU | Format-Table -AutoSize",
+        workingDirectory: "c:\\Users\\thoma\\source\\repos\\thassi",
+        timeoutSeconds: "30",
+        agentUrl: "http://192.168.188.46:5185"
+      },
+      fields: [
+        {
+          key: "command",
+          label: "PowerShell Command / Script",
+          type: "textarea",
+          placeholder: "Get-Service | Where-Object Status -eq Running",
+          required: true
+        },
+        { key: "workingDirectory", label: "Working Directory", type: "text", placeholder: "c:\\Users\\thoma\\source\\repos\\thassi" },
+        { key: "timeoutSeconds", label: "Timeout (s)", type: "number", placeholder: "30" },
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+      ],
+      execute: async (input) => {
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const command = String(input.command || "").trim();
+        if (!command) throw new Error("PowerShell command is required");
+        const timeoutSec = Number(input.timeoutSeconds || 30);
+        const data = await PcAgentReverseBridge.callEndpoint(
+          baseUrl,
+          "/api/powershell/exec",
+          {
+            command,
+            workingDirectory: input.workingDirectory || "c:\\Users\\thoma\\source\\repos\\thassi",
+            timeoutSeconds: timeoutSec
+          },
+          Math.min(6e4, timeoutSec * 1e3 + 4e3)
+        );
+        const firstLine = String(data.stdout || data.stderr || "OK").split("\n").map((l) => l.trim()).find(Boolean) || "OK";
+        return {
+          summary: `PS Exit ${data.exitCode} (${data.durationMs}ms): ${firstLine.slice(0, 90)}`,
+          data
+        };
+      }
+    });
+    this.register({
+      id: "pc.media.control",
+      name: "Workstation: Media Playback & Master Audio Volume",
+      domainCode: "PC",
+      category: "media",
+      icon: "PC",
+      description: "Controls media playback (Play/Pause, Next, Previous, Stop) and Windows CoreAudio Master Volume (0-100% / Mute) on DESKTOP-M8TJERB.",
+      defaultInput: {
+        action: "play_pause",
+        volumePercent: "",
+        agentUrl: "http://192.168.188.46:5185"
+      },
+      fields: [
+        {
+          key: "action",
+          label: "Media Action",
+          type: "select",
+          options: ["play_pause", "next", "prev", "stop", "mute", "vol_up", "vol_down", "set_volume"]
+        },
+        { key: "volumePercent", label: "Master Volume % (0-100, optional)", type: "number", placeholder: "50" },
+        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+      ],
+      execute: async (input) => {
+        const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
+        const volRaw = String(input.volumePercent ?? "").trim();
+        const volumePercent = volRaw !== "" && !Number.isNaN(Number(volRaw)) ? Number(volRaw) : null;
+        const data = await PcAgentReverseBridge.callEndpoint(
+          baseUrl,
+          "/api/media/control",
+          {
+            action: input.action || "play_pause",
+            volumePercent
+          },
+          5e3
+        );
+        const m = data.media || {};
+        if (PcAgentReverseBridge.latestStatus && data.media) {
+          PcAgentReverseBridge.latestStatus.media = data.media;
+        }
+        return {
+          summary: `PC Media [${data.action}] \xB7 Vol ${m.volumePercent ?? "\u2014"}% \xB7 ${m.title || "OK"}`,
+          data
+        };
+      }
+    });
+    this.register({
+      id: "google.drive.read_file",
+      name: "Google Drive: Read / Export File Content",
+      domainCode: "DRIVE",
+      category: "drive",
+      icon: "DRIVE",
+      description: "Reads or exports the full text content of a Google Doc, Markdown file, CSV, or plain text file from Google Drive v3.",
+      defaultInput: { fileId: "", maxChars: "12000" },
+      fields: [
+        { key: "fileId", label: "Google Drive File ID", type: "text", placeholder: "1aBcDeFgHiJkLmNoPqRsTuVwXyZ", required: true },
+        { key: "maxChars", label: "Max Characters", type: "number", placeholder: "12000" }
+      ],
+      execute: async (input, ctx) => {
+        const fileId = String(input.fileId || "").trim();
+        if (!fileId) throw new Error("fileId is required");
+        const maxChars = Math.max(500, Math.min(8e4, Number(input.maxChars || 12e3)));
+        const token = await this.resolveGoogleAccessToken(ctx.credentials?.googleOAuthToken);
+        const metaRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+            fileId
+          )}?fields=id,name,mimeType,modifiedTime,webViewLink,size`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(5e3)
+          }
+        );
+        if (!metaRes.ok) {
+          throw new Error(`Drive file metadata HTTP ${metaRes.status}`);
+        }
+        const meta = await metaRes.json();
+        const mime = String(meta.mimeType || "");
+        let contentText = "";
+        if (mime === "application/vnd.google-apps.document") {
+          const expRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+              fileId
+            )}/export?mimeType=text/plain`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: AbortSignal.timeout(6e3)
+            }
+          );
+          if (expRes.ok) contentText = await expRes.text();
+        } else if (mime === "application/vnd.google-apps.spreadsheet") {
+          const expRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+              fileId
+            )}/export?mimeType=text/csv`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: AbortSignal.timeout(6e3)
+            }
+          );
+          if (expRes.ok) contentText = await expRes.text();
+        } else if (mime.startsWith("text/") || mime.includes("json") || mime.includes("markdown") || mime.includes("xml")) {
+          const dlRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: AbortSignal.timeout(6e3)
+            }
+          );
+          if (dlRes.ok) contentText = await dlRes.text();
+        } else {
+          contentText = `[Binary/Media File: ${meta.name} (${mime})]`;
+        }
+        const clipped = contentText.slice(0, maxChars);
+        return {
+          summary: `Drive "${meta.name}" (${mime}) \xB7 ${clipped.length} chars`,
+          data: {
+            ...meta,
+            content: clipped,
+            formattedText: `# ${meta.name}
+
+${clipped}`
+          }
+        };
+      }
+    });
+    this.register({
+      id: "memo.search",
+      name: "Memo: Federated Knowledge Search (Drive + Notes + .md + SQLite)",
+      domainCode: "MEMO",
+      category: "system",
+      icon: "MEMO",
+      description: "Searches across Google Drive, Google Notes/Keep, local .md files, and all Thassi SQLite databases (Notes, Finance, Meals, Calendar, Projects) with relevance ranking.",
+      defaultInput: {
+        query: "BambuLab",
+        sources: "all",
+        limit: "20"
+      },
+      fields: [
+        { key: "query", label: "Search Topic / Query", type: "text", placeholder: "BambuLab / Budget / Rezept / Home Assistant" },
+        {
+          key: "sources",
+          label: "Sources Filter",
+          type: "select",
+          options: ["all", "markdown", "notes", "drive", "database"]
+        },
+        { key: "limit", label: "Max Results", type: "number", placeholder: "20" }
+      ],
+      execute: async (input, ctx) => {
+        const query = String(input.query || "").trim();
+        const sources = String(input.sources || "all").toLowerCase();
+        const limit = Math.max(1, Math.min(60, Number(input.limit || 20)));
+        const hits = await executeFederatedMemoSearch(
+          ctx,
+          query,
+          sources,
+          limit,
+          (t) => this.resolveGoogleAccessToken(t)
+        );
+        return {
+          summary: `Memo Search "${query || "*"}": ${hits.length} Treffer (${sources})`,
+          data: {
+            query,
+            sources,
+            count: hits.length,
+            results: hits,
+            formattedText: hits.map(
+              (h, i) => `${i + 1}. [${h.sourceType.toUpperCase()}] ${h.title} (${h.ref})
+   ${h.snippet}`
+            ).join("\n\n")
+          }
+        };
+      }
+    });
+    this.register({
+      id: "memo.note.upsert",
+      name: "Memo: Save Note or Markdown Document",
+      domainCode: "MEMO",
+      category: "system",
+      icon: "MEMO",
+      description: "Creates or updates a structured note or .md file in the Memo knowledge base and SQLite index.",
+      defaultInput: {
+        title: "Neue Erkenntnis",
+        content: "{{$input}}",
+        tags: "memo,wissen",
+        saveAsMarkdownFile: "true"
+      },
+      fields: [
+        { key: "title", label: "Title", type: "text", placeholder: "Projekt-Notiz / Zusammenfassung", required: true },
+        { key: "content", label: "Markdown Content", type: "textarea", placeholder: "# \xDCberschrift\n\nInhalt...", required: true },
+        { key: "tags", label: "Tags (CSV)", type: "text", placeholder: "ha,projekt,notiz" },
+        { key: "saveAsMarkdownFile", label: "Also write .md file to Vault", type: "select", options: ["true", "false"] }
+      ],
+      execute: async (input, ctx) => {
+        const title = String(input.title || "Unbenannte Notiz").trim();
+        const content = String(input.content || "").trim();
+        const tags = String(input.tags || "memo").trim();
+        const writeMd = String(input.saveAsMarkdownFile ?? "true") !== "false";
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const memoDb = openAppDatabaseReadWrite(ctx.dataDir, "memo");
+        ensureMemoSchema(memoDb);
+        let filePathRel = "";
+        if (writeMd) {
+          const vaultDir = path2.join(ctx.dataDir, "memo_vault");
+          fs2.mkdirSync(vaultDir, { recursive: true });
+          const safeSlug = title.toLowerCase().replace(/[^a-z0-9äöüß_-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60) || `note-${Date.now()}`;
+          const fullPath = path2.join(vaultDir, `${safeSlug}.md`);
+          const mdBody = content.startsWith("#") ? content : `# ${title}
+
+${content}
+`;
+          fs2.writeFileSync(fullPath, mdBody, "utf-8");
+          filePathRel = `memo_vault/${safeSlug}.md`;
+        }
+        const existing = memoDb.queryOne(
+          "SELECT id FROM memo_entries WHERE LOWER(title) = LOWER(?) LIMIT 1",
+          [title]
+        );
+        let entryId;
+        if (existing) {
+          memoDb.execute(
+            `UPDATE memo_entries
+             SET content = ?, tags = ?, file_path = COALESCE(NULLIF(?, ''), file_path), updated_at = ?
+             WHERE id = ?`,
+            [content, tags, filePathRel, now, existing.id]
+          );
+          entryId = existing.id;
+        } else {
+          const res = memoDb.execute(
+            `INSERT INTO memo_entries (source_type, title, content, tags, file_path, external_id, pinned, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, '', 0, ?, ?)`,
+            [writeMd ? "markdown" : "note", title, content, tags, filePathRel, now, now]
+          );
+          entryId = Number(res.lastInsertRowid);
+        }
+        ctx.sharedDb.execute(
+          "INSERT INTO system_notes (content, pinned, created_at) VALUES (?, 0, ?)",
+          [`[${title}] ${content.slice(0, 280)}`, now]
+        );
+        return {
+          summary: `Saved "${title}" to Memo (#${entryId}${filePathRel ? ` \xB7 ${filePathRel}` : ""})`,
+          data: {
+            id: entryId,
+            title,
+            tags,
+            filePath: filePathRel || null,
+            updatedAt: now
+          }
+        };
+      }
+    });
+    this.register({
+      id: "memo.context.bundle",
+      name: "Memo: Build Topic Context Bundle for AI",
+      domainCode: "MEMO",
+      category: "system",
+      icon: "MEMO",
+      description: "Compiles a structured Markdown context dossier for any topic by querying Google Drive, local .md files, notes, and SQLite databases.",
+      defaultInput: {
+        topic: "Smart Home & Energie",
+        maxSnippets: "12"
+      },
+      fields: [
+        { key: "topic", label: "Topic / Research Question", type: "text", placeholder: "Smart Home / Finanzen / 3D Druck" },
+        { key: "maxSnippets", label: "Max Context Blocks", type: "number", placeholder: "12" }
+      ],
+      execute: async (input, ctx) => {
+        const topic = String(input.topic || "").trim();
+        const maxSnippets = Math.max(3, Math.min(30, Number(input.maxSnippets || 12)));
+        const hits = await executeFederatedMemoSearch(
+          ctx,
+          topic,
+          "all",
+          maxSnippets,
+          (t) => this.resolveGoogleAccessToken(t)
+        );
+        const markdownBundle = [
+          `# MEMO CONTEXT DOSSIER \u2014 "${topic || "Gesamt\xFCbersicht"}"`,
+          `Generiert: ${(/* @__PURE__ */ new Date()).toISOString()} \xB7 Treffer: ${hits.length}`,
+          "",
+          ...hits.map(
+            (h, idx) => `## [${idx + 1}] ${h.title} (${h.sourceType.toUpperCase()} \xB7 ${h.ref})
+${h.contentPreview || h.snippet}`
+          )
+        ].join("\n\n");
+        return {
+          summary: `Context Bundle "${topic || "*"}": ${hits.length} sources (${markdownBundle.length} chars)`,
+          data: {
+            topic,
+            sourceCount: hits.length,
+            sources: hits,
+            markdownBundle,
+            formattedText: markdownBundle
+          }
+        };
+      }
+    });
+    this.register({
+      id: "cortex.prompt.enriched",
+      name: "Cortex: Context-Enriched Gemini Intelligence",
+      domainCode: "AI",
+      category: "gemini",
+      icon: "AI",
+      description: "Enriches a prompt with live local data (Memo knowledge, Home Assistant, Calendar, Finance, Health, PC) and executes Gemini with a structured response pattern.",
+      defaultInput: {
+        prompt: "Erstelle mein aktuelles Tages-Briefing und schlage die 3 wichtigsten n\xE4chsten Schritte vor.",
+        contextScopes: "memo,ha,calendar,finance,pc",
+        responsePattern: "SYNTHESIS_BRIEF",
+        model: "gemini-2.5-flash"
+      },
+      fields: [
+        { key: "prompt", label: "Prompt / Auftrag", type: "textarea", placeholder: "Was soll Cortex analysieren oder ausf\xFChren?", required: true },
+        { key: "contextScopes", label: "Context Scopes (CSV)", type: "text", placeholder: "memo,ha,calendar,finance,health,meals,pc" },
+        {
+          key: "responsePattern",
+          label: "Antwort-Muster (Pattern)",
+          type: "select",
+          options: [
+            "SYNTHESIS_BRIEF",
+            "ACTION_PLAN",
+            "KNOWLEDGE_EXTRACT",
+            "DECISION_MATRIX",
+            "DATA_TABLE"
+          ]
+        },
+        { key: "model", label: "Gemini Model", type: "select", options: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"] }
+      ],
+      execute: async (input, ctx) => {
+        const prompt = String(input.prompt || "").trim();
+        if (!prompt) throw new Error("Prompt is required");
+        const scopes = String(input.contextScopes || "memo,ha,calendar,finance").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+        const pattern = String(input.responsePattern || "SYNTHESIS_BRIEF").toUpperCase();
+        const model = String(input.model || "gemini-2.5-flash").trim();
+        const apiKey = ctx.credentials?.geminiApiKey || discoverGeminiApiKeyFromHass();
+        if (!apiKey) {
+          throw new Error("Gemini API Key fehlt. Bitte in Cortex oder Axons hinterlegen.");
+        }
+        const contextBlocks = [];
+        if (scopes.includes("memo")) {
+          const memoHits = await executeFederatedMemoSearch(
+            ctx,
+            prompt.slice(0, 60),
+            "all",
+            8,
+            (t) => this.resolveGoogleAccessToken(t)
+          );
+          if (memoHits.length > 0) {
+            contextBlocks.push(
+              `[MEMO KNOWLEDGE HITS]
+` + memoHits.map((h) => `- [${h.sourceType}] ${h.title}: ${h.snippet}`).join("\n")
+            );
+          }
+        }
+        if (scopes.includes("ha")) {
+          try {
+            const states = await ctx.ha.getStates();
+            const active = states.filter(
+              (s) => (s.entity_id.startsWith("light.") || s.entity_id.startsWith("switch.") || s.entity_id.startsWith("sensor.shelly")) && s.state !== "unavailable"
+            ).slice(0, 25).map((s) => `${s.entity_id}=${s.state}${s.attributes?.unit_of_measurement || ""}`);
+            contextBlocks.push(`[HOME ASSISTANT LIVE (${states.length} entities)]
+${active.join(", ")}`);
+          } catch {
+          }
+        }
+        if (scopes.includes("calendar")) {
+          try {
+            const calRes = await this.execute("gcal.upcoming", { maxResults: "8" });
+            contextBlocks.push(`[CALENDAR UPCOMING]
+${calRes.data?.formattedText || calRes.summary}`);
+          } catch {
+          }
+        }
+        if (scopes.includes("finance")) {
+          try {
+            const finRes = await this.execute("finance.summary.get", {});
+            contextBlocks.push(`[FINANCE SUMMARY]
+${finRes.summary}`);
+          } catch {
+          }
+        }
+        if (scopes.includes("pc")) {
+          try {
+            const pcRes = await this.execute("pc.status.telemetry", {});
+            contextBlocks.push(`[WORKSTATION PC]
+${pcRes.summary}`);
+          } catch {
+          }
+        }
+        const patternInstructions = {
+          SYNTHESIS_BRIEF: "Antworte als pr\xE4zises Executive Dossier (Markdown) mit: 1. Kernaussage, 2. Fakten aus den Live-Daten, 3. Konkrete Handlungsempfehlungen.",
+          ACTION_PLAN: "Erstelle einen nummerierten, ausf\xFChrbaren Aktionsplan und nenne zu jedem Schritt die passende Thassi Axon-ID (z.B. ha.service.call, gcal.create_event, memo.note.upsert, pc.powershell.exec).",
+          KNOWLEDGE_EXTRACT: "Extrahiere strukturierte Fakten, Entit\xE4ten, Kernaussagen und Tags in sauberem Markdown f\xFCr die dauerhafte Ablage in Memo.",
+          DECISION_MATRIX: "Vergleiche die Optionen quantitativ anhand der Live-Daten (Kosten, Zeit, Nutzen, Risiko) und gib eine eindeutige Empfehlung.",
+          DATA_TABLE: "Gib die Antwort als pr\xE4zise Markdown-Tabelle mit klaren Spalten und tabellarischen Kennzahlen aus."
+        };
+        const fullPrompt = [
+          `AUFTRAG:
+${prompt}`,
+          contextBlocks.length > 0 ? `
+ANGEREICHERTE LOKALE LIVE-DATEN:
+${contextBlocks.join("\n\n")}` : ""
+        ].join("\n");
+        const { text, modelUsed } = await callGeminiGenerateContent({
+          apiKey,
+          model,
+          prompt: fullPrompt,
+          systemInstruction: `Du bist CORTEX, die lokale KI- und Agenten-Instanz im Thassi Home & Life OS von Thomas Simhofer. ` + (patternInstructions[pattern] || patternInstructions.SYNTHESIS_BRIEF)
+        });
+        return {
+          summary: `Cortex [${pattern} \xB7 ${modelUsed}]: ${text.slice(0, 95).replace(/\n+/g, " ")}`,
+          data: {
+            model: modelUsed,
+            responsePattern: pattern,
+            contextScopes: scopes,
+            contextBlockCount: contextBlocks.length,
+            response: text,
+            formattedText: text
+          }
+        };
+      }
+    });
   }
 };
+var PcAgentReverseBridgeImpl = class {
+  latestStatus = null;
+  lastSeenAt = 0;
+  latestFrameJpeg = null;
+  requestedMonitor = "primary";
+  queue = [];
+  resolvers = /* @__PURE__ */ new Map();
+  ingestSync(body) {
+    this.lastSeenAt = Date.now();
+    if (body.status && typeof body.status === "object") {
+      this.latestStatus = body.status;
+    }
+    if (body.frameBase64 && typeof body.frameBase64 === "string") {
+      this.latestFrameJpeg = Buffer.from(body.frameBase64, "base64");
+    }
+    const commands = this.queue.splice(0, this.queue.length);
+    return {
+      requestedMonitor: this.requestedMonitor,
+      commands
+    };
+  }
+  resolveCommand(id, result, error) {
+    const pending = this.resolvers.get(id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.resolvers.delete(id);
+    if (error) {
+      pending.reject(new Error(error));
+    } else {
+      pending.resolve(result);
+    }
+  }
+  async getStatusOrCall(baseUrl) {
+    if (this.latestStatus && Date.now() - this.lastSeenAt < 15e3) {
+      return this.latestStatus;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/status`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(1200)
+      });
+      if (res.ok) {
+        const snap = await res.json();
+        this.latestStatus = snap;
+        this.lastSeenAt = Date.now();
+        return snap;
+      }
+    } catch {
+    }
+    if (this.latestStatus) {
+      return this.latestStatus;
+    }
+    throw new Error("Thassi.PcAgent on DESKTOP-M8TJERB is currently offline or unreachable.");
+  }
+  async callEndpoint(baseUrl, endpoint, payload, timeoutMs = 8e3) {
+    try {
+      const res = await fetch(`${baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(700)
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+    }
+    const id = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.resolvers.delete(id);
+        reject(new Error(`Timeout waiting for Thassi.PcAgent (${endpoint}) after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.resolvers.set(id, { resolve, reject, timer });
+      this.queue.push({ id, endpoint, payload, createdAt: Date.now() });
+    });
+  }
+};
+var PcAgentReverseBridge = new PcAgentReverseBridgeImpl();
+async function _sendWakeOnLanMagicPacket(macAddress, broadcastIp) {
+  const hexParts = macAddress.replace(/[^0-9a-fA-F]/g, "").match(/.{1,2}/g);
+  if (!hexParts || hexParts.length !== 6) {
+    throw new Error(`Invalid MAC address for Wake-on-LAN: "${macAddress}"`);
+  }
+  const macBytes = Buffer.from(hexParts.map((h) => parseInt(h, 16)));
+  const packet = Buffer.alloc(6 + 16 * 6, 255);
+  for (let i = 0; i < 16; i++) {
+    macBytes.copy(packet, 6 + i * 6);
+  }
+  await new Promise((resolve, reject) => {
+    const sock = dgram.createSocket("udp4");
+    sock.once("error", (err) => {
+      sock.close();
+      reject(err);
+    });
+    sock.bind(() => {
+      sock.setBroadcast(true);
+      sock.send(packet, 0, packet.length, 9, broadcastIp, (err) => {
+        sock.send(packet, 0, packet.length, 7, broadcastIp, () => {
+          sock.close();
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    });
+  });
+}
+function _sHasNumericPct(s) {
+  return s.attributes?.unit_of_measurement === "%" && !Number.isNaN(Number(s.state));
+}
+function ensureMemoSchema(memoDb) {
+  memoDb.exec(`
+    CREATE TABLE IF NOT EXISTS memo_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type TEXT NOT NULL DEFAULT 'note',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '',
+      file_path TEXT NOT NULL DEFAULT '',
+      external_id TEXT NOT NULL DEFAULT '',
+      external_url TEXT NOT NULL DEFAULT '',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+async function executeFederatedMemoSearch(ctx, rawQuery, sourcesFilter, limit, resolveToken) {
+  const q = rawQuery.trim().toLowerCase();
+  const terms = q.split(/\s+/).filter(Boolean);
+  const wantAll = !sourcesFilter || sourcesFilter === "all";
+  const wantMd = wantAll || sourcesFilter.includes("markdown") || sourcesFilter.includes("md");
+  const wantNotes = wantAll || sourcesFilter.includes("note") || sourcesFilter.includes("keep");
+  const wantDrive = wantAll || sourcesFilter.includes("drive");
+  const wantDb = wantAll || sourcesFilter.includes("database") || sourcesFilter.includes("db");
+  const results = [];
+  const computeScore = (title, body, tags = "", pinned = 0) => {
+    if (terms.length === 0) return 50 + (pinned ? 25 : 0);
+    const tLow = title.toLowerCase();
+    const bLow = body.toLowerCase();
+    const gLow = tags.toLowerCase();
+    let score = pinned ? 15 : 0;
+    for (const term of terms) {
+      if (tLow === term) score += 60;
+      else if (tLow.includes(term)) score += 35;
+      if (gLow.includes(term)) score += 25;
+      if (bLow.includes(term)) {
+        score += 15;
+        const occurrences = bLow.split(term).length - 1;
+        score += Math.min(20, occurrences * 3);
+      }
+    }
+    return score;
+  };
+  const extractSnippet = (text, maxLen = 220) => {
+    const clean = text.replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+    if (!q || terms.length === 0) return clean.slice(0, maxLen);
+    const low = clean.toLowerCase();
+    for (const term of terms) {
+      const idx = low.indexOf(term);
+      if (idx >= 0) {
+        const start = Math.max(0, idx - 55);
+        const slice = clean.slice(start, start + maxLen);
+        return (start > 0 ? "\u2026" : "") + slice + (start + maxLen < clean.length ? "\u2026" : "");
+      }
+    }
+    return clean.slice(0, maxLen);
+  };
+  try {
+    const memoDb = openAppDatabaseReadWrite(ctx.dataDir, "memo");
+    ensureMemoSchema(memoDb);
+    const rows = memoDb.query("SELECT * FROM memo_entries ORDER BY pinned DESC, updated_at DESC LIMIT 250");
+    for (const r of rows) {
+      const sType = r.source_type === "markdown" ? "markdown" : r.source_type === "drive" ? "drive" : "notes";
+      if (sType === "markdown" && !wantMd) continue;
+      if (sType === "notes" && !wantNotes) continue;
+      if (sType === "drive" && !wantDrive) continue;
+      const sc = computeScore(r.title, r.content, r.tags, r.pinned);
+      if (terms.length > 0 && sc <= (r.pinned ? 15 : 0)) continue;
+      results.push({
+        id: `memo_${r.id}`,
+        sourceType: sType,
+        sourceBadge: r.source_type === "keep" ? "GKEEP" : sType === "markdown" ? "MD" : sType === "drive" ? "DRIVE" : "NOTE",
+        title: r.title,
+        snippet: extractSnippet(r.content),
+        contentPreview: r.content.slice(0, 1800),
+        ref: r.file_path || (r.external_id ? `drive:${r.external_id.slice(0, 10)}` : `memo#${r.id}`),
+        tags: r.tags.split(",").map((t) => t.trim()).filter(Boolean),
+        updatedAt: r.updated_at,
+        score: sc + 10,
+        externalUrl: r.external_url || void 0
+      });
+    }
+  } catch {
+  }
+  if (wantMd) {
+    const candidateDirs = [
+      path2.join(ctx.dataDir, "memo_vault"),
+      process.cwd()
+    ];
+    const seenPaths = /* @__PURE__ */ new Set();
+    for (const dir of candidateDirs) {
+      try {
+        if (!fs2.existsSync(dir)) continue;
+        const entries = fs2.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
+          const full = path2.join(dir, entry.name);
+          if (seenPaths.has(full)) continue;
+          seenPaths.add(full);
+          const stat = fs2.statSync(full);
+          if (stat.size > 512e3) continue;
+          const content = fs2.readFileSync(full, "utf-8");
+          const firstHeading = content.match(/^#\s+(.+)$/m)?.[1]?.trim() || entry.name;
+          const sc = computeScore(`${entry.name} ${firstHeading}`, content, "markdown,local");
+          if (terms.length > 0 && sc <= 0) continue;
+          results.push({
+            id: `md_${entry.name}`,
+            sourceType: "markdown",
+            sourceBadge: "MD",
+            title: firstHeading,
+            snippet: extractSnippet(content),
+            contentPreview: content.slice(0, 2e3),
+            ref: entry.name,
+            tags: ["markdown", "file"],
+            updatedAt: stat.mtime.toISOString(),
+            score: sc + 5
+          });
+        }
+      } catch {
+      }
+    }
+  }
+  if (wantDb || wantNotes) {
+    try {
+      const sysNotes = ctx.sharedDb.query("SELECT * FROM system_notes ORDER BY pinned DESC, id DESC LIMIT 100");
+      for (const sn of sysNotes) {
+        if (!wantNotes && !wantDb) continue;
+        const firstLine = sn.content.split("\n")[0]?.slice(0, 72) || `Notiz #${sn.id}`;
+        const sc = computeScore(firstLine, sn.content, "note,shared", sn.pinned);
+        if (terms.length > 0 && sc <= (sn.pinned ? 15 : 0)) continue;
+        results.push({
+          id: `sysnote_${sn.id}`,
+          sourceType: "notes",
+          sourceBadge: "NOTE",
+          title: firstLine,
+          snippet: extractSnippet(sn.content),
+          contentPreview: sn.content,
+          ref: `shared.system_notes#${sn.id}`,
+          tags: ["system_notes"],
+          updatedAt: sn.created_at,
+          score: sc
+        });
+      }
+    } catch {
+    }
+  }
+  if (wantDb) {
+    try {
+      const finDb = openAppDatabaseReadWrite(ctx.dataDir, "finance-analytics");
+      const txs = finDb.query("SELECT * FROM transactions ORDER BY tx_date DESC LIMIT 150");
+      for (const tx of txs) {
+        const text = `${tx.payee} ${tx.category} ${tx.notes || ""} ${tx.amount} EUR (${tx.tx_date})`;
+        const sc = computeScore(`${tx.payee} ${tx.category}`, text, "finanzen,buchung,ledger");
+        if (terms.length > 0 && sc <= 0) continue;
+        results.push({
+          id: `db_fin_${tx.id}`,
+          sourceType: "database",
+          sourceBadge: "DB:FIN",
+          title: `${tx.payee} (${tx.amount >= 0 ? "+" : ""}${Number(tx.amount).toFixed(2)} \u20AC)`,
+          snippet: `${tx.tx_date} \xB7 Kategorie: ${tx.category}${tx.notes ? ` \xB7 ${tx.notes}` : ""}`,
+          contentPreview: JSON.stringify(tx, null, 2),
+          ref: `finance.transactions#${tx.id}`,
+          tags: ["finance", tx.category.toLowerCase()],
+          updatedAt: `${tx.tx_date}T00:00:00Z`,
+          score: sc
+        });
+      }
+    } catch {
+    }
+    try {
+      const mealDb = openAppDatabaseReadWrite(ctx.dataDir, "meal-planner");
+      const recipes = mealDb.query("SELECT * FROM recipes LIMIT 100");
+      for (const rec of recipes) {
+        const text = `${rec.title} ${rec.category} ${rec.ingredients_json || ""} ${rec.instructions || ""}`;
+        const sc = computeScore(rec.title, text, "rezept,meals,ern\xE4hrung");
+        if (terms.length > 0 && sc <= 0) continue;
+        results.push({
+          id: `db_meal_${rec.id}`,
+          sourceType: "database",
+          sourceBadge: "DB:MEALS",
+          title: `Rezept: ${rec.title}`,
+          snippet: `${rec.calories} kcal \xB7 ${rec.protein_g}g Protein \xB7 ${extractSnippet(rec.instructions || rec.ingredients_json)}`,
+          contentPreview: text.slice(0, 1500),
+          ref: `meals.recipes#${rec.id}`,
+          tags: ["meals", "recipe"],
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          score: sc
+        });
+      }
+    } catch {
+    }
+    try {
+      const calDb = openAppDatabaseReadWrite(ctx.dataDir, "google-calendar");
+      const evs = calDb.query("SELECT * FROM cached_events ORDER BY start_time DESC LIMIT 100");
+      for (const ev of evs) {
+        const text = `${ev.summary} ${ev.location || ""} ${ev.description || ""} ${ev.start_time}`;
+        const sc = computeScore(ev.summary, text, "kalender,termin,event");
+        if (terms.length > 0 && sc <= 0) continue;
+        results.push({
+          id: `db_cal_${ev.id}`,
+          sourceType: "database",
+          sourceBadge: "DB:CAL",
+          title: ev.summary,
+          snippet: `${ev.start_time}${ev.location ? ` \xB7 ${ev.location}` : ""}${ev.description ? ` \xB7 ${ev.description}` : ""}`,
+          contentPreview: text,
+          ref: `calendar.events#${String(ev.id).slice(0, 10)}`,
+          tags: ["calendar", "event"],
+          updatedAt: ev.start_time,
+          score: sc
+        });
+      }
+    } catch {
+    }
+  }
+  if (wantDrive) {
+    try {
+      const token = await resolveToken(ctx.credentials?.googleOAuthToken);
+      const escaped = q.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      const driveQuery = q ? `trashed = false and (name contains '${escaped}' or fullText contains '${escaped}')` : "trashed = false";
+      const params = new URLSearchParams({
+        pageSize: "15",
+        q: driveQuery,
+        orderBy: "modifiedTime desc",
+        fields: "files(id,name,mimeType,modifiedTime,webViewLink,description)"
+      });
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(4500)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const f of data.files || []) {
+          const mime = String(f.mimeType || "");
+          const shortMime = mime.includes("document") ? "Google Doc" : mime.includes("spreadsheet") ? "Google Sheet" : mime.includes("presentation") ? "Slides" : mime.includes("pdf") ? "PDF" : mime.includes("folder") ? "Folder" : mime.split("/").pop() || "File";
+          const sc = computeScore(String(f.name || ""), String(f.description || shortMime), "drive,google") + 20;
+          results.push({
+            id: `drive_${f.id}`,
+            sourceType: "drive",
+            sourceBadge: "DRIVE",
+            title: String(f.name || "Drive File"),
+            snippet: `${shortMime} \xB7 Zuletzt ge\xE4ndert: ${f.modifiedTime || ""}${f.description ? ` \xB7 ${f.description}` : ""}`,
+            contentPreview: `Google Drive File: ${f.name}
+ID: ${f.id}
+Type: ${mime}
+URL: ${f.webViewLink || ""}`,
+            ref: `drive:${String(f.id).slice(0, 12)}`,
+            tags: ["drive", shortMime.toLowerCase()],
+            updatedAt: String(f.modifiedTime || (/* @__PURE__ */ new Date()).toISOString()),
+            score: sc,
+            externalUrl: f.webViewLink || void 0
+          });
+        }
+      }
+    } catch {
+    }
+  }
+  const unique = /* @__PURE__ */ new Map();
+  for (const item of results) {
+    const key = `${item.sourceType}:${item.title.toLowerCase()}`;
+    const prev = unique.get(key);
+    if (!prev || item.score > prev.score) {
+      unique.set(key, item);
+    }
+  }
+  return Array.from(unique.values()).sort((a, b) => b.score - a.score || b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit);
+}
 
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {
@@ -2426,7 +4379,8 @@ var DEFAULT_STARTER_WORKFLOWS = [
 
 // apps/workflows/backend/index.ts
 var index_default = defineThassiApp((ctx) => {
-  const actionRegistry = ctx.actions || new ThassiActionRegistry(ctx.sharedDb, ctx.ha, ctx.google);
+  const actionRegistry = new ThassiActionRegistry(ctx.sharedDb, ctx.ha, ctx.google);
+  ctx.actions = actionRegistry;
   function getSavedWorkflows() {
     const stored = ctx.db.kvGet("saved_workflows");
     if (stored && Array.isArray(stored) && stored.length > 0) {
@@ -2439,7 +4393,13 @@ var index_default = defineThassiApp((ctx) => {
     return ctx.db.kvGet("custom_node_templates", []) || [];
   }
   function getCredentials() {
-    const geminiApiKey = (ctx.db.kvGet("gemini_api_key") || ctx.sharedDb.kvGet("gemini_api_key") || process.env.GEMINI_API_KEY || "").trim();
+    let geminiApiKey = (ctx.db.kvGet("gemini_api_key") || ctx.sharedDb.kvGet("gemini_api_key") || process.env.GEMINI_API_KEY || discoverGeminiApiKeyFromHass() || "").trim();
+    if (geminiApiKey && !ctx.sharedDb.kvGet("gemini_api_key")) {
+      try {
+        ctx.sharedDb.kvSet("gemini_api_key", geminiApiKey);
+      } catch {
+      }
+    }
     const githubToken = (ctx.db.kvGet("github_token") || ctx.sharedDb.kvGet("github_token") || process.env.GITHUB_TOKEN || "").trim();
     const googleOAuthToken = (ctx.db.kvGet("google_oauth_token") || ctx.sharedDb.kvGet("google_oauth_token") || process.env.GOOGLE_OAUTH_TOKEN || "").trim();
     return {
@@ -2749,6 +4709,87 @@ var index_default = defineThassiApp((ctx) => {
     }
     const report = await executeFullWorkflow(wf);
     return { ok: true, report };
+  });
+  ctx.route("POST", "/pc-bridge/sync", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    return PcAgentReverseBridge.ingestSync(body);
+  });
+  ctx.route("POST", "/pc-bridge/result", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    if (body.id) {
+      PcAgentReverseBridge.resolveCommand(body.id, body.result || {}, body.error);
+    }
+    return { ok: true };
+  });
+  ctx.route("GET", "/pc-bridge/frame", async () => {
+    return {
+      ok: Boolean(PcAgentReverseBridge.latestFrameJpeg),
+      lastSeenAt: PcAgentReverseBridge.lastSeenAt,
+      requestedMonitor: PcAgentReverseBridge.requestedMonitor,
+      status: PcAgentReverseBridge.latestStatus,
+      frameDataUrl: PcAgentReverseBridge.latestFrameJpeg ? `data:image/jpeg;base64,${PcAgentReverseBridge.latestFrameJpeg.toString("base64")}` : null
+    };
+  });
+  ctx.route("POST", "/pc-bridge/input", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    if (body.setMonitor) {
+      PcAgentReverseBridge.requestedMonitor = String(body.setMonitor);
+      return { ok: true, requestedMonitor: PcAgentReverseBridge.requestedMonitor };
+    }
+    const res = await PcAgentReverseBridge.callEndpoint(
+      "http://192.168.188.46:5185",
+      "/api/screen/input",
+      {
+        ...body,
+        monitor: body.monitor || PcAgentReverseBridge.requestedMonitor
+      },
+      4e3
+    );
+    return { ok: true, result: res };
+  });
+  const FULL_GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/fitness.activity.read",
+    "https://www.googleapis.com/auth/fitness.body.read",
+    "https://www.googleapis.com/auth/fitness.sleep.read",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/youtube.readonly"
+  ];
+  ctx.route("GET", "/google-oauth/url", async (req) => {
+    const redirectUri = req.query.redirectUri || "http://localhost:5185/api/google/callback";
+    const cur = ctx.google.getConfig();
+    ctx.google.saveConfig({
+      clientId: cur?.clientId || process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: cur?.clientSecret || process.env.GOOGLE_CLIENT_SECRET || "",
+      redirectUri,
+      scopes: FULL_GOOGLE_SCOPES
+    });
+    const authUrl = ctx.google.getAuthorizationUrl(FULL_GOOGLE_SCOPES);
+    return {
+      ok: true,
+      redirectUri,
+      scopes: FULL_GOOGLE_SCOPES,
+      authUrl
+    };
+  });
+  ctx.route("POST", "/google-oauth/exchange", async (req) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    if (!body.code) {
+      return { ok: false, error: "Missing OAuth code" };
+    }
+    if (body.redirectUri) {
+      ctx.google.saveConfig({ redirectUri: body.redirectUri, scopes: FULL_GOOGLE_SCOPES });
+    }
+    const status = await ctx.google.exchangeCode(body.code);
+    const tokens = ctx.google.getTokens();
+    if (tokens?.accessToken) {
+      ctx.db.kvSet("google_oauth_token", tokens.accessToken);
+      ctx.sharedDb.kvSet("google_oauth_token", tokens.accessToken);
+    }
+    return { ok: true, status };
   });
 });
 export {

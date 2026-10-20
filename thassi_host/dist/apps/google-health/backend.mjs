@@ -9,6 +9,86 @@ import path from "node:path";
 import fs2 from "node:fs";
 import path2 from "node:path";
 import net from "node:net";
+import dgram from "node:dgram";
+var PcAgentReverseBridgeImpl = class {
+  latestStatus = null;
+  lastSeenAt = 0;
+  latestFrameJpeg = null;
+  requestedMonitor = "primary";
+  queue = [];
+  resolvers = /* @__PURE__ */ new Map();
+  ingestSync(body) {
+    this.lastSeenAt = Date.now();
+    if (body.status && typeof body.status === "object") {
+      this.latestStatus = body.status;
+    }
+    if (body.frameBase64 && typeof body.frameBase64 === "string") {
+      this.latestFrameJpeg = Buffer.from(body.frameBase64, "base64");
+    }
+    const commands = this.queue.splice(0, this.queue.length);
+    return {
+      requestedMonitor: this.requestedMonitor,
+      commands
+    };
+  }
+  resolveCommand(id, result, error) {
+    const pending = this.resolvers.get(id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.resolvers.delete(id);
+    if (error) {
+      pending.reject(new Error(error));
+    } else {
+      pending.resolve(result);
+    }
+  }
+  async getStatusOrCall(baseUrl) {
+    if (this.latestStatus && Date.now() - this.lastSeenAt < 15e3) {
+      return this.latestStatus;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/status`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(1200)
+      });
+      if (res.ok) {
+        const snap = await res.json();
+        this.latestStatus = snap;
+        this.lastSeenAt = Date.now();
+        return snap;
+      }
+    } catch {
+    }
+    if (this.latestStatus) {
+      return this.latestStatus;
+    }
+    throw new Error("Thassi.PcAgent on DESKTOP-M8TJERB is currently offline or unreachable.");
+  }
+  async callEndpoint(baseUrl, endpoint, payload, timeoutMs = 8e3) {
+    try {
+      const res = await fetch(`${baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(700)
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+    }
+    const id = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.resolvers.delete(id);
+        reject(new Error(`Timeout waiting for Thassi.PcAgent (${endpoint}) after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.resolvers.set(id, { resolve, reject, timer });
+      this.queue.push({ id, endpoint, payload, createdAt: Date.now() });
+    });
+  }
+};
+var PcAgentReverseBridge = new PcAgentReverseBridgeImpl();
 
 // packages/sdk/src/index.ts
 function defineThassiApp(setup) {

@@ -420,8 +420,6 @@ export default defineThassiApp((ctx) => {
     }
 
     await ha.callService(targetDomain, service, serviceData);
-    // Fetch fresh state after service call
-    const updatedState = await ha.getState(body.entity_id).catch(() => null);
-    return { toggled: body.entity_id, state: updatedState };
+    return { toggled: body.entity_id, ok: true };
   });
 });
