@@ -10324,8 +10324,19 @@ async function startServer() {
         return sendJson(res, 200, {
           status: "healthy",
           service: "thassi_host",
-          version: "1.2.4",
+          version: "1.2.5",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
+      if (pathname === "/api/cortex-diagnostic-check" && req.method === "GET") {
+        const html = renderUnifiedDashboardHtml(ingressPath);
+        return sendJson(res, 200, {
+          ok: true,
+          htmlLength: html.length,
+          hasCortexPill: html.includes("cortex-prompt-pill"),
+          hasVerifyMarker: html.includes("VERIFY_PROMPT_BAR_123"),
+          htmlSnippet: html.slice(0, 300),
+          cortexIndex: html.indexOf("cortex-prompt-pill")
         });
       }
       if (pathname === "/api/orchestrator/state" && req.method === "GET") {

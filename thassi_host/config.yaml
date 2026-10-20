@@ -1,5 +1,5 @@
 name: "Thassi Horizon"
-version: "1.2.4"
+version: "1.2.5"
 slug: "thassi_host"
 description: "Fullscreen Calendar-Centric Main Dashboard & Unified Hub for Home Assistant"
 url: "https://github.com/tsimhofer/thassi"
