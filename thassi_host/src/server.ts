@@ -807,9 +807,20 @@ async function startServer() {
         return sendJson(res, 200, {
           status: 'healthy',
           service: 'thassi_host',
-          version: '1.2.5',
+          version: '1.2.6',
           timestamp: new Date().toISOString(),
         });
+      }
+
+      if (pathname === '/' || pathname === '/index.html') {
+        const dashboardHtml = renderUnifiedDashboardHtml(ingressPath);
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'x-thassi-dashboard-version': '1.2.6-cortex',
+          'x-thassi-html-len': String(dashboardHtml.length),
+        });
+        res.end(dashboardHtml);
+        return;
       }
 
       if (pathname === '/api/cortex-diagnostic-check' && req.method === 'GET') {
@@ -1258,17 +1269,6 @@ async function startServer() {
       if (effectiveStandaloneAppId && loadedApps.has(effectiveStandaloneAppId)) {
         const standaloneApp = loadedApps.get(effectiveStandaloneAppId)!;
         serveAppStaticFile(req, res, standaloneApp, pathname, '');
-        return;
-      }
-
-      if (pathname === '/' || pathname === '/index.html') {
-        const dashboardHtml = renderUnifiedDashboardHtml(ingressPath);
-        res.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'x-thassi-dashboard-version': '1.2.4-cortex',
-          'x-thassi-html-len': String(dashboardHtml.length),
-        });
-        res.end(dashboardHtml);
         return;
       }
 
