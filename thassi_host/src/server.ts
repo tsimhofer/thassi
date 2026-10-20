@@ -814,25 +814,9 @@ async function startServer() {
 
       if (pathname === '/' || pathname === '/index.html') {
         const dashboardHtml = renderUnifiedDashboardHtml(ingressPath);
-        res.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'x-thassi-dashboard-version': '1.2.6-cortex',
-          'x-thassi-html-len': String(dashboardHtml.length),
-        });
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(dashboardHtml);
         return;
-      }
-
-      if (pathname === '/api/cortex-diagnostic-check' && req.method === 'GET') {
-        const html = renderUnifiedDashboardHtml(ingressPath);
-        return sendJson(res, 200, {
-          ok: true,
-          htmlLength: html.length,
-          hasCortexPill: html.includes('cortex-prompt-pill'),
-          hasVerifyMarker: html.includes('VERIFY_PROMPT_BAR_123'),
-          htmlSnippet: html.slice(0, 300),
-          cortexIndex: html.indexOf('cortex-prompt-pill'),
-        });
       }
 
       if (pathname === '/api/orchestrator/state' && req.method === 'GET') {

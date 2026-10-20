@@ -4509,7 +4509,6 @@ function renderUnifiedDashboardHtml(ingressPath) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Thassi Horizon</title>
-  <!-- VERIFY_PROMPT_BAR_123 -->
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
   <style>
     :root {
@@ -9414,6 +9413,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     window.unpinAllRooms = unpinAllRooms;
     window.submitCortexPrompt = submitCortexPrompt;
     window.selectCortexPreviewBlueprint = selectCortexPreviewBlueprint;
+    window.selectCortexPastRun = selectCortexPastRun;
     window.selectCortexMemoHit = selectCortexMemoHit;
     window.closeCortexResponse = closeCortexResponse;
     window.copyCortexResponse = copyCortexResponse;
@@ -9424,6 +9424,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     let cortexSearchTimer = null;
     let cortexIsSubmitting = false;
     let cachedCortexBlueprints = [];
+    let cachedCortexRuns = [];
 
     async function initCortexPromptBar() {
       const input = document.getElementById('cortex-prompt-input');
@@ -9435,6 +9436,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
         if (bsRes.ok) {
           const bsData = await bsRes.json();
           cachedCortexBlueprints = bsData.blueprints || [];
+          cachedCortexRuns = bsData.runs || [];
         }
       } catch (_e) {}
 
@@ -9448,7 +9450,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
         cortexSearchTimer = setTimeout(() => {
           performCortexSearchPreview(val);
-        }, 180);
+        }, 160);
       });
 
       input.addEventListener('keydown', (e) => {
@@ -9477,8 +9479,15 @@ function renderUnifiedDashboardHtml(ingressPath) {
       const matchedBps = cachedCortexBlueprints.filter(b =>
         (b.name || '').toLowerCase().includes(qLow) ||
         (b.description || '').toLowerCase().includes(qLow) ||
-        (b.code || '').toLowerCase().includes(qLow)
+        (b.code || '').toLowerCase().includes(qLow) ||
+        (b.promptTemplate || '').toLowerCase().includes(qLow)
       );
+
+      const matchedRuns = cachedCortexRuns.filter(r =>
+        (r.prompt || '').toLowerCase().includes(qLow) ||
+        (r.topic || '').toLowerCase().includes(qLow) ||
+        (r.response_text || '').toLowerCase().includes(qLow)
+      ).slice(0, 3);
 
       let memoHits = [];
       try {
@@ -9489,7 +9498,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
       } catch (_e) {}
 
-      if (matchedBps.length === 0 && memoHits.length === 0) {
+      if (matchedBps.length === 0 && matchedRuns.length === 0 && memoHits.length === 0) {
         dropdown.innerHTML = \`
           <div style="padding:10px 14px; font-size:12px; color:rgba(248,250,252,0.5); display:flex; justify-content:space-between; align-items:center;">
             <span>Dr\xFCcke <b>Enter</b> um \u201E\${escapeHtml(q)}\u201C an Gemini API zu senden</span>
@@ -9519,6 +9528,25 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
       }
 
+      if (matchedRuns.length > 0) {
+        html += '<div style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:#94a3b8; padding:8px 10px 2px;">Cortex Verlauf</div>';
+        for (const r of matchedRuns) {
+          const snippet = (r.response_text || '').replace(/\\n+/g, ' ').slice(0, 90);
+          html += \`
+            <div class="cortex-preview-item" onclick="selectCortexPastRun('\${r.id}')">
+              <div class="cortex-preview-left">
+                <span class="cortex-badge-tag" style="background:rgba(168,85,247,0.18); color:#c084fc; border-color:rgba(168,85,247,0.35);">RUN</span>
+                <div>
+                  <div style="font-size:13px; font-weight:500; color:#f8fafc;">\${escapeHtml(r.topic || r.prompt)}</div>
+                  <div style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:380px;">\${escapeHtml(snippet)}</div>
+                </div>
+              </div>
+              <span style="font-size:11px; color:#c084fc; font-weight:500;">Vorschau \u2192</span>
+            </div>
+          \`;
+        }
+      }
+
       if (memoHits.length > 0) {
         html += '<div style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:#94a3b8; padding:8px 10px 2px;">Memo & Dokumente</div>';
         for (const m of memoHits) {
@@ -9539,6 +9567,22 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
       dropdown.innerHTML = html;
       dropdown.style.display = 'flex';
+    }
+
+    function selectCortexPastRun(runId) {
+      const r = cachedCortexRuns.find(item => String(item.id) === String(runId));
+      const dropdown = document.getElementById('cortex-preview-dropdown');
+      if (dropdown) dropdown.style.display = 'none';
+      if (r) {
+        let actions = [];
+        try { actions = JSON.parse(r.proposed_actions_json || '[]'); } catch (_e) {}
+        renderCortexResponse({
+          modelUsed: r.model_used || 'Cortex Archiv',
+          durationMs: r.duration_ms || 0,
+          responseText: r.response_text || '',
+          proposedActions: actions
+        }, r.prompt);
+      }
     }
 
     function selectCortexPreviewBlueprint(bpId, bpNameEsc) {
@@ -9608,6 +9652,17 @@ function renderUnifiedDashboardHtml(ingressPath) {
         }
 
         renderCortexResponse(data, promptText);
+        if (data.runId) {
+          cachedCortexRuns.unshift({
+            id: data.runId,
+            prompt: promptText,
+            topic: promptText.slice(0, 60),
+            model_used: data.modelUsed,
+            duration_ms: data.durationMs,
+            response_text: data.responseText,
+            proposed_actions_json: JSON.stringify(data.proposedActions || [])
+          });
+        }
       } catch (err) {
         if (responseCard) {
           responseCard.style.display = 'flex';
@@ -10330,24 +10385,9 @@ async function startServer() {
       }
       if (pathname === "/" || pathname === "/index.html") {
         const dashboardHtml = renderUnifiedDashboardHtml(ingressPath);
-        res.writeHead(200, {
-          "Content-Type": "text/html; charset=utf-8",
-          "x-thassi-dashboard-version": "1.2.6-cortex",
-          "x-thassi-html-len": String(dashboardHtml.length)
-        });
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(dashboardHtml);
         return;
-      }
-      if (pathname === "/api/cortex-diagnostic-check" && req.method === "GET") {
-        const html = renderUnifiedDashboardHtml(ingressPath);
-        return sendJson(res, 200, {
-          ok: true,
-          htmlLength: html.length,
-          hasCortexPill: html.includes("cortex-prompt-pill"),
-          hasVerifyMarker: html.includes("VERIFY_PROMPT_BAR_123"),
-          htmlSnippet: html.slice(0, 300),
-          cortexIndex: html.indexOf("cortex-prompt-pill")
-        });
       }
       if (pathname === "/api/orchestrator/state" && req.method === "GET") {
         try {
