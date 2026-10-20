@@ -2233,6 +2233,291 @@ function renderUnifiedDashboardHtml(ingressPath) {
         height: 100dvh !important;
       }
     }
+
+    /* HORIZON CENTERED ROUNDED CORTEX PROMPT BAR */
+    #horizon-cortex-center-stage {
+      position: fixed;
+      left: 50%;
+      top: 45%;
+      transform: translate(-50%, -50%);
+      width: min(670px, 90vw);
+      z-index: 55;
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .cortex-prompt-pill {
+      position: relative;
+      width: 100%;
+      height: 54px;
+      border-radius: 9999px;
+      background: rgba(11, 17, 32, 0.78);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      padding: 0 7px 0 18px;
+      gap: 12px;
+      transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .cortex-prompt-pill:hover {
+      background: rgba(14, 22, 42, 0.88);
+      border-color: rgba(56, 189, 248, 0.38);
+      box-shadow: 0 16px 44px rgba(0, 0, 0, 0.65), 0 0 20px rgba(56, 189, 248, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .cortex-prompt-pill:focus-within {
+      background: rgba(10, 16, 32, 0.95);
+      border-color: rgba(56, 189, 248, 0.68);
+      box-shadow: 0 20px 54px rgba(0, 0, 0, 0.78), 0 0 32px rgba(56, 189, 248, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+    }
+
+    /* Animated shimmering border while waiting for Gemini response */
+    .cortex-prompt-pill.is-waiting {
+      border-color: transparent !important;
+      background: linear-gradient(rgba(10, 16, 32, 0.96), rgba(10, 16, 32, 0.96)) padding-box,
+                  linear-gradient(90deg, #38bdf8, #a855f7, #38bdf8, #10b981, #38bdf8) border-box !important;
+      background-size: 200% 100% !important;
+      animation: geminiBorderFlow 2s linear infinite, geminiPulseGlow 1.6s ease-in-out infinite alternate !important;
+      transform: translateY(-2px);
+    }
+
+    @keyframes geminiBorderFlow {
+      0% { background-position: 0% 0%; }
+      100% { background-position: 200% 0%; }
+    }
+
+    @keyframes geminiPulseGlow {
+      0% { box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 16px rgba(56, 189, 248, 0.2); }
+      100% { box-shadow: 0 20px 52px rgba(0, 0, 0, 0.8), 0 0 36px rgba(168, 85, 247, 0.38); }
+    }
+
+    .cortex-ai-icon-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #38bdf8;
+      flex-shrink: 0;
+      transition: all 0.3s ease;
+    }
+
+    .cortex-prompt-pill:focus-within .cortex-ai-icon-wrap {
+      transform: scale(1.12);
+      color: #7dd3fc;
+    }
+
+    .cortex-prompt-pill.is-waiting .cortex-ai-icon-wrap {
+      animation: spinSlow 3s linear infinite;
+      color: #c084fc;
+    }
+
+    @keyframes spinSlow {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .cortex-prompt-input {
+      flex: 1;
+      height: 100%;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: #f8fafc;
+      font-family: var(--font-sans);
+      font-size: 14px;
+      font-weight: 450;
+      letter-spacing: -0.01em;
+    }
+
+    .cortex-prompt-input::placeholder {
+      color: rgba(248, 250, 252, 0.40);
+      font-size: 13.5px;
+      font-weight: 400;
+    }
+
+    .cortex-waiting-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #bae6fd;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .cortex-waiting-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      animation: pulseDot 1s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulseDot {
+      from { opacity: 0.4; transform: scale(0.85); }
+      to { opacity: 1; transform: scale(1.2); }
+    }
+
+    .cortex-send-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #38bdf8, #0284c7);
+      border: none;
+      color: #040711;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .cortex-send-btn:hover:not(:disabled) {
+      transform: scale(1.08);
+      background: linear-gradient(135deg, #7dd3fc, #38bdf8);
+      box-shadow: 0 4px 16px rgba(56, 189, 248, 0.55);
+    }
+
+    .cortex-send-btn:active:not(:disabled) {
+      transform: scale(0.94);
+    }
+
+    .cortex-send-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
+      transform: none;
+    }
+
+    /* DROPDOWN PREVIEW PANEL */
+    #cortex-preview-dropdown {
+      width: 100%;
+      margin-top: 10px;
+      border-radius: 20px;
+      background: rgba(10, 16, 32, 0.94);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(56, 189, 248, 0.24);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 24px rgba(56, 189, 248, 0.08);
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 10px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      animation: fadeInDown 0.18s ease-out;
+    }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .cortex-preview-item {
+      padding: 9px 13px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      transition: all 0.15s ease;
+    }
+
+    .cortex-preview-item:hover {
+      background: rgba(56, 189, 248, 0.14);
+      border-color: rgba(56, 189, 248, 0.38);
+      transform: translateX(3px);
+    }
+
+    .cortex-preview-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .cortex-badge-tag {
+      font-size: 10px;
+      font-family: var(--font-mono, monospace);
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: rgba(56, 189, 248, 0.18);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      flex-shrink: 0;
+    }
+
+    /* RESPONSE FLYOUT CARD */
+    #cortex-response-card {
+      width: 100%;
+      margin-top: 12px;
+      border-radius: 20px;
+      background: rgba(10, 16, 32, 0.96);
+      backdrop-filter: blur(28px);
+      -webkit-backdrop-filter: blur(28px);
+      border: 1px solid rgba(56, 189, 248, 0.32);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85), 0 0 35px rgba(56, 189, 248, 0.15);
+      max-height: 480px;
+      overflow-y: auto;
+      padding: 18px 22px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      animation: fadeInDown 0.2s ease-out;
+    }
+
+    .cortex-resp-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 10px;
+      gap: 10px;
+    }
+
+    .cortex-resp-body {
+      font-size: 13px;
+      line-height: 1.65;
+      color: rgba(248, 250, 252, 0.88);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: var(--font-sans);
+    }
+    .cortex-resp-body h1, .cortex-resp-body h2, .cortex-resp-body h3 {
+      color: #f8fafc;
+      margin: 12px 0 6px 0;
+      font-size: 14.5px;
+    }
+    .cortex-resp-body pre, .cortex-resp-body code {
+      font-family: var(--font-mono, monospace);
+      background: rgba(0, 0, 0, 0.4);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #bae6fd;
+    }
+    .cortex-resp-body pre {
+      padding: 10px;
+      display: block;
+      overflow-x: auto;
+    }
   </style>
 </head>
 <body>
@@ -2468,6 +2753,39 @@ function renderUnifiedDashboardHtml(ingressPath) {
         <button type="submit" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 16px; font-weight:600; font-size:12px; cursor:pointer; white-space:nowrap;">Add</button>
       </div>
     </form>
+  </div>
+
+  <!-- CENTERED ROUNDED CORTEX PROMPT BAR WITH LIVE PREVIEWS & GEMINI INTEGRATION -->
+  <div id="horizon-cortex-center-stage">
+    <div class="cortex-prompt-pill" id="cortex-prompt-pill">
+      <div class="cortex-ai-icon-wrap" id="cortex-ai-icon" title="Cortex & Google Gemini">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+        </svg>
+      </div>
+      <input type="text"
+             class="cortex-prompt-input"
+             id="cortex-prompt-input"
+             placeholder="Frag Cortex oder durchsuche Memo, Termine, Smart Home & Finanzen..."
+             autocomplete="off"
+             spellcheck="false" />
+      <div id="cortex-status-badge" style="display:none;" class="cortex-waiting-pill">
+        <span class="cortex-waiting-dot"></span>
+        <span id="cortex-status-text">Denke nach...</span>
+      </div>
+      <button class="cortex-send-btn" id="cortex-send-btn" onclick="submitCortexPrompt()" title="An Gemini API senden (Enter)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+
+    <!-- LIVE SEARCH PREVIEWS DROPDOWN -->
+    <div id="cortex-preview-dropdown"></div>
+
+    <!-- GEMINI EXPANDABLE RESPONSE CARD -->
+    <div id="cortex-response-card"></div>
   </div>
 
   <!-- 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER & GCAL EVENT RECTANGLES -->
@@ -5029,6 +5347,283 @@ function renderUnifiedDashboardHtml(ingressPath) {
     window.triggerMini3dPrint = triggerMini3dPrint;
     window.toggleRoomPin = toggleRoomPin;
     window.unpinAllRooms = unpinAllRooms;
+    window.submitCortexPrompt = submitCortexPrompt;
+    window.selectCortexPreviewBlueprint = selectCortexPreviewBlueprint;
+    window.selectCortexMemoHit = selectCortexMemoHit;
+    window.closeCortexResponse = closeCortexResponse;
+    window.copyCortexResponse = copyCortexResponse;
+
+    // ============================================================================
+    // HORIZON CENTERED CORTEX PROMPT BAR, LIVE PREVIEWS & GEMINI SENDER
+    // ============================================================================
+    let cortexSearchTimer = null;
+    let cortexIsSubmitting = false;
+    let cachedCortexBlueprints = [];
+
+    async function initCortexPromptBar() {
+      const input = document.getElementById('cortex-prompt-input');
+      const dropdown = document.getElementById('cortex-preview-dropdown');
+      if (!input || !dropdown) return;
+
+      try {
+        const bsRes = await fetch(base + '/api/apps/cortex/bootstrap');
+        if (bsRes.ok) {
+          const bsData = await bsRes.json();
+          cachedCortexBlueprints = bsData.blueprints || [];
+        }
+      } catch (_e) {}
+
+      input.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        if (cortexSearchTimer) clearTimeout(cortexSearchTimer);
+        if (!val) {
+          dropdown.style.display = 'none';
+          dropdown.innerHTML = '';
+          return;
+        }
+        cortexSearchTimer = setTimeout(() => {
+          performCortexSearchPreview(val);
+        }, 180);
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitCortexPrompt();
+        } else if (e.key === 'Escape') {
+          dropdown.style.display = 'none';
+          closeCortexResponse();
+        }
+      });
+
+      document.addEventListener('click', (e) => {
+        const stage = document.getElementById('horizon-cortex-center-stage');
+        if (stage && !stage.contains(e.target)) {
+          dropdown.style.display = 'none';
+        }
+      });
+    }
+
+    async function performCortexSearchPreview(q) {
+      const dropdown = document.getElementById('cortex-preview-dropdown');
+      if (!dropdown) return;
+
+      const qLow = q.toLowerCase();
+      const matchedBps = cachedCortexBlueprints.filter(b =>
+        (b.name || '').toLowerCase().includes(qLow) ||
+        (b.description || '').toLowerCase().includes(qLow) ||
+        (b.code || '').toLowerCase().includes(qLow)
+      );
+
+      let memoHits = [];
+      try {
+        const mRes = await fetch(base + '/api/apps/memo/search?q=' + encodeURIComponent(q) + '&limit=5');
+        if (mRes.ok) {
+          const mData = await mRes.json();
+          memoHits = mData.results || [];
+        }
+      } catch (_e) {}
+
+      if (matchedBps.length === 0 && memoHits.length === 0) {
+        dropdown.innerHTML = \`
+          <div style="padding:10px 14px; font-size:12px; color:rgba(248,250,252,0.5); display:flex; justify-content:space-between; align-items:center;">
+            <span>Dr\xFCcke <b>Enter</b> um \u201E\${escapeHtml(q)}\u201C an Gemini API zu senden</span>
+            <span style="font-family:monospace; font-size:10.5px; color:#38bdf8;">[\u21B5 Senden]</span>
+          </div>
+        \`;
+        dropdown.style.display = 'flex';
+        return;
+      }
+
+      let html = '';
+      if (matchedBps.length > 0) {
+        html += '<div style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:#94a3b8; padding:4px 10px 2px;">Cortex Vorlagen</div>';
+        for (const bp of matchedBps) {
+          html += \`
+            <div class="cortex-preview-item" onclick="selectCortexPreviewBlueprint('\${bp.id}', '\${encodeURIComponent(bp.name)}')">
+              <div class="cortex-preview-left">
+                <span class="cortex-badge-tag">\${bp.code}</span>
+                <div>
+                  <div style="font-size:13px; font-weight:500; color:#f8fafc;">\${escapeHtml(bp.name)}</div>
+                  <div style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:380px;">\${escapeHtml(bp.description)}</div>
+                </div>
+              </div>
+              <span style="font-size:11px; color:#38bdf8; font-weight:500;">\xDCbernehmen \u2192</span>
+            </div>
+          \`;
+        }
+      }
+
+      if (memoHits.length > 0) {
+        html += '<div style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:#94a3b8; padding:8px 10px 2px;">Memo & Dokumente</div>';
+        for (const m of memoHits) {
+          html += \`
+            <div class="cortex-preview-item" onclick="selectCortexMemoHit('\${encodeURIComponent(m.title)}')">
+              <div class="cortex-preview-left">
+                <span class="cortex-badge-tag" style="background:rgba(16,185,129,0.18); color:#34d399; border-color:rgba(16,185,129,0.35);">\${m.sourceBadge}</span>
+                <div>
+                  <div style="font-size:13px; font-weight:500; color:#f8fafc;">\${escapeHtml(m.title)}</div>
+                  <div style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:380px;">\${escapeHtml(m.snippet)}</div>
+                </div>
+              </div>
+              <span style="font-size:11px; color:#a1a1aa; font-family:monospace;">\${escapeHtml(m.ref)}</span>
+            </div>
+          \`;
+        }
+      }
+
+      dropdown.innerHTML = html;
+      dropdown.style.display = 'flex';
+    }
+
+    function selectCortexPreviewBlueprint(bpId, bpNameEsc) {
+      const bpName = decodeURIComponent(bpNameEsc);
+      const bp = cachedCortexBlueprints.find(b => b.id === bpId);
+      const input = document.getElementById('cortex-prompt-input');
+      const dropdown = document.getElementById('cortex-preview-dropdown');
+      if (dropdown) dropdown.style.display = 'none';
+      if (input && bp) {
+        input.value = bp.promptTemplate.replace(/\\{\\{topic\\}\\}/gi, bpName);
+        input.focus();
+      }
+    }
+
+    function selectCortexMemoHit(titleEsc) {
+      const title = decodeURIComponent(titleEsc);
+      const input = document.getElementById('cortex-prompt-input');
+      const dropdown = document.getElementById('cortex-preview-dropdown');
+      if (dropdown) dropdown.style.display = 'none';
+      if (input) {
+        input.value = 'Fasse alle Details zu "' + title + '" aus Memo zusammen und leite die n\xE4chsten Schritte ab.';
+        input.focus();
+      }
+    }
+
+    async function submitCortexPrompt() {
+      if (cortexIsSubmitting) return;
+      const input = document.getElementById('cortex-prompt-input');
+      const pill = document.getElementById('cortex-prompt-pill');
+      const sendBtn = document.getElementById('cortex-send-btn');
+      const statusBadge = document.getElementById('cortex-status-badge');
+      const statusText = document.getElementById('cortex-status-text');
+      const dropdown = document.getElementById('cortex-preview-dropdown');
+      const responseCard = document.getElementById('cortex-response-card');
+
+      const promptText = (input ? input.value : '').trim();
+      if (!promptText) {
+        if (input) input.focus();
+        return;
+      }
+
+      if (dropdown) dropdown.style.display = 'none';
+      cortexIsSubmitting = true;
+      if (pill) pill.classList.add('is-waiting');
+      if (sendBtn) sendBtn.disabled = true;
+      if (statusBadge) {
+        statusBadge.style.display = 'inline-flex';
+        if (statusText) statusText.textContent = 'Gemini denkt nach...';
+      }
+
+      try {
+        const res = await fetch(base + '/api/apps/cortex/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: promptText,
+            topic: promptText.slice(0, 60),
+            contextScopes: ['memo', 'ha', 'calendar', 'pc', 'finance'],
+            responsePattern: 'SYNTHESIS_BRIEF',
+            model: 'gemini-3.8-flash'
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Fehler beim Gemini API Aufruf');
+        }
+
+        renderCortexResponse(data, promptText);
+      } catch (err) {
+        if (responseCard) {
+          responseCard.style.display = 'flex';
+          responseCard.innerHTML = \`
+            <div class="cortex-resp-header">
+              <span style="font-size:12px; font-weight:600; color:#ef4444;">Fehler bei Gemini Anfrage</span>
+              <button onclick="closeCortexResponse()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;">\u2715</button>
+            </div>
+            <div style="font-size:13px; color:#fca5a5;">\${escapeHtml(err.message || String(err))}</div>
+          \`;
+        }
+      } finally {
+        cortexIsSubmitting = false;
+        if (pill) pill.classList.remove('is-waiting');
+        if (sendBtn) sendBtn.disabled = false;
+        if (statusBadge) statusBadge.style.display = 'none';
+      }
+    }
+
+    function renderCortexResponse(data, originalPrompt) {
+      const responseCard = document.getElementById('cortex-response-card');
+      if (!responseCard) return;
+
+      const modelLabel = data.modelUsed || 'Gemini 3.8 Flash';
+      const duration = data.durationMs ? (data.durationMs + 'ms') : '';
+      const text = data.responseText || '(Keine Antwort)';
+
+      let actionsHtml = '';
+      if (Array.isArray(data.proposedActions) && data.proposedActions.length > 0) {
+        actionsHtml = \`
+          <div style="margin:8px 0; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+            <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:#38bdf8; margin-bottom:6px;">Quasi-Agentische Axon-Schritte (\${data.proposedActions.length})</div>
+            \${data.proposedActions.map(a => \`
+              <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-top:4px;">
+                <span style="color:#f8fafc; font-family:monospace;">\${escapeHtml(a.axonId)}</span>
+                <span style="color:#94a3b8;">\${escapeHtml(a.reason || '')}</span>
+              </div>
+            \`).join('')}
+          </div>
+        \`;
+      }
+
+      responseCard.innerHTML = \`
+        <div class="cortex-resp-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="width:7px; height:7px; border-radius:50%; background:#10b981;"></span>
+            <span style="font-size:12px; font-weight:600; color:#f8fafc;">\${escapeHtml(modelLabel)}</span>
+            <span style="font-size:11px; font-family:monospace; color:#94a3b8;">\${duration}</span>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="copyCortexResponse()" style="padding:4px 10px; border-radius:7px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; font-size:11px; cursor:pointer;">Kopieren</button>
+            <button onclick="openFullService('cortex', 'Cortex')" style="padding:4px 10px; border-radius:7px; background:#38bdf8; border:none; color:#040711; font-size:11px; font-weight:600; cursor:pointer;">In Cortex \xF6ffnen \u2197</button>
+            <button onclick="closeCortexResponse()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; padding:0 4px;">\u2715</button>
+          </div>
+        </div>
+        \${actionsHtml}
+        <div class="cortex-resp-body" id="cortex-resp-body-text">\${escapeHtml(text)}</div>
+      \`;
+      responseCard.style.display = 'flex';
+    }
+      responseCard.style.display = 'flex';
+    }
+
+    function closeCortexResponse() {
+      const responseCard = document.getElementById('cortex-response-card');
+      if (responseCard) {
+        responseCard.style.display = 'none';
+        responseCard.innerHTML = '';
+      }
+    }
+
+    function copyCortexResponse() {
+      const body = document.getElementById('cortex-resp-body-text');
+      if (body) {
+        navigator.clipboard.writeText(body.innerText || body.textContent);
+      }
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
 
     window.addEventListener('resize', () => {
       renderSolarArcPaths();
@@ -5040,6 +5635,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     renderTimelineGeometry();
     syncDevicesDockHeight();
     initMini3dCanvas();
+    initCortexPromptBar();
     tickClockAndTimeline();
     setInterval(tickClockAndTimeline, 1000);
     loadAllLiveData();
