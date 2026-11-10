@@ -323,6 +323,313 @@ export default defineThassiApp((ctx) => {
     return { ok: true, geminiConfigured: true };
   });
 
+  // Helper to build centralized Integration Vault snapshot
+  function getIntegrationVaultSnapshot() {
+    const geminiKey = resolveGeminiKey();
+    const githubToken = (
+      ctx.sharedDb.kvGet<string>('github_token') ||
+      process.env.GITHUB_TOKEN ||
+      ''
+    ).trim();
+    const oauthStatus = ctx.google.getStatus();
+    const bambuCfg = ctx.sharedDb.kvGet<{
+      ip?: string;
+      serial?: string;
+      accessCode?: string;
+      model?: string;
+      name?: string;
+      lanOnlyMode?: boolean;
+    }>('bambu_printer_config') || {};
+    const printSummary = ctx.sharedDb.kvGet<{
+      printerConfig?: {
+        ip?: string;
+        serial?: string;
+        accessCodeConfigured?: boolean;
+        model?: string;
+        name?: string;
+      };
+      telemetry?: {
+        connected?: boolean;
+        connectionMode?: string;
+        printerState?: string;
+      };
+    }>('thassi_3dprint_summary');
+
+    const effectiveBambuIp = bambuCfg.ip || printSummary?.printerConfig?.ip || '';
+    const effectiveBambuSerial = bambuCfg.serial || printSummary?.printerConfig?.serial || '';
+    const effectiveBambuAccess = Boolean(
+      bambuCfg.accessCode || printSummary?.printerConfig?.accessCodeConfigured
+    );
+
+    return {
+      updatedAt: new Date().toISOString(),
+      gemini: {
+        configured: Boolean(geminiKey),
+        keyPreview: geminiKey ? `${geminiKey.slice(0, 8)}••••${geminiKey.slice(-3)}` : null,
+        appsUsing: ['Cortex', '3D-Print CAD', 'Projekte & Workflow', 'Kameras & Vision'],
+      },
+      googleOAuth: {
+        configured: oauthStatus.configured,
+        authorized: oauthStatus.authorized,
+        clientIdPreview: oauthStatus.clientId || null,
+        redirectUri:
+          oauthStatus.redirectUri || 'http://192.168.188.92:8099/api/system/google/callback',
+        expiresAt: oauthStatus.expiresAt || null,
+        appsUsing: ['Google Calendar', 'Memo (Drive & Keep)', 'Google Health'],
+      },
+      bambu: {
+        configured: Boolean(effectiveBambuIp && effectiveBambuSerial && effectiveBambuAccess),
+        ip: effectiveBambuIp,
+        serial: effectiveBambuSerial,
+        accessCodeConfigured: effectiveBambuAccess,
+        model: bambuCfg.model || printSummary?.printerConfig?.model || 'Bambu Lab P1S / X1C',
+        name: bambuCfg.name || printSummary?.printerConfig?.name || 'Bambu Lab 3D-Drucker',
+        lanOnlyMode: bambuCfg.lanOnlyMode ?? true,
+        connectionMode: printSummary?.telemetry?.connectionMode || 'digital_twin_simulation',
+        printerState: printSummary?.telemetry?.printerState || 'IDLE',
+        appsUsing: ['3D-Druck & CAD'],
+      },
+      github: {
+        configured: Boolean(githubToken),
+        tokenPreview: githubToken ? `${githubToken.slice(0, 7)}••••` : null,
+        repo: 'tsimhofer/thassi',
+        appsUsing: ['Projekte & Workflow', 'Cortex'],
+      },
+      homeAssistant: {
+        connected: ctx.ha.getStatus().connected,
+        baseUrl: ctx.ha.getStatus().baseUrl,
+        appsUsing: ['Alle 13 Thassi Apps'],
+      },
+    };
+  }
+
+  // GET /integrations — Read centralized credentials & integration status across all apps
+  ctx.route('GET', '/integrations', () => {
+    return getIntegrationVaultSnapshot();
+  });
+
+  // POST /integrations — Save credentials into the shared vault & propagate to target apps
+  ctx.route('POST', '/integrations', async (req) => {
+    const body = (req.body || {}) as {
+      geminiApiKey?: string;
+      githubToken?: string;
+      googleOAuth?: {
+        clientId?: string;
+        clientSecret?: string;
+        redirectUri?: string;
+      };
+      bambu?: {
+        ip?: string;
+        serial?: string;
+        accessCode?: string;
+        model?: string;
+        name?: string;
+        lanOnlyMode?: boolean;
+      };
+      icalFeed?: {
+        name?: string;
+        ics_url?: string;
+        default_category?: string;
+      };
+    };
+
+    const updatedItems: string[] = [];
+
+    if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.trim()) {
+      const k = body.geminiApiKey.trim();
+      ctx.db.kvSet('gemini_api_key', k);
+      ctx.sharedDb.kvSet('gemini_api_key', k);
+      updatedItems.push('Gemini API Key');
+    }
+
+    if (typeof body.githubToken === 'string' && body.githubToken.trim()) {
+      const t = body.githubToken.trim();
+      ctx.sharedDb.kvSet('github_token', t);
+      updatedItems.push('GitHub Token');
+    }
+
+    if (body.googleOAuth && (body.googleOAuth.clientId || body.googleOAuth.clientSecret)) {
+      ctx.google.saveConfig({
+        clientId: body.googleOAuth.clientId,
+        clientSecret: body.googleOAuth.clientSecret,
+        redirectUri: body.googleOAuth.redirectUri,
+      });
+      updatedItems.push('Google OAuth2');
+    }
+
+    if (body.bambu) {
+      const existing =
+        ctx.sharedDb.kvGet<Record<string, unknown>>('bambu_printer_config') || {};
+      const nextBambu = {
+        ...existing,
+        ...(body.bambu.ip !== undefined ? { ip: body.bambu.ip.trim() } : {}),
+        ...(body.bambu.serial !== undefined ? { serial: body.bambu.serial.trim() } : {}),
+        ...(body.bambu.accessCode && body.bambu.accessCode !== '••••••••'
+          ? { accessCode: body.bambu.accessCode.trim() }
+          : {}),
+        ...(body.bambu.model ? { model: body.bambu.model } : {}),
+        ...(body.bambu.name ? { name: body.bambu.name } : {}),
+        ...(body.bambu.lanOnlyMode !== undefined ? { lanOnlyMode: body.bambu.lanOnlyMode } : {}),
+      };
+      ctx.sharedDb.kvSet('bambu_printer_config', nextBambu);
+      try {
+        await fetch('http://127.0.0.1:8099/api/apps/3d-print/printer/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(nextBambu),
+        });
+      } catch {
+        // Ignore if 3d-print route is not yet warm
+      }
+      updatedItems.push('Bambu Lab LAN');
+    }
+
+    if (body.icalFeed && body.icalFeed.ics_url?.trim()) {
+      try {
+        await fetch('http://127.0.0.1:8099/api/apps/google-calendar/feeds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: body.icalFeed.name || 'Kalender-Feed',
+            ics_url: body.icalFeed.ics_url.trim(),
+            default_category: body.icalFeed.default_category || 'personal',
+          }),
+        });
+        updatedItems.push('iCal Kalender-Feed');
+      } catch {
+        // Ignore
+      }
+    }
+
+    return {
+      ok: true,
+      updatedItems,
+      integrations: getIntegrationVaultSnapshot(),
+    };
+  });
+
+  // POST /integrations/test — Live connectivity test for configured credentials
+  ctx.route('POST', '/integrations/test', async (req) => {
+    const body = (req.body || {}) as { target?: 'gemini' | 'github' | 'bambu' | 'google_oauth' };
+    const started = Date.now();
+
+    if (body.target === 'gemini') {
+      const key = resolveGeminiKey();
+      if (!key) {
+        return { ok: false, message: 'Kein GEMINI_API_KEY hinterlegt.', latencyMs: 0 };
+      }
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+        if (!res.ok) {
+          return {
+            ok: false,
+            message: `Google Gemini API antwortete mit HTTP ${res.status}`,
+            latencyMs: Date.now() - started,
+          };
+        }
+        const data = (await res.json()) as { models?: unknown[] };
+        return {
+          ok: true,
+          message: `Verbindung erfolgreich (${data.models?.length || 0} Gemini-Modelle verfügbar)`,
+          latencyMs: Date.now() - started,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+          latencyMs: Date.now() - started,
+        };
+      }
+    }
+
+    if (body.target === 'github') {
+      const token = (
+        ctx.sharedDb.kvGet<string>('github_token') ||
+        process.env.GITHUB_TOKEN ||
+        ''
+      ).trim();
+      if (!token) {
+        return { ok: false, message: 'Kein GitHub Personal Access Token hinterlegt.', latencyMs: 0 };
+      }
+      try {
+        const res = await fetch('https://api.github.com/user', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'Thassi-Host',
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) {
+          return {
+            ok: false,
+            message: `GitHub API antwortete mit HTTP ${res.status}`,
+            latencyMs: Date.now() - started,
+          };
+        }
+        const user = (await res.json()) as { login?: string };
+        return {
+          ok: true,
+          message: `GitHub authentifiziert als @${user.login || 'unknown'}`,
+          latencyMs: Date.now() - started,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+          latencyMs: Date.now() - started,
+        };
+      }
+    }
+
+    if (body.target === 'bambu') {
+      try {
+        const res = await fetch('http://127.0.0.1:8099/api/apps/3d-print/printer/discover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = (await res.json()) as { discoveredPrinters?: unknown[]; message?: string };
+        return {
+          ok: res.ok,
+          message:
+            data.message ||
+            `${data.discoveredPrinters?.length || 0} Bambu-Drucker im LAN gefunden/geprüft`,
+          latencyMs: Date.now() - started,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+          latencyMs: Date.now() - started,
+        };
+      }
+    }
+
+    if (body.target === 'google_oauth') {
+      try {
+        const url = ctx.google.getAuthorizationUrl();
+        return {
+          ok: true,
+          authUrl: url,
+          message: 'OAuth2 Autorisierungs-URL erfolgreich generiert',
+          latencyMs: Date.now() - started,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+          latencyMs: Date.now() - started,
+        };
+      }
+    }
+
+    return { ok: false, message: 'Unbekanntes Test-Ziel', latencyMs: 0 };
+  });
+
   // POST /blueprints — Save or add a custom specialized query blueprint
   ctx.route('POST', '/blueprints', (req) => {
     const body = (req.body || {}) as Partial<CortexBlueprint>;

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Erste Bank Sync</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg-canvas: #09090b;
+        --bg-elevated: #111113;
+        --bg-input: #141417;
+        --line-hairline: rgba(255, 255, 255, 0.06);
+        --line-focus: rgba(255, 255, 255, 0.22);
+        --text-primary: #fafafa;
+        --text-secondary: #a1a1aa;
+        --text-muted: #52525b;
+        --accent-nominal: #10b981;
+        --accent-warning: #f59e0b;
+        --accent-error: #ef4444;
+        --accent-info: #38bdf8;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background: var(--bg-canvas);
+        color: var(--text-primary);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      .tabular-num {
+        font-family: 'JetBrains Mono', monospace;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-C-9f3dEv.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

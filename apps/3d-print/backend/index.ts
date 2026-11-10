@@ -22,6 +22,7 @@ import {
   type BambuPrinterConfig,
 } from './bambu-lan.js';
 import { discoverGeminiApiKey, generateOrModify3dSceneWithAi } from './ai-cad-generator.js';
+import { searchOpen3dLibraries } from './open-library-search.js';
 
 try {
   syncHassFrontendFiles();
@@ -123,40 +124,7 @@ async function fetchHotStVeitWeather(): Promise<unknown> {
   };
 }
 
-// Zero-downtime live hot-patch for Thassi Horizon Dashboard so updated UI & weather are immediately served
-const globalAny = globalThis as unknown as {
-  __thassiOrigEmit?: typeof http.Server.prototype.emit;
-};
-if (!globalAny.__thassiOrigEmit) {
-  globalAny.__thassiOrigEmit = http.Server.prototype.emit;
-}
-http.Server.prototype.emit = function (event: string, ...args: unknown[]): boolean {
-  if (event === 'request') {
-    const req = args[0] as http.IncomingMessage | undefined;
-    const res = args[1] as http.ServerResponse | undefined;
-    if (req && res && (req.method === 'GET' || !req.method)) {
-      const safeUrl = (req.url || '/').split('?')[0].replace(/\/+/g, '/');
-      const standalone = ((req.headers['x-thassi-standalone-app'] as string) || '').trim();
-      if (!standalone && (safeUrl === '/' || safeUrl === '/index.html')) {
-        const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderUnifiedDashboardHtml(ingressPath));
-        return true;
-      }
-      if (safeUrl === '/api/system/weather') {
-        void fetchHotStVeitWeather().then((wx) => {
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Access-Control-Allow-Origin': '*',
-          });
-          res.end(JSON.stringify(wx));
-        });
-        return true;
-      }
-    }
-  }
-  return globalAny.__thassiOrigEmit!.apply(this, [event, ...args] as never);
-};
+// Note: Unified dashboard & weather routes are handled centrally by thassi_host and system-monitor
 
 interface ProjectRow {
   id: string;
@@ -199,11 +167,22 @@ export default defineThassiApp((ctx) => {
     );
   `);
 
+  function resolveGeminiKey(): string {
+    return (
+      ctx.sharedDb.kvGet<string>('gemini_api_key') ||
+      ctx.db.kvGet<string>('gemini_api_key') ||
+      discoverGeminiApiKey() ||
+      ''
+    ).trim();
+  }
+
   function getPrinterConfig(): BambuPrinterConfig {
-    const saved = ctx.db.kvGet<Partial<BambuPrinterConfig>>('bambu_printer_config') || {};
+    const sharedSaved = ctx.sharedDb.kvGet<Partial<BambuPrinterConfig>>('bambu_printer_config') || {};
+    const localSaved = ctx.db.kvGet<Partial<BambuPrinterConfig>>('bambu_printer_config') || {};
     return {
       ...DEFAULT_PRINTER_CONFIG,
-      ...saved,
+      ...localSaved,
+      ...sharedSaved,
     };
   }
 
@@ -238,82 +217,33 @@ export default defineThassiApp((ctx) => {
     syncSharedDashboardState();
   }
 
-  function seedDefaultProjects() {
-    const presets = [
-      PRESET_TEMPLATES.organic_apple_sculpture(),
-      PRESET_TEMPLATES.desk_headphone_stand(),
-      PRESET_TEMPLATES.precision_planetary_gear(),
-      PRESET_TEMPLATES.twisted_rib_vase(),
-      PRESET_TEMPLATES.smart_home_organizer(),
-    ];
-
-    for (const scene of presets) {
-      const existing = ctx.db.queryOne<ProjectRow>('SELECT * FROM print_projects WHERE id = ?', [
-        scene.projectId,
-      ]);
-      const compiled = compileSceneToMesh(scene);
-      if (!existing) {
-        ctx.db.execute(
-          `INSERT INTO print_projects (id, title, description, scene_json, stats_json, status, progress_pct, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'sliced_ready', 100, ?, ?)`,
-          [
-            scene.projectId,
-            scene.title,
-            scene.description,
-            JSON.stringify(scene),
-            JSON.stringify(compiled.stats),
-            scene.createdAt,
-            scene.updatedAt,
-          ]
-        );
-      } else if (
-        scene.projectId === 'preset-headphone-hook' &&
-        /apfel/i.test(existing.title)
-      ) {
-        // Restore preset-headphone-hook if it was overwritten during prompt testing
-        ctx.db.execute(
-          `UPDATE print_projects SET title = ?, description = ?, scene_json = ?, stats_json = ?, updated_at = ? WHERE id = ?`,
-          [
-            scene.title,
-            scene.description,
-            JSON.stringify(scene),
-            JSON.stringify(compiled.stats),
-            new Date().toISOString(),
-            scene.projectId,
-          ]
-        );
-      }
-    }
-
-    // Upgrade any existing user-created "apfel" project that had the old fallback box mesh
+  function purgeLegacyDummyProjects() {
+    // Remove hardcoded preset projects and legacy synthetic fallback scenes
+    ctx.db.execute(`DELETE FROM print_projects WHERE id LIKE 'preset-%'`);
     const allRows = ctx.db.query<ProjectRow>('SELECT * FROM print_projects');
     for (const r of allRows) {
-      if (/\b(apfel|apple)\b/i.test(r.title) && r.scene_json.includes('node-base-chassis')) {
-        const appleScene = PRESET_TEMPLATES.organic_apple_sculpture();
-        appleScene.projectId = r.id;
-        appleScene.title = '3D-Apfel mit Stiel & Blatt';
-        appleScene.description = `Organischer 3D-Apfel für "${r.title}"`;
-        const compiled = compileSceneToMesh(appleScene);
-        ctx.db.execute(
-          `UPDATE print_projects SET title = ?, description = ?, scene_json = ?, stats_json = ?, updated_at = ? WHERE id = ?`,
-          [
-            appleScene.title,
-            appleScene.description,
-            JSON.stringify(appleScene),
-            JSON.stringify(compiled.stats),
-            new Date().toISOString(),
-            r.id,
-          ]
-        );
+      if (
+        r.scene_json.includes('node-sculpted-core') ||
+        r.scene_json.includes('node-base-chassis')
+      ) {
+        ctx.db.execute('DELETE FROM print_projects WHERE id = ?', [r.id]);
       }
     }
-
     const activeId = ctx.db.kvGet<string | null>('active_project_id');
-    if (!activeId) {
-      ctx.db.kvSet('active_project_id', 'preset-organic-apple');
+    if (activeId) {
+      const stillExists = ctx.db.queryOne<ProjectRow>(
+        'SELECT * FROM print_projects WHERE id = ?',
+        [activeId]
+      );
+      if (!stillExists) {
+        const latest = ctx.db.queryOne<ProjectRow>(
+          'SELECT * FROM print_projects ORDER BY updated_at DESC LIMIT 1'
+        );
+        ctx.db.kvSet('active_project_id', latest ? latest.id : null);
+      }
     }
   }
-  seedDefaultProjects();
+  purgeLegacyDummyProjects();
 
   function getActiveProjectRow(): ProjectRow | null {
     const activeId = ctx.db.kvGet<string | null>('active_project_id');
@@ -490,7 +420,7 @@ export default defineThassiApp((ctx) => {
     }));
 
     const discovered = ctx.db.kvGet<BambuDiscoveredPrinter[]>('bambu_last_discovered') || [];
-    const geminiKey = discoverGeminiApiKey();
+    const geminiKey = resolveGeminiKey();
 
     return {
       ...summary,
@@ -504,18 +434,44 @@ export default defineThassiApp((ctx) => {
     };
   });
 
-  // 2. POST /projects/generate — Create a new 3D object from user prompt or template
+  // 1b. POST /library/search — Search open 3D model libraries (Printables, MakerWorld, Thingiverse, Thangs) for 4 best hits
+  ctx.route('POST', '/library/search', async (req) => {
+    const body = (req.body || {}) as { prompt?: string };
+    const promptText = (body.prompt || '').trim();
+    if (!promptText) {
+      return { status: 400, body: { error: 'Bitte einen Suchbegriff eingeben.' } };
+    }
+    const result = await searchOpen3dLibraries(promptText);
+    return {
+      ok: true,
+      ...result,
+    };
+  });
+
+  // 2. POST /projects/generate — Create a new 3D object from user prompt, template, or imported library SceneSpec
   ctx.route('POST', '/projects/generate', async (req) => {
     const body = (req.body || {}) as {
       prompt?: string;
       presetKey?: string;
+      importedScene?: SceneSpec;
+      importedSummary?: string;
     };
 
     let scene: SceneSpec;
     let summary = '';
     let engine = 'Antigravity Parametric CAD';
 
-    if (body.presetKey && PRESET_TEMPLATES[body.presetKey]) {
+    if (body.importedScene && Array.isArray(body.importedScene.nodes)) {
+      scene = {
+        ...body.importedScene,
+        projectId: `proj-${Date.now()}`,
+        updatedAt: new Date().toISOString(),
+      };
+      summary =
+        body.importedSummary ||
+        `Open-Library Modell "${scene.title}" importiert und für Bambu Lab vorbereitet.`;
+      engine = 'Open Library Import + Parametric CAD';
+    } else if (body.presetKey && PRESET_TEMPLATES[body.presetKey]) {
       scene = PRESET_TEMPLATES[body.presetKey]();
       scene.projectId = `proj-${Date.now()}`;
       summary = `Vorlage "${scene.title}" geladen und für Bambu Lab P1S vorbereitet.`;
@@ -524,10 +480,21 @@ export default defineThassiApp((ctx) => {
       if (!promptText) {
         return { status: 400, body: { error: 'Bitte einen Prompt für das 3D-Objekt eingeben.' } };
       }
-      const generated = await generateOrModify3dSceneWithAi(promptText, null);
-      scene = generated.scene;
-      summary = generated.summary;
-      engine = generated.engine;
+      try {
+        const generated = await generateOrModify3dSceneWithAi(promptText, null, resolveGeminiKey());
+        scene = generated.scene;
+        summary = generated.summary;
+        engine = generated.engine;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'KI-3D-Generierung fehlgeschlagen.';
+        return {
+          status: 422,
+          body: {
+            ok: false,
+            error: message,
+          },
+        };
+      }
     }
 
     const compiled = compileSceneToMesh(scene);
@@ -604,10 +571,25 @@ export default defineThassiApp((ctx) => {
       if (!promptText) {
         return { status: 400, body: { error: 'Bitte einen Änderungs-Prompt eingeben.' } };
       }
-      const modified = await generateOrModify3dSceneWithAi(promptText, currentScene);
-      nextScene = modified.scene;
-      summary = modified.summary;
-      engine = modified.engine;
+      try {
+        const modified = await generateOrModify3dSceneWithAi(
+          promptText,
+          currentScene,
+          resolveGeminiKey()
+        );
+        nextScene = modified.scene;
+        summary = modified.summary;
+        engine = modified.engine;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'KI-Änderung fehlgeschlagen.';
+        return {
+          status: 422,
+          body: {
+            ok: false,
+            error: message,
+          },
+        };
+      }
     }
 
     const compiled = compileSceneToMesh(nextScene);
@@ -883,6 +865,7 @@ export default defineThassiApp((ctx) => {
       lanOnlyMode: body.lanOnlyMode ?? current.lanOnlyMode,
     };
     ctx.db.kvSet('bambu_printer_config', updated);
+    ctx.sharedDb.kvSet('bambu_printer_config', updated);
 
     let mqttCheck: { ok: boolean; message: string } | null = null;
     if (updated.ip && updated.serial && updated.accessCode) {

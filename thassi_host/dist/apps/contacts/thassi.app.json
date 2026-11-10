@@ -1,0 +1,8 @@
+{
+  "id": "contacts",
+  "name": "Contacts",
+  "version": "1.0.0",
+  "description": "Ultraminimalistisches Unified-Chat- & Kontakt-Interface — Bündelt Pixel 10 Live-Notifications (Snapchat, WhatsApp, Signal, Telegram, SMS), Gmail, Google Contacts, Kalender-Kontakte, Home Assistant und Cortex.",
+  "icon": "mdi:message-text-outline",
+  "category": "general"
+}

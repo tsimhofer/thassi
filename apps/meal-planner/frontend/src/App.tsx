@@ -4,6 +4,7 @@ import { createAppClient } from '@thassi/sdk/client';
 const api = createAppClient('meal-planner');
 
 type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+type ActiveTab = 'day' | 'week' | 'groceries' | 'catalog' | 'profile';
 
 interface StructuredIngredient {
   name: string;
@@ -86,7 +87,12 @@ interface UserProfile {
   current_weight_kg: number;
   target_weight_kg: number;
   activity_level: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
-  who_profile: 'who_standard' | 'who_mediterranean' | 'who_high_protein' | 'who_plant_based' | 'who_metabolic';
+  who_profile:
+    | 'who_standard'
+    | 'who_mediterranean'
+    | 'who_high_protein'
+    | 'who_plant_based'
+    | 'who_metabolic';
   weekly_goal_kg: number;
   target_calories: number;
   target_protein_g: number;
@@ -170,57 +176,69 @@ interface SupermarketOptimizationResult {
   cumulativeIngredients: CumulativeIngredientResult[];
 }
 
-const SLOTS: Array<{ key: MealSlot; label: string; icon: string }> = [
-  { key: 'breakfast', label: 'Frühstück', icon: '🌅' },
-  { key: 'lunch', label: 'Mittag', icon: '☀️' },
-  { key: 'dinner', label: 'Abend', icon: '🌙' },
-  { key: 'snack', label: 'Snacks', icon: '🍎' },
+const SLOTS: Array<{ key: MealSlot; label: string; code: string }> = [
+  { key: 'breakfast', label: 'Frühstück', code: 'SLOT 01' },
+  { key: 'lunch', label: 'Mittagessen', code: 'SLOT 02' },
+  { key: 'dinner', label: 'Abendessen', code: 'SLOT 03' },
+  { key: 'snack', label: 'Snack', code: 'SLOT 04' },
 ];
 
 const DAY_NAMES_DE = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+const DAY_SHORT_DE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
-const WHO_PROFILES: Record<UserProfile['who_profile'], { label: string; desc: string }> = {
+const WHO_PROFILES: Record<
+  UserProfile['who_profile'],
+  { code: string; label: string; desc: string }
+> = {
   who_standard: {
+    code: 'WHO-STD',
     label: 'WHO Standard-Richtlinie',
-    desc: '<10% freier Zucker, <30% Fett, ≥25g Ballaststoffe, ≥400g Obst & Gemüse/Tag',
+    desc: '<10% freier Zucker, <30% Fett, >=25g Ballaststoffe, >=400g Obst & Gemüse/Tag',
   },
   who_high_protein: {
+    code: 'WHO-PRO',
     label: 'WHO High-Protein & Muskelerhalt',
-    desc: 'Erhöhter Proteinanteil (27%), <7% freier Zucker, ≥30g Ballaststoffe – ideal bei Gewichtsreduktion',
+    desc: 'Erhöhter Proteinanteil (27%), <7% freier Zucker, >=30g Ballaststoffe – ideal bei Gewichtsreduktion',
   },
   who_mediterranean: {
+    code: 'WHO-MED',
     label: 'WHO Mediterran & Kardioprotektiv',
-    desc: 'Fokus auf ungesättigte Fette (Olivenöl, Nüsse, Omega-3), ≥32g Ballaststoffe, wenig Zucker',
+    desc: 'Fokus auf ungesättigte Fette (Olivenöl, Nüsse, Omega-3), >=32g Ballaststoffe, wenig Zucker',
   },
   who_plant_based: {
+    code: 'WHO-PLT',
     label: 'WHO Pflanzlich / Whole-Food',
-    desc: 'Hülsenfrüchte, Vollkorn & Samen, ≥38g Ballaststoffe, hohe Mikronährstoffdichte',
+    desc: 'Hülsenfrüchte, Vollkorn & Samen, >=38g Ballaststoffe, hohe Mikronährstoffdichte',
   },
   who_metabolic: {
+    code: 'WHO-MET',
     label: 'WHO Metabolisch / Blutzucker-Optimal',
-    desc: 'Strenges WHO-Zuckerlimit (<5% kcal), moderat Low-Carb (38%), ≥35g Ballaststoffe',
+    desc: 'Strenges WHO-Zuckerlimit (<5% kcal), moderat Low-Carb (38%), >=35g Ballaststoffe',
   },
 };
 
-const OPTIMIZATION_MODES: Record<OptimizationOptions['mode'], { label: string; badge: string; desc: string }> = {
+const OPTIMIZATION_MODES: Record<
+  OptimizationOptions['mode'],
+  { code: string; label: string; desc: string }
+> = {
   waste_min: {
+    code: 'WASTE-MIN',
     label: 'Verschwendung minimieren (Zero-Waste)',
-    badge: '♻️ Waste-Min',
     desc: 'Kumuliert alle Zutaten der Auswahl, zieht Vorräte ab und wählt Packungsgrößen (Billa/Hofer/Spar) mit minimalem Restüberschuss.',
   },
   ingredient_min: {
+    code: 'SYNERGY',
     label: 'Menge an Zutaten bündeln (Synergie)',
-    badge: '🧩 Zutaten-Min',
     desc: 'Minimiert die Anzahl unterschiedlicher Zutaten über die Woche durch Rezept-Synergien und Mehrfachverwendung.',
   },
   price_min: {
+    code: 'BEST-PRICE',
     label: 'Günstigster Preis (Bestpreis-Mix)',
-    badge: '💶 Bestpreis',
     desc: 'Wählt für jede kumulierte Zutat das günstigste Angebot zwischen Billa, Hofer und Spar.',
   },
   balanced: {
+    code: 'BALANCED',
     label: 'Ausgewogen (Preis & Packungs-Effizienz)',
-    badge: '⚖️ Balanced',
     desc: 'Optimale Balance aus geringem Verpackungsüberschuss und niedrigem Gesamtpreis.',
   },
 };
@@ -249,10 +267,26 @@ function formatShortDateDE(dateStr: string): string {
   return `${d}.${m}.`;
 }
 
+function formatFullDateDE(dateStr: string): string {
+  if (!dateStr || dateStr.length < 10) return dateStr;
+  const [y, m, d] = dateStr.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+function formatTimeDE(isoOrDate: Date): string {
+  return isoOrDate.toLocaleTimeString('de-AT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 export default function App() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>('day');
   const [weekStart, setWeekStart] = useState<string>('');
   const [weekEnd, setWeekEnd] = useState<string>('');
   const [days, setDays] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [entries, setEntries] = useState<MealPlanEntry[]>([]);
   const [waterLogs, setWaterLogs] = useState<WaterLogEntry[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -262,25 +296,27 @@ export default function App() {
   const [supermarket, setSupermarket] = useState<SupermarketOptimizationResult | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [queryingApi, setQueryingApi] = useState<boolean>(false);
+  const [lastSyncAt, setLastSyncAt] = useState<string>('—');
 
-  // Collapsible ingredients per meal card (`${dayStr}_${slot}`)
-  const [expandedMealIngredients, setExpandedMealIngredients] = useState<Record<string, boolean>>({});
+  // Collapsible ingredients per meal entry (`${dayStr}_${slot}`)
+  const [expandedMealIngredients, setExpandedMealIngredients] = useState<Record<string, boolean>>(
+    {}
+  );
 
-  // Active Toolbar Modals
-  const [activeModal, setActiveModal] = useState<
-    null | 'recipe' | 'barcode' | 'profile' | 'optimization' | 'choose_meal'
-  >(null);
-
-  // Status bar detail drawer open/closed
-  const [statusDrawerOpen, setStatusDrawerOpen] = useState<boolean>(false);
-
-  // "Wählen aus..." modal target slot
+  // Slot inspector / assignment target (`day` or `week` tab)
   const [chooseTarget, setChooseTarget] = useState<{ dayStr: string; slot: MealSlot } | null>(null);
   const [chooseSearch, setChooseSearch] = useState<string>('');
-  const [chooseFilterSlot, setChooseFilterSlot] = useState<string>('slot');
+  const [chooseFilterSlot, setChooseFilterSlot] = useState<string>('all');
   const [customTitleInput, setCustomTitleInput] = useState<string>('');
   const [customKcalInput, setCustomKcalInput] = useState<string>('500');
   const [customProtInput, setCustomProtInput] = useState<string>('30');
+
+  // Catalog sub-states
+  const [showNewRecipeForm, setShowNewRecipeForm] = useState<boolean>(false);
+  const [showIngredientForm, setShowIngredientForm] = useState<boolean>(false);
+  const [recipeSearch, setRecipeSearch] = useState<string>('');
+  const [recipeSlotFilter, setRecipeSlotFilter] = useState<string>('all');
+  const [ingredientSearch, setIngredientSearch] = useState<string>('');
 
   // New Recipe Form State
   const [recName, setRecName] = useState('');
@@ -329,7 +365,7 @@ export default function App() {
 
   const notify = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 4200);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const loadAll = async (targetStart?: string) => {
@@ -359,18 +395,27 @@ export default function App() {
     setSupermarket(weekRes.supermarket);
     setRecipes(recRes.recipes);
     setIngredientsCatalog(ingRes.ingredients);
+    setLastSyncAt(formatTimeDE(new Date()));
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    if (weekRes.days.length > 0) {
+      setSelectedDate((prev) => {
+        if (weekRes.days.includes(prev)) return prev;
+        if (weekRes.days.includes(todayIso)) return todayIso;
+        return weekRes.days[0];
+      });
+    }
   };
 
   useEffect(() => {
     void loadAll('');
   }, []);
 
-  // Stop camera stream when closing barcode modal
   useEffect(() => {
-    if (activeModal !== 'barcode' && cameraActive) {
+    if (activeTab !== 'catalog' && cameraActive) {
       stopCameraScanner();
     }
-  }, [activeModal]);
+  }, [activeTab]);
 
   const startCameraScanner = async () => {
     try {
@@ -382,8 +427,13 @@ export default function App() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      // Use Web BarcodeDetector API if supported by the browser
-      const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (el: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector;
+      const BarcodeDetectorCtor = (
+        window as unknown as {
+          BarcodeDetector?: new (opts: { formats: string[] }) => {
+            detect: (el: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
+          };
+        }
+      ).BarcodeDetector;
       if (BarcodeDetectorCtor) {
         const detector = new BarcodeDetectorCtor({ formats: ['ean_13', 'ean_8', 'upc_a'] });
         const interval = setInterval(async () => {
@@ -406,7 +456,7 @@ export default function App() {
       }
     } catch {
       setCameraActive(false);
-      notify('Kamera-Zugriff im Browser nicht verfügbar – nutze den Direkt-Scanner / EAN-Eingabe.');
+      notify('Kamera-Zugriff nicht verfügbar – bitte EAN-Code direkt eingeben.');
     }
   };
 
@@ -430,15 +480,16 @@ export default function App() {
         product: IngredientCatalogItem;
       }>(`/barcode?code=${encodeURIComponent(code)}`);
       setScannedIngredient(res.product);
+      setShowIngredientForm(true);
       const sourceLabel =
         res.source === 'openfoodfacts_live_api'
-          ? '🌐 OpenFoodFacts Live-API + AT-Marktabgleich'
+          ? 'OpenFoodFacts Live-API + AT-Marktabgleich'
           : res.source === 'austrian_supermarket_api'
-            ? '🇦🇹 Österreichischer Supermarkt-Katalog (Billa/Hofer/Spar)'
+            ? 'Österreichischer Supermarkt-Katalog (Billa/Hofer/Spar)'
             : res.source === 'local_catalog'
-              ? '🏠 Lokale Vorrats-Datenbank'
-              : '🔍 EAN-Parser';
-      setBarcodeSourceInfo(`Gefunden via ${sourceLabel}`);
+              ? 'Lokale Vorrats-Datenbank'
+              : 'EAN-Parser';
+      setBarcodeSourceInfo(`Quelle: ${sourceLabel}`);
       notify(`Barcode ${code} geladen: ${res.product.name}`);
     } catch (err) {
       notify(err instanceof Error ? err.message : String(err));
@@ -451,7 +502,10 @@ export default function App() {
     e.preventDefault();
     if (!scannedIngredient.name.trim()) return;
     await api.post('/ingredients', scannedIngredient);
-    notify(`Zutat "${scannedIngredient.name}" (${scannedIngredient.available_amount}${scannedIngredient.unit} Vorrat) gespeichert!`);
+    notify(
+      `Zutat "${scannedIngredient.name}" (${scannedIngredient.available_amount}${scannedIngredient.unit} Vorrat) gespeichert.`
+    );
+    setShowIngredientForm(false);
     await loadAll();
   };
 
@@ -463,26 +517,34 @@ export default function App() {
     await loadAll(nextStart);
   };
 
-  const handleRandomizeSlot = async (dayStr: string, slot: MealSlot, currentRecipeId?: number | null) => {
+  const handleRandomizeSlot = async (
+    dayStr: string,
+    slot: MealSlot,
+    currentRecipeId?: number | null
+  ) => {
     const res = await api.post<{ chosen: Recipe }>('/plan/randomize', {
       plan_date: dayStr,
       slot,
       current_recipe_id: currentRecipeId,
     });
-    notify(`🎲 ${res.chosen.name} für ${formatShortDateDE(dayStr)} (${slot}) ausgewürfelt!`);
+    notify(`${res.chosen.name} für ${formatShortDateDE(dayStr)} (${slot}) zugewiesen.`);
     await loadAll();
   };
 
-  const handleAssignRecipeToSlot = async (recipe: Recipe) => {
-    if (!chooseTarget) return;
+  const handleAssignRecipeToSlot = async (
+    recipe: Recipe,
+    targetOverride?: { dayStr: string; slot: MealSlot }
+  ) => {
+    const target = targetOverride || chooseTarget;
+    if (!target) return;
     await api.post('/plan', {
-      plan_date: chooseTarget.dayStr,
-      slot: chooseTarget.slot,
+      plan_date: target.dayStr,
+      slot: target.slot,
       recipe_id: recipe.id,
       selected: 1,
     });
-    notify(`"${recipe.name}" eingeplant!`);
-    setActiveModal(null);
+    notify(`"${recipe.name}" für ${formatShortDateDE(target.dayStr)} eingeplant.`);
+    setChooseTarget(null);
     await loadAll();
   };
 
@@ -499,7 +561,7 @@ export default function App() {
       selected: 1,
     });
     setCustomTitleInput('');
-    setActiveModal(null);
+    setChooseTarget(null);
     await loadAll();
   };
 
@@ -538,7 +600,7 @@ export default function App() {
       await loadAll();
       notify(
         selectAll
-          ? 'Alle Mahlzeiten der Woche selektiert – Billa, Hofer & Spar API-Optimierung berechnet!'
+          ? 'Alle Mahlzeiten der Woche selektiert – Supermarkt-Optimierung aktualisiert.'
           : 'Mahlzeiten-Selektion zurückgesetzt.'
       );
     } finally {
@@ -554,10 +616,21 @@ export default function App() {
         mealIds: selectedIds,
       });
       setSupermarket(res);
-      setStatusDrawerOpen(true);
+      setLastSyncAt(formatTimeDE(new Date()));
       notify(
-        `Supermarkt-API Abfrage (Billa, Hofer, Spar) für ${res.selectedMealsCount} Mahlzeiten (${res.totalPortions} Portionen) abgeschlossen!`
+        `Supermarkt-API Abfrage (Billa, Hofer, Spar) für ${res.selectedMealsCount} Mahlzeiten (${res.totalPortions} Portionen) abgeschlossen.`
       );
+    } finally {
+      setQueryingApi(false);
+    }
+  };
+
+  const handleSyncHa = async () => {
+    setQueryingApi(true);
+    try {
+      await api.post('/sync-ha');
+      setLastSyncAt(formatTimeDE(new Date()));
+      notify('Home Assistant Sensoren & Einkaufsliste synchronisiert.');
     } finally {
       setQueryingApi(false);
     }
@@ -585,7 +658,8 @@ export default function App() {
       instructions: recInstructions,
     });
     setRecName('');
-    notify(`Rezept "${recName}" gespeichert!`);
+    setShowNewRecipeForm(false);
+    notify(`Rezept "${recName}" gespeichert.`);
     await loadAll();
   };
 
@@ -594,9 +668,8 @@ export default function App() {
     if (!profile) return;
     const res = await api.post<{ profile: UserProfile }>('/profile', profile);
     setProfile(res.profile);
-    setActiveModal(null);
     notify(
-      `WHO-Profil aktualisiert: Ziel ${res.profile.target_calories} kcal/Tag • ${res.profile.target_protein_g}g Protein (${res.profile.target_weight_kg} kg Zielgewicht)`
+      `WHO-Profil aktualisiert: Ziel ${res.profile.target_calories} kcal/Tag · ${res.profile.target_protein_g}g Protein (${res.profile.target_weight_kg} kg Zielgewicht)`
     );
     await loadAll();
   };
@@ -614,22 +687,32 @@ export default function App() {
   };
 
   const handleAutoOptimizeWeek = async () => {
-    await api.post('/optimize-week', { weekStart });
-    setActiveModal(null);
-    notify('✨ Wochenplan wurde auf minimale Verschwendung, Zutaten-Synergie & WHO-Makros optimiert!');
-    await loadAll();
+    setQueryingApi(true);
+    try {
+      await api.post('/optimize-week', { weekStart });
+      notify('Wochenplan wurde auf minimale Verschwendung, Zutaten-Synergie & WHO-Makros optimiert.');
+      await loadAll();
+    } finally {
+      setQueryingApi(false);
+    }
   };
 
   const handleTransferToGroceryList = async (storePref: 'optimal' | 'billa' | 'hofer' | 'spar') => {
-    const selectedIds = entries.filter((e) => e.selected === 1).map((e) => e.id);
-    const res = await api.post<{ addedCount: number }>('/groceries/from-optimization', {
-      mealIds: selectedIds,
-      storePreference: storePref,
-    });
-    await api.post('/sync-ha');
-    notify(
-      `🛒 ${res.addedCount} kumulierte Supermarkt-Packungen in Einkaufsliste & Home Assistant Sensor übertragen!`
-    );
+    setQueryingApi(true);
+    try {
+      const selectedIds = entries.filter((e) => e.selected === 1).map((e) => e.id);
+      const res = await api.post<{ addedCount: number }>('/groceries/from-optimization', {
+        mealIds: selectedIds,
+        storePreference: storePref,
+      });
+      await api.post('/sync-ha');
+      setLastSyncAt(formatTimeDE(new Date()));
+      notify(
+        `${res.addedCount} kumulierte Supermarkt-Packungen (${storePref.toUpperCase()}) an Home Assistant übertragen.`
+      );
+    } finally {
+      setQueryingApi(false);
+    }
   };
 
   const getRecipeIngredientsForEntry = (entry: MealPlanEntry): StructuredIngredient[] => {
@@ -679,1692 +762,2644 @@ export default function App() {
   const selectedCount = entries.filter((e) => e.selected === 1).length;
   const kwNumber = getIsoWeekNumber(weekStart);
 
+  // Selected Day Calculations
+  const activeDayStr = selectedDate || days[0] || new Date().toISOString().slice(0, 10);
+  const activeDayIdx = Math.max(0, days.indexOf(activeDayStr));
+  const selectedDayEntries = entries.filter((e) => e.plan_date === activeDayStr);
+  const selectedWaterEntry = waterLogs.find((w) => w.plan_date === activeDayStr);
+  const selectedWaterMl = selectedWaterEntry ? selectedWaterEntry.amount_ml : 1750;
+  const waterTargetMl = activeProfile.target_water_ml || 2800;
+
+  const selectedDayKcal = selectedDayEntries.reduce((s, e) => s + (e.calories || 0), 0);
+  const selectedDayProt = selectedDayEntries.reduce((s, e) => s + (e.protein_g || 0), 0);
+  const selectedDayCarbs = selectedDayEntries.reduce((s, e) => s + (e.carbs_g || 0), 0);
+  const selectedDayFat = selectedDayEntries.reduce((s, e) => s + (e.fat_g || 0), 0);
+  const selectedDayFiber = selectedDayEntries.reduce((s, e) => s + (e.fiber_g || 0), 0);
+  const selectedDaySugar = selectedDayEntries.reduce((s, e) => s + (e.sugar_g || 0), 0);
+
+  // User Input / Action Required Evaluation for Selected Day & Week
+  const missingMainSlots = (['breakfast', 'lunch', 'dinner'] as MealSlot[]).filter(
+    (s) => !selectedDayEntries.some((e) => e.slot === s)
+  );
+  const missingSlotLabels = missingMainSlots.map(
+    (s) => SLOTS.find((item) => item.key === s)?.label || s
+  );
+  const waterDeficitMl = Math.max(0, waterTargetMl - selectedWaterMl);
+  const proteinDeficitG = Math.max(0, activeProfile.target_protein_g - selectedDayProt);
+  const netItemsToBuyCount =
+    supermarket?.cumulativeIngredients.filter((i) => i.netToBuy > 0).length || 0;
+
+  const actionItems: string[] = [];
+  if (missingSlotLabels.length > 0) {
+    actionItems.push(`Offene Mahlzeiten (${formatShortDateDE(activeDayStr)}): ${missingSlotLabels.join(', ')}`);
+  }
+  if (waterDeficitMl >= 500) {
+    actionItems.push(`Hydration: noch ${waterDeficitMl} ml bis Tagesziel (${waterTargetMl} ml)`);
+  }
+  if (selectedDayEntries.length > 0 && proteinDeficitG > 20) {
+    actionItems.push(`Protein: ${selectedDayProt}g / ${activeProfile.target_protein_g}g (−${proteinDeficitG}g offen)`);
+  }
+  if (netItemsToBuyCount > 0) {
+    actionItems.push(`Einkauf: ${netItemsToBuyCount} Netto-Zutaten für ${selectedCount} Mahlzeiten offen`);
+  }
+
+  const requiresAttention = missingSlotLabels.length > 0 || waterDeficitMl >= 500;
+
+  // Nutritional assessment hints for the selected day
+  const dayHints: Array<{ status: 'ok' | 'warn' | 'err'; domain: string; text: string }> = [];
+  const kcalDiff = selectedDayKcal - activeProfile.target_calories;
+  if (selectedDayEntries.length === 0) {
+    dayHints.push({
+      status: 'warn',
+      domain: 'PLAN',
+      text: 'Noch keine Mahlzeiten für diesen Tag eingeplant.',
+    });
+  } else {
+    if (Math.abs(kcalDiff) <= 180) {
+      dayHints.push({
+        status: 'ok',
+        domain: 'KCAL',
+        text: `Kalorienziel für Zielgewicht (${activeProfile.target_weight_kg} kg) erreicht (${selectedDayKcal} / ${activeProfile.target_calories} kcal).`,
+      });
+    } else if (kcalDiff > 180) {
+      dayHints.push({
+        status: 'warn',
+        domain: 'KCAL',
+        text: `+${kcalDiff} kcal über Tagesziel (${activeProfile.target_calories} kcal).`,
+      });
+    } else {
+      dayHints.push({
+        status: 'warn',
+        domain: 'KCAL',
+        text: `${Math.abs(kcalDiff)} kcal unter Tagesziel (${activeProfile.target_calories} kcal).`,
+      });
+    }
+
+    if (selectedDayProt >= activeProfile.target_protein_g * 0.9) {
+      dayHints.push({
+        status: 'ok',
+        domain: 'PROT',
+        text: `WHO-Proteinziel erreicht (${selectedDayProt}g / ${activeProfile.target_protein_g}g).`,
+      });
+    } else {
+      dayHints.push({
+        status: 'warn',
+        domain: 'PROT',
+        text: `Protein unter Richtwert (${selectedDayProt}g / ${activeProfile.target_protein_g}g).`,
+      });
+    }
+
+    if (selectedDayFiber >= activeProfile.target_fiber_g) {
+      dayHints.push({
+        status: 'ok',
+        domain: 'FIBER',
+        text: `Ballaststoffe WHO-konform (${selectedDayFiber}g >= ${activeProfile.target_fiber_g}g).`,
+      });
+    } else {
+      dayHints.push({
+        status: 'warn',
+        domain: 'FIBER',
+        text: `Ballaststoffe (${selectedDayFiber}g / ${activeProfile.target_fiber_g}g) unter WHO-Zielwert.`,
+      });
+    }
+
+    if (selectedDaySugar > activeProfile.max_sugar_g) {
+      dayHints.push({
+        status: 'err',
+        domain: 'SUGAR',
+        text: `Zucker (${selectedDaySugar}g) überschreitet WHO-Obergrenze (<${activeProfile.max_sugar_g}g).`,
+      });
+    }
+  }
+
   return (
     <div
       style={{
-        width: '100%',
         minHeight: '100vh',
-        boxSizing: 'border-box',
-        background: '#0b1120',
-        color: '#f8fafc',
-        paddingBottom: statusDrawerOpen ? 420 : 96,
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        background: 'var(--bg-canvas)',
+        color: 'var(--text-primary)',
+        fontFamily: 'var(--font-sans)',
+        fontVariantNumeric: 'tabular-nums',
       }}
     >
-      {/* =====================================================================
-          1. OBEN, VOLLE BREITE: TOOLBAR
-         ===================================================================== */}
-      <header
+      <div
         style={{
-          width: '100%',
-          boxSizing: 'border-box',
-          background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
-          borderBottom: '1px solid #334155',
-          padding: '12px 20px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 40,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.45)',
+          maxWidth: 1440,
+          margin: '0 auto',
+          padding: '32px 48px 64px',
         }}
       >
-        <div
+        {/* ===================================================================
+            1. HEADER ZONE (System Summary + Data Freshness + HA Sync)
+           =================================================================== */}
+        <header
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            flexWrap: 'wrap',
+            gap: 16,
+            paddingBottom: 16,
+            borderBottom: '1px solid var(--line-hairline)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 20,
+                fontWeight: 500,
+                letterSpacing: '-0.025em',
+                color: 'var(--text-primary)',
+              }}
+            >
+              Meal Planner
+            </h1>
+            <span
+              style={{
+                fontSize: 13,
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              KW {kwNumber} ({formatShortDateDE(weekStart)}–{formatFullDateDE(weekEnd)}) ·{' '}
+              {WHO_PROFILES[activeProfile.who_profile].code} · {recipes.length} Rezepte ·{' '}
+              {ingredientsCatalog.length} Vorrats-Artikel
+            </span>
+          </div>
+
+          {/* Right: Explicit Data Recency, Active Plan Date, HA Sync */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <span style={statusDot(queryingApi ? '#f59e0b' : '#10b981')} />
+              <span>Stand: {lastSyncAt}</span>
+              <span style={{ color: 'var(--text-muted)' }}>|</span>
+              <span>Fokus: {formatFullDateDE(activeDayStr)}</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void loadAll()}
+              style={btnGhost}
+              title="Daten neu laden"
+            >
+              Aktualisieren
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleSyncHa()}
+              style={btnGhost}
+              title="Mit Home Assistant synchronisieren"
+            >
+              HA Sync
+            </button>
+          </div>
+        </header>
+
+        {/* ===================================================================
+            2. EXPLICIT USER INPUT / ACTION REQUIRED BANNER
+           =================================================================== */}
+        <section
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: 10,
-            width: '100%',
+            gap: 16,
+            padding: '12px 0',
+            borderBottom: '1px solid var(--line-hairline)',
           }}
         >
-          {/* Left: App Brand & Week Switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 22 }}>🥗</span>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 16, color: '#38bdf8', letterSpacing: 0.2 }}>
-                  THASSI MEAL PLANNER
-                </div>
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  WHO-Ernährungssteuerung & Supermarkt-Optimierer
-                </div>
-              </div>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={statusDot(requiresAttention ? '#f59e0b' : '#10b981')} />
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: requiresAttention ? 'var(--text-primary)' : 'var(--text-muted)',
+              }}
+            >
+              {requiresAttention ? 'EINGABE ERFORDERLICH' : 'TAGESPLAN VOLLSTÄNDIG'}
+            </span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              {actionItems.length > 0
+                ? actionItems.join(' · ')
+                : `Alle Hauptmahlzeiten und Hydration für ${formatFullDateDE(activeDayStr)} sind im Zielbereich.`}
+            </span>
+          </div>
 
-            {/* Woche weiterschalten */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => void handleAutoOptimizeWeek()}
+              style={btnPrimary}
+            >
+              Woche automatisch planen
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleAdjustWater(activeDayStr, 250)}
+              style={btnGhost}
+            >
+              +250ml Wasser
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('week')}
+              style={btnGhost}
+            >
+              Zum Wochenplan
+            </button>
+          </div>
+        </section>
+
+        {/* Toast Status Line (if active) */}
+        {toast && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: 'var(--bg-elevated)',
+              borderBottom: '1px solid var(--line-focus)',
+              fontSize: 12.5,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={statusDot('#10b981')} />
+              <span>{toast}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+            >
+              Schließen
+            </button>
+          </div>
+        )}
+
+        {/* ===================================================================
+            3. TOP 4-COLUMN HAIRLINE KPI STRIP (Selected Day & Week Status)
+           =================================================================== */}
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(200px, 1fr))',
+            borderBottom: '1px solid var(--line-hairline)',
+          }}
+        >
+          {/* KPI 1: KALORIEN (HEUTE / ZIEL) */}
+          <div
+            style={{
+              padding: '20px 24px 20px 0',
+              borderRight: '1px solid var(--line-hairline)',
+            }}
+          >
+            <div style={sectionLabelStyle}>
+              KALORIEN ({formatShortDateDE(activeDayStr)} / ZIEL)
+            </div>
             <div
               style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
+              <span style={heroMetricStyle}>{selectedDayKcal}</span>
+              <span
+                style={{
+                  fontSize: 14,
+                  color: 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                / {activeProfile.target_calories} kcal
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: 'var(--text-secondary)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                background: '#0f172a',
-                padding: '5px 10px',
-                borderRadius: 10,
-                border: '1px solid #334155',
               }}
             >
-              <button
-                onClick={() => shiftWeek(-7)}
-                style={toolbarIconBtn}
-                title="Vorherige Woche"
-              >
-                ◀
-              </button>
-              <button
-                onClick={() => loadAll('')}
-                style={{ ...toolbarIconBtn, fontSize: 11, padding: '4px 8px', color: '#38bdf8' }}
-                title="Zur aktuellen Woche springen"
-              >
-                Heute
-              </button>
-              <button
-                onClick={() => shiftWeek(7)}
-                style={toolbarIconBtn}
-                title="Nächste Woche"
-              >
-                ▶
-              </button>
-              <div style={{ paddingLeft: 6, paddingRight: 4 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc' }}>
-                  KW {kwNumber} • {formatShortDateDE(weekStart)} – {formatShortDateDE(weekEnd)}
-                  {weekEnd.slice(0, 4)}
-                </div>
-              </div>
+              <span
+                style={statusDot(
+                  selectedDayEntries.length === 0
+                    ? '#f59e0b'
+                    : Math.abs(kcalDiff) <= 200
+                      ? '#10b981'
+                      : '#f59e0b'
+                )}
+              />
+              <span>
+                {kcalDiff >= 0 ? `+${kcalDiff}` : kcalDiff} kcal Differenz · Zielgewicht{' '}
+                {activeProfile.target_weight_kg} kg
+              </span>
             </div>
           </div>
 
-          {/* Center / Right: Full-Width Action Toolbar Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {/* Neues Rezept hinzufügen */}
-            <button
-              onClick={() => setActiveModal(activeModal === 'recipe' ? null : 'recipe')}
-              style={activeModal === 'recipe' ? btnToolbarActive : btnToolbar}
-            >
-              ➕ Neues Rezept ({recipes.length})
-            </button>
-
-            {/* Neue Zutat (Barcode-Scanner mit API Call) */}
-            <button
-              onClick={() => {
-                setActiveModal(activeModal === 'barcode' ? null : 'barcode');
-                if (activeModal !== 'barcode' && !scannedIngredient.name) {
-                  void handleBarcodeLookup('9002100045123');
-                }
-              }}
-              style={activeModal === 'barcode' ? btnToolbarActive : btnToolbar}
-            >
-              📷 Neue Zutat (Barcode-Scanner)
-            </button>
-
-            {/* User-Profil anpassen (WHO-Ernährungsprofil, Gewichtsziel) */}
-            <button
-              onClick={() => setActiveModal(activeModal === 'profile' ? null : 'profile')}
-              style={activeModal === 'profile' ? btnToolbarActive : btnToolbar}
-            >
-              👤 User-Profil:{' '}
-              <span style={{ color: '#38bdf8' }}>
-                {activeProfile.current_weight_kg}→{activeProfile.target_weight_kg}kg
-              </span>{' '}
-              • <span style={{ color: '#4ade80' }}>{activeProfile.target_calories} kcal</span>
-            </button>
-
-            {/* Optimierungsoptionen (Menge an Zutaten, Verschwendung minimieren, etc.) */}
-            <button
-              onClick={() => setActiveModal(activeModal === 'optimization' ? null : 'optimization')}
-              style={activeModal === 'optimization' ? btnToolbarActive : btnToolbar}
-            >
-              ⚙️ Optimierung:{' '}
-              <span style={{ color: '#fbbf24' }}>{OPTIMIZATION_MODES[activeOpt.mode].badge}</span>
-            </button>
-
-            {/* Selektion & Supermarkt-API (Billa, Hofer, Spar) */}
+          {/* KPI 2: MAKROS (PROTEIN / KH / FETT) */}
+          <div
+            style={{
+              padding: '20px 24px',
+              borderRight: '1px solid var(--line-hairline)',
+            }}
+          >
+            <div style={sectionLabelStyle}>MAKROS (PROTEIN / KH / FETT)</div>
             <div
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                background: '#0f172a',
-                padding: '4px 8px',
-                borderRadius: 10,
-                border: '1px solid #334155',
+                alignItems: 'baseline',
+                gap: 10,
+                marginTop: 8,
               }}
             >
-              <button
-                onClick={() => handleSelectWeekMeals(selectedCount < entries.length)}
+              <span style={heroMetricStyle}>{selectedDayProt}g</span>
+              <span
                 style={{
-                  ...toolbarIconBtn,
-                  fontSize: 11,
-                  padding: '5px 8px',
-                  color: selectedCount > 0 ? '#38bdf8' : '#94a3b8',
-                }}
-                title="Alle geplanten Mahlzeiten der Woche auswählen / abwählen"
-              >
-                {selectedCount > 0 ? `☑️ Auswahl (${selectedCount})` : '⬜ Alle wählen'}
-              </button>
-              <button
-                onClick={handleTriggerSupermarketApi}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 7,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: 12,
-                  cursor: 'pointer',
+                  fontSize: 13,
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'var(--font-mono)',
                 }}
               >
-                {queryingApi ? '⏳ API lädt...' : '🛒 Supermarkt-API (Billa•Hofer•Spar)'}
-              </button>
+                P · {selectedDayCarbs}g KH · {selectedDayFat}g F
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span
+                style={statusDot(
+                  selectedDayProt >= activeProfile.target_protein_g * 0.9 ? '#10b981' : '#f59e0b'
+                )}
+              />
+              <span>
+                Ziel {activeProfile.target_protein_g}g P · Ballastst. {selectedDayFiber}/
+                {activeProfile.target_fiber_g}g · Zucker {selectedDaySugar}g
+              </span>
             </div>
           </div>
-        </div>
-      </header>
 
-      {/* Toast Notification */}
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 72,
-            right: 24,
-            zIndex: 90,
-            background: '#0284c7',
-            color: '#fff',
-            padding: '10px 18px',
-            borderRadius: 10,
-            fontWeight: 600,
-            fontSize: 13,
-            boxShadow: '0 8px 25px rgba(0,0,0,0.5)',
-            border: '1px solid #38bdf8',
-          }}
-        >
-          {toast}
-        </div>
-      )}
-
-      {/* =====================================================================
-          2. DARUNTER: WOCHENTAGE HORIZONTAL, VOLLE BREITE
-             Pro Tag: Mahlzeiten (Frühstück, Mittag, Abend, Snacks, Wasser) vertikal
-             Darunter: Tages-Makros (Balken-Diagramm), Ernährungs-Hinweise
-         ===================================================================== */}
-      <main style={{ width: '100%', boxSizing: 'border-box', padding: '14px 16px' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, minmax(235px, 1fr))',
-            gap: 12,
-            width: '100%',
-            overflowX: 'auto',
-            alignItems: 'stretch',
-          }}
-        >
-          {days.map((dayStr, dayIdx) => {
-            const dayEntries = entries.filter((e) => e.plan_date === dayStr);
-            const waterEntry = waterLogs.find((w) => w.plan_date === dayStr);
-            const waterMl = waterEntry ? waterEntry.amount_ml : 1750;
-            const waterTargetMl = activeProfile.target_water_ml || 2800;
-
-            // User's personal daily macro intake (1 personal portion per planned meal)
-            const dayKcal = dayEntries.reduce((s, e) => s + (e.calories || 0), 0);
-            const dayProt = dayEntries.reduce((s, e) => s + (e.protein_g || 0), 0);
-            const dayCarbs = dayEntries.reduce((s, e) => s + (e.carbs_g || 0), 0);
-            const dayFat = dayEntries.reduce((s, e) => s + (e.fat_g || 0), 0);
-            const dayFiber = dayEntries.reduce((s, e) => s + (e.fiber_g || 0), 0);
-            const daySugar = dayEntries.reduce((s, e) => s + (e.sugar_g || 0), 0);
-
-            const isToday = dayStr === new Date().toISOString().slice(0, 10);
-            const allDaySelected =
-              dayEntries.length > 0 && dayEntries.every((e) => e.selected === 1);
-
-            // Generate WHO & Weight-Goal Nutritional Hints for this day
-            const hints: Array<{ type: 'ok' | 'warn' | 'info'; text: string }> = [];
-            const kcalDiff = dayKcal - activeProfile.target_calories;
-            if (dayEntries.length === 0) {
-              hints.push({ type: 'info', text: 'Noch keine Mahlzeiten für diesen Tag geplant.' });
-            } else {
-              if (Math.abs(kcalDiff) <= 180) {
-                hints.push({
-                  type: 'ok',
-                  text: `Kalorienziel für Gewichtsziel (${activeProfile.target_weight_kg}kg) optimal getroffen (${dayKcal} kcal).`,
-                });
-              } else if (kcalDiff > 180) {
-                hints.push({
-                  type: 'warn',
-                  text: `+${kcalDiff} kcal über Tagesziel (${activeProfile.target_calories} kcal).`,
-                });
-              } else {
-                hints.push({
-                  type: 'info',
-                  text: `${Math.abs(kcalDiff)} kcal unter Tagesziel – Platz für gesunden Snack.`,
-                });
-              }
-
-              if (dayProt >= activeProfile.target_protein_g * 0.9) {
-                hints.push({
-                  type: 'ok',
-                  text: `WHO-Proteinziel erreicht (${dayProt}g / ${activeProfile.target_protein_g}g).`,
-                });
-              } else {
-                hints.push({
-                  type: 'warn',
-                  text: `Protein niedrig (${dayProt}g / ${activeProfile.target_protein_g}g) – Skyr, Hülsenfrüchte oder Fisch ergänzen.`,
-                });
-              }
-
-              if (dayFiber >= activeProfile.target_fiber_g) {
-                hints.push({
-                  type: 'ok',
-                  text: `Ballaststoffe WHO-konform (${dayFiber}g ≥ ${activeProfile.target_fiber_g}g).`,
-                });
-              } else {
-                hints.push({
-                  type: 'warn',
-                  text: `Ballaststoffe (${dayFiber}g / ${activeProfile.target_fiber_g}g) unter WHO-Richtwert.`,
-                });
-              }
-
-              if (daySugar > activeProfile.max_sugar_g) {
-                hints.push({
-                  type: 'warn',
-                  text: `Zucker (${daySugar}g) überschreitet WHO-Empfehlung (<${activeProfile.max_sugar_g}g).`,
-                });
-              }
-
-              if (waterMl < waterTargetMl * 0.75) {
-                hints.push({
-                  type: 'warn',
-                  text: `Trinkmenge (${(waterMl / 1000).toFixed(2)}L) unter Ziel (${(waterTargetMl / 1000).toFixed(1)}L).`,
-                });
-              }
-            }
-
-            return (
-              <div
-                key={dayStr}
+          {/* KPI 3: HYDRATION (WASSER) */}
+          <div
+            style={{
+              padding: '20px 24px',
+              borderRight: '1px solid var(--line-hairline)',
+            }}
+          >
+            <div style={sectionLabelStyle}>HYDRATION (WASSER)</div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
+              <span style={heroMetricStyle}>{(selectedWaterMl / 1000).toFixed(2)}</span>
+              <span
                 style={{
-                  background: '#151f32',
-                  border: isToday ? '2px solid #38bdf8' : '1px solid #26354d',
-                  borderRadius: 12,
-                  padding: 10,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  boxShadow: isToday ? '0 0 18px rgba(56, 189, 248, 0.15)' : 'none',
+                  fontSize: 14,
+                  color: 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)',
                 }}
               >
-                {/* DAY HEADER */}
-                <div>
-                  <div
+                / {(waterTargetMl / 1000).toFixed(1)} L ({selectedWaterMl} ml)
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span
+                style={statusDot(selectedWaterMl >= waterTargetMl * 0.8 ? '#10b981' : '#f59e0b')}
+              />
+              <span>
+                {Math.round((selectedWaterMl / Math.max(1, waterTargetMl)) * 100)}% vom Tagesziel
+              </span>
+            </div>
+          </div>
+
+          {/* KPI 4: WOCHENPLAN & EINKAUF */}
+          <div
+            style={{
+              padding: '20px 0 20px 24px',
+            }}
+          >
+            <div style={sectionLabelStyle}>WOCHENPLAN & EINKAUF</div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
+              <span style={heroMetricStyle}>
+                {supermarket ? `€${supermarket.optimalMix.totalPrice.toFixed(2)}` : '—'}
+              </span>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                Optimal-Mix ({supermarket?.optimalMix.efficiencyPct ?? 100}% Eff.)
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span style={statusDot(selectedCount > 0 ? '#10b981' : '#f59e0b')} />
+              <span>
+                {selectedCount} Mahlzeiten selektiert · {netItemsToBuyCount} Einkaufs-Positionen
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ===================================================================
+            4. CLEAN TEXT-LINK TABS (DESIGN.md Section 5.3)
+           =================================================================== */}
+        <nav
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            borderBottom: '1px solid var(--line-hairline)',
+            marginBottom: 24,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+            {(
+              [
+                { id: 'day', label: 'Tagesplan & Hydration' },
+                { id: 'week', label: 'Wochenplan & Optimizer' },
+                { id: 'groceries', label: 'Einkauf & Supermarkt-Preise' },
+                {
+                  id: 'catalog',
+                  label: `Rezepte & Vorrat (${recipes.length} / ${ingredientsCatalog.length})`,
+                },
+                { id: 'profile', label: 'Profil & WHO-Ziele' },
+              ] as Array<{ id: ActiveTab; label: string }>
+            ).map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: active ? '1px solid var(--text-primary)' : '1px solid transparent',
+                    marginBottom: -1,
+                    padding: '14px 0',
+                    fontSize: 13.5,
+                    fontWeight: 500,
+                    color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Compact Week Switcher always accessible on the tab bar right */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
+            <button type="button" onClick={() => void shiftWeek(-7)} style={btnGhostSm}>
+              &lt; KW −1
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void loadAll('');
+                setSelectedDate(new Date().toISOString().slice(0, 10));
+              }}
+              style={btnGhostSm}
+            >
+              Heute
+            </button>
+            <button type="button" onClick={() => void shiftWeek(7)} style={btnGhostSm}>
+              KW +1 &gt;
+            </button>
+          </div>
+        </nav>
+
+        {/* ===================================================================
+            TAB 1: TAGESPLAN & HYDRATION
+           =================================================================== */}
+        {activeTab === 'day' && (
+          <div>
+            {/* Day Strip across the 7 days of current week */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, 1fr)',
+                borderBottom: '1px solid var(--line-hairline)',
+                marginBottom: 24,
+              }}
+            >
+              {days.map((dStr, idx) => {
+                const isSelected = dStr === activeDayStr;
+                const isToday = dStr === new Date().toISOString().slice(0, 10);
+                const dEntries = entries.filter((e) => e.plan_date === dStr);
+                const dKcal = dEntries.reduce((s, e) => s + (e.calories || 0), 0);
+                const mainCount = (['breakfast', 'lunch', 'dinner'] as MealSlot[]).filter((s) =>
+                  dEntries.some((e) => e.slot === s)
+                ).length;
+
+                return (
+                  <button
+                    key={dStr}
+                    type="button"
+                    onClick={() => setSelectedDate(dStr)}
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingBottom: 8,
-                      marginBottom: 8,
-                      borderBottom: '1px solid #26354d',
+                      background: isSelected ? 'var(--bg-elevated)' : 'transparent',
+                      border: 'none',
+                      borderBottom: isSelected
+                        ? '1px solid var(--text-primary)'
+                        : '1px solid transparent',
+                      borderRight: idx < 6 ? '1px solid var(--line-hairline)' : 'none',
+                      padding: '12px 14px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: 'var(--text-primary)',
                     }}
                   >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span
-                          style={{
-                            fontWeight: 800,
-                            fontSize: 14,
-                            color: isToday ? '#38bdf8' : '#f8fafc',
-                          }}
-                        >
-                          {DAY_NAMES_DE[dayIdx]}
-                        </span>
-                        {isToday && (
-                          <span
-                            style={{
-                              fontSize: 9,
-                              background: '#0284c7',
-                              color: '#fff',
-                              padding: '1px 5px',
-                              borderRadius: 4,
-                              fontWeight: 700,
-                            }}
-                          >
-                            HEUTE
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                        {formatShortDateDE(dayStr)}
-                        {dayStr.slice(0, 4)}
-                      </div>
-                    </div>
-
-                    {/* Select all meals of this day for Supermarket API */}
-                    <button
-                      onClick={() => handleSelectDayMeals(dayStr, !allDaySelected)}
+                    <div
                       style={{
-                        background: allDaySelected ? 'rgba(56, 189, 248, 0.16)' : '#0f172a',
-                        border: allDaySelected ? '1px solid #38bdf8' : '1px solid #334155',
-                        color: allDaySelected ? '#38bdf8' : '#94a3b8',
-                        borderRadius: 6,
-                        padding: '3px 7px',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 4,
                       }}
-                      title="Alle Mahlzeiten dieses Tages für Supermarkt-API selektieren"
                     >
-                      {allDaySelected ? '☑️ Tag gewählt' : '⬜ Tag wählen'}
+                      <span
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: 500,
+                          color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        {DAY_SHORT_DE[idx]} {formatShortDateDE(dStr)}
+                      </span>
+                      <span
+                        style={statusDot(
+                          mainCount === 3 ? '#10b981' : mainCount > 0 ? '#f59e0b' : '#ef4444'
+                        )}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11.5,
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {dKcal} kcal · {mainCount}/3 Slots{isToday ? ' · HEUTE' : ''}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Master-Detail Split: Left = 4 Meal Slots + Hydration; Right = Inspector / Recipe Picker */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: chooseTarget ? '1.35fr 1fr' : '1fr',
+                gap: 32,
+                alignItems: 'start',
+              }}
+            >
+              {/* Left Main Area */}
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingBottom: 12,
+                    borderBottom: '1px solid var(--line-hairline)',
+                  }}
+                >
+                  <div>
+                    <span style={sectionLabelStyle}>
+                      TAGESPLAN · {DAY_NAMES_DE[activeDayIdx]?.toUpperCase()} (
+                      {formatFullDateDE(activeDayStr)})
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allSelected =
+                          selectedDayEntries.length > 0 &&
+                          selectedDayEntries.every((e) => e.selected === 1);
+                        void handleSelectDayMeals(activeDayStr, !allSelected);
+                      }}
+                      style={btnGhostSm}
+                    >
+                      Tag für Einkauf umschalten
                     </button>
                   </div>
+                </div>
 
-                  {/* VERTICAL MEAL CARDS: Frühstück, Mittag, Abend, Snacks */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {SLOTS.map(({ key: slot, label: slotLabel, icon: slotIcon }) => {
-                      const entry = dayEntries.find((e) => e.slot === slot);
-                      const cardKey = `${dayStr}_${slot}`;
-                      const isExpanded = !!expandedMealIngredients[cardKey];
-                      const isSelected = entry?.selected === 1;
-                      const guests = entry?.guest_portions || 0;
-                      const totalPortions = 1 + guests;
-                      const ingList = entry ? getRecipeIngredientsForEntry(entry) : [];
+                {/* 4 Hairline Rows for Meal Slots */}
+                <div>
+                  {SLOTS.map(({ key: slot, label: slotLabel, code: slotCode }) => {
+                    const entry = selectedDayEntries.find((e) => e.slot === slot);
+                    const cardKey = `${activeDayStr}_${slot}`;
+                    const isExpanded = !!expandedMealIngredients[cardKey];
+                    const isSelected = entry?.selected === 1;
+                    const guests = entry?.guest_portions || 0;
+                    const totalPortions = 1 + guests;
+                    const ingList = entry ? getRecipeIngredientsForEntry(entry) : [];
+                    const isAssigningThis =
+                      chooseTarget?.dayStr === activeDayStr && chooseTarget?.slot === slot;
 
-                      return (
+                    return (
+                      <div
+                        key={slot}
+                        style={{
+                          borderBottom: '1px solid var(--line-hairline)',
+                          background: isAssigningThis ? 'var(--bg-elevated)' : 'transparent',
+                          padding: '16px 0',
+                        }}
+                      >
                         <div
-                          key={slot}
                           style={{
-                            background: isSelected ? '#0f2138' : '#0b1322',
-                            border: isSelected ? '1px solid #0284c7' : '1px solid #1e293b',
-                            borderRadius: 9,
-                            padding: '8px 9px',
-                            transition: 'all 0.15s ease',
+                            display: 'grid',
+                            gridTemplateColumns: '150px 1fr auto',
+                            gap: 16,
+                            alignItems: 'center',
                           }}
                         >
-                          {/* Row 1: Slot Header + Selection Checkbox + Guest Portion Badge */}
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              marginBottom: 4,
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {entry && (
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleSelectMeal(entry)}
-                                  style={{ cursor: 'pointer', accentColor: '#0284c7', width: 14, height: 14 }}
-                                  title="Mahlzeit für Supermarkt-API (Billa, Hofer, Spar) & Mengen-Kumulierung auswählen"
-                                />
-                              )}
-                              <span
+                          {/* Col 1: Status dot + Domain/Slot Code + Slot Label */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={statusDot(entry ? '#10b981' : '#f59e0b')} />
+                            <div>
+                              <div
                                 style={{
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  textTransform: 'uppercase',
-                                  letterSpacing: 0.4,
-                                  color: isSelected ? '#38bdf8' : '#94a3b8',
+                                  fontFamily: 'var(--font-mono)',
+                                  fontSize: 11,
+                                  color: 'var(--text-muted)',
                                 }}
                               >
-                                {slotIcon} {slotLabel}
-                              </span>
-                            </div>
-
-                            {/* Guest portions indicator & Delete button */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              {entry && guests > 0 && (
-                                <span
-                                  style={{
-                                    fontSize: 10,
-                                    background: '#7c2d12',
-                                    color: '#fed7aa',
-                                    padding: '1px 6px',
-                                    borderRadius: 99,
-                                    fontWeight: 700,
-                                  }}
-                                  title={`1 Person + ${guests} Gast/Gäste = ${totalPortions} Portionen (Zutatenmengen x${totalPortions})`}
-                                >
-                                  👥 +{guests} Gast ({totalPortions}P)
-                                </span>
-                              )}
-                              {entry && (
-                                <button
-                                  onClick={async () => {
-                                    await api.delete(`/plan?id=${entry.id}`);
-                                    await loadAll();
-                                  }}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: '#64748b',
-                                    cursor: 'pointer',
-                                    fontSize: 11,
-                                    padding: '0 2px',
-                                  }}
-                                  title="Mahlzeit entfernen"
-                                >
-                                  ✕
-                                </button>
-                              )}
+                                {slotCode}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 13.5,
+                                  fontWeight: 500,
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                {slotLabel}
+                              </div>
                             </div>
                           </div>
 
-                          {/* Row 2: Meal Title & Macros */}
-                          {entry ? (
-                            <>
-                              <div
-                                style={{
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  color: '#f8fafc',
-                                  lineHeight: 1.3,
-                                  marginBottom: 5,
-                                }}
-                              >
-                                {entry.custom_title}
-                              </div>
-
-                              {/* Makros Row */}
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  flexWrap: 'wrap',
-                                  gap: 4,
-                                  marginBottom: 6,
-                                  fontSize: 10,
-                                }}
-                              >
-                                <span style={macroPill('#0369a1', '#e0f2fe')}>
-                                  🔥 {entry.calories} kcal
-                                </span>
-                                <span style={macroPill('#15803d', '#dcfce7')}>
-                                  💪 {entry.protein_g}g P
-                                </span>
-                                <span style={macroPill('#b45309', '#fef3c7')}>
-                                  🌾 {entry.carbs_g || 45}g KH
-                                </span>
-                                <span style={macroPill('#6d28d9', '#ede9fe')}>
-                                  🥑 {entry.fat_g || 15}g F
-                                </span>
-                              </div>
-
-                              {/* Collapsible Ingredients ("Zutaten zum Aufklappen") */}
-                              <div style={{ marginBottom: 6 }}>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedMealIngredients((prev) => ({
-                                      ...prev,
-                                      [cardKey]: !prev[cardKey],
-                                    }))
-                                  }
+                          {/* Col 2: Planned Meal Details or Empty Prompt */}
+                          <div>
+                            {entry ? (
+                              <div>
+                                <div
                                   style={{
-                                    width: '100%',
-                                    textAlign: 'left',
-                                    background: '#162238',
-                                    border: '1px solid #26354d',
-                                    color: '#cbd5e1',
-                                    borderRadius: 6,
-                                    padding: '3px 7px',
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
                                     display: 'flex',
-                                    justifyContent: 'space-between',
                                     alignItems: 'center',
+                                    gap: 10,
+                                    flexWrap: 'wrap',
                                   }}
                                 >
-                                  <span>
-                                    {isExpanded ? '▾' : '▸'} Zutaten ({ingList.length})
-                                    {totalPortions > 1 ? ` • skaliert x${totalPortions}` : ''}
-                                  </span>
-                                  <span style={{ color: '#38bdf8', fontSize: 9 }}>
-                                    {isExpanded ? 'zuklappen' : 'aufklappen'}
-                                  </span>
-                                </button>
-
-                                {isExpanded && (
-                                  <div
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => void handleToggleSelectMeal(entry)}
+                                    style={{ cursor: 'pointer' }}
+                                    title="Für Supermarkt-API & Einkauf berücksichtigen"
+                                  />
+                                  <span
                                     style={{
-                                      marginTop: 4,
-                                      padding: '6px 8px',
-                                      background: '#090f1d',
-                                      borderRadius: 6,
-                                      border: '1px solid #1e293b',
-                                      fontSize: 10,
-                                      color: '#cbd5e1',
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      gap: 3,
+                                      fontSize: 14,
+                                      fontWeight: 500,
+                                      color: 'var(--text-primary)',
                                     }}
                                   >
-                                    {ingList.length === 0 ? (
-                                      <span style={{ color: '#64748b' }}>Keine Einzelzutaten hinterlegt</span>
-                                    ) : (
-                                      ingList.map((ing, i) => {
-                                        const scaledAmt = Math.round(ing.amount * totalPortions * 10) / 10;
-                                        return (
-                                          <div
-                                            key={i}
-                                            style={{
-                                              display: 'flex',
-                                              justifyContent: 'space-between',
-                                              borderBottom:
-                                                i < ingList.length - 1 ? '1px dashed #1e293b' : 'none',
-                                              paddingBottom: 2,
-                                            }}
-                                          >
-                                            <span>{ing.name}</span>
-                                            <strong style={{ color: '#38bdf8' }}>
-                                              {scaledAmt}
-                                              {ing.unit}
-                                            </strong>
-                                          </div>
-                                        );
-                                      })
-                                    )}
+                                    {entry.custom_title}
+                                  </span>
+                                  {guests > 0 && (
+                                    <span
+                                      style={{
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: 11,
+                                        color: 'var(--text-secondary)',
+                                        border: '1px solid var(--line-hairline)',
+                                        padding: '1px 6px',
+                                        borderRadius: 4,
+                                      }}
+                                    >
+                                      +{guests} Gast ({totalPortions} Port.)
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: 12,
+                                    color: 'var(--text-secondary)',
+                                    display: 'flex',
+                                    gap: 14,
+                                    flexWrap: 'wrap',
+                                  }}
+                                >
+                                  <span>{entry.calories} kcal</span>
+                                  <span>{entry.protein_g}g P</span>
+                                  <span>{entry.carbs_g || 45}g KH</span>
+                                  <span>{entry.fat_g || 15}g F</span>
+                                  <span>{entry.fiber_g || 6}g Ballastst.</span>
+                                  {ingList.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedMealIngredients((prev) => ({
+                                          ...prev,
+                                          [cardKey]: !prev[cardKey],
+                                        }))
+                                      }
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0,
+                                        color: 'var(--text-primary)',
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: 12,
+                                        cursor: 'pointer',
+                                        textDecoration: 'underline',
+                                      }}
+                                    >
+                                      {isExpanded
+                                        ? `Zutaten ausblenden (${ingList.length})`
+                                        : `Zutaten anzeigen (${ingList.length})`}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {isExpanded && ingList.length > 0 && (
+                                  <div
+                                    style={{
+                                      marginTop: 10,
+                                      padding: '8px 12px',
+                                      background: 'var(--bg-elevated)',
+                                      border: '1px solid var(--line-hairline)',
+                                      fontFamily: 'var(--font-mono)',
+                                      fontSize: 12,
+                                      color: 'var(--text-secondary)',
+                                      display: 'grid',
+                                      gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                                      gap: 6,
+                                    }}
+                                  >
+                                    {ingList.map((ing, i) => {
+                                      const scaledAmt =
+                                        Math.round(ing.amount * totalPortions * 10) / 10;
+                                      return (
+                                        <div
+                                          key={i}
+                                          style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            gap: 8,
+                                          }}
+                                        >
+                                          <span>{ing.name}</span>
+                                          <span style={{ color: 'var(--text-primary)' }}>
+                                            {scaledAmt}
+                                            {ing.unit}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>
-                            </>
-                          ) : (
-                            <div
-                              style={{
-                                fontSize: 11,
-                                color: '#64748b',
-                                fontStyle: 'italic',
-                                padding: '6px 0',
-                              }}
-                            >
-                              Keine Mahlzeit geplant
-                            </div>
-                          )}
+                            ) : (
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                }}
+                              >
+                                Kein Gericht zugewiesen — Rezept wählen oder per Zufall planen.
+                              </div>
+                            )}
+                          </div>
 
-                          {/* Row 3: Meal Functions: Randomizer, Wählen aus..., Zusätzliche Portion (für Gast) */}
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: 4,
-                              paddingTop: 4,
-                              borderTop: '1px solid #1e293b',
-                            }}
-                          >
-                            {/* Randomizer */}
+                          {/* Col 3: Actions (Randomize, Choose/Edit, Guests, Delete) */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <button
                               type="button"
-                              onClick={() => handleRandomizeSlot(dayStr, slot, entry?.recipe_id)}
-                              style={mealActionBtn}
-                              title="Zufälliges passendes Rezept auswählen (Randomizer)"
+                              onClick={() =>
+                                void handleRandomizeSlot(activeDayStr, slot, entry?.recipe_id)
+                              }
+                              style={btnGhostSm}
                             >
-                              🎲 Random
+                              Random
                             </button>
 
-                            {/* Wählen aus... */}
                             <button
                               type="button"
                               onClick={() => {
-                                setChooseTarget({ dayStr, slot });
+                                setChooseTarget({ dayStr: activeDayStr, slot });
                                 setChooseFilterSlot(slot);
                                 setChooseSearch('');
-                                setActiveModal('choose_meal');
                               }}
-                              style={mealActionBtn}
-                              title="Rezept aus Rezeptbuch wählen oder eigene Mahlzeit eintragen"
+                              style={isAssigningThis ? btnPrimarySm : btnGhostSm}
                             >
-                              📋 Wählen aus...
+                              Auswählen
                             </button>
 
-                            {/* Zusätzliche Portion (für Gast) */}
                             {entry && (
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 2,
-                                  background: '#162238',
-                                  borderRadius: 5,
-                                  border: '1px solid #26354d',
-                                  padding: '1px 3px',
-                                }}
-                                title="Zusätzliche Portion für Gast hinzufügen/entfernen (skaliert Supermarkt-Zutaten)"
-                              >
+                              <>
                                 {guests > 0 && (
                                   <button
                                     type="button"
-                                    onClick={() => handleChangeGuestPortions(entry, -1)}
-                                    style={{
-                                      background: 'none',
-                                      border: 'none',
-                                      color: '#f87171',
-                                      fontSize: 10,
-                                      fontWeight: 800,
-                                      cursor: 'pointer',
-                                      padding: '1px 3px',
-                                    }}
+                                    onClick={() => void handleChangeGuestPortions(entry, -1)}
+                                    style={btnGhostSm}
+                                    title="Gast-Portion reduzieren"
                                   >
-                                    −
+                                    −Gast
                                   </button>
                                 )}
                                 <button
                                   type="button"
-                                  onClick={() => handleChangeGuestPortions(entry, 1)}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: guests > 0 ? '#fbbf24' : '#94a3b8',
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    padding: '1px 4px',
-                                  }}
+                                  onClick={() => void handleChangeGuestPortions(entry, 1)}
+                                  style={btnGhostSm}
+                                  title="Gast-Portion hinzufügen"
                                 >
-                                  +Gast{guests > 0 ? ` (${guests})` : ''}
+                                  +Gast
                                 </button>
-                              </div>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await api.delete(`/plan?id=${entry.id}`);
+                                    await loadAll();
+                                  }}
+                                  style={btnGhostSm}
+                                  title="Mahlzeit entfernen"
+                                >
+                                  Entfernen
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
-                      );
-                    })}
-
-                    {/* 5th Vertical Slot per Day: WASSER (Hydration Tracker) */}
-                    <div
-                      style={{
-                        background: '#0b192e',
-                        border: '1px solid #1e3a5f',
-                        borderRadius: 9,
-                        padding: '8px 9px',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginBottom: 4,
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            color: '#38bdf8',
-                          }}
-                        >
-                          💧 Wasser
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#e0f2fe' }}>
-                          {(waterMl / 1000).toFixed(2)} / {(waterTargetMl / 1000).toFixed(1)} L
-                        </span>
                       </div>
-
-                      <div
-                        style={{
-                          width: '100%',
-                          height: 6,
-                          background: '#0f172a',
-                          borderRadius: 99,
-                          overflow: 'hidden',
-                          marginBottom: 6,
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: `${Math.min(100, Math.round((waterMl / waterTargetMl) * 100))}%`,
-                            height: '100%',
-                            background: 'linear-gradient(90deg, #0284c7, #38bdf8)',
-                          }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustWater(dayStr, -250)}
-                          style={{ ...mealActionBtn, flex: 1, textAlign: 'center' }}
-                        >
-                          −250ml
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustWater(dayStr, 250)}
-                          style={{
-                            ...mealActionBtn,
-                            flex: 1.3,
-                            textAlign: 'center',
-                            color: '#38bdf8',
-                            borderColor: '#0284c7',
-                          }}
-                        >
-                          +250ml Glas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustWater(dayStr, 500)}
-                          style={{ ...mealActionBtn, flex: 1, textAlign: 'center' }}
-                        >
-                          +500ml
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
 
-                {/* ===============================================================
-                    DARUNTER (PRO TAG): TAGES-MAKROS (BALKEN-DIAGRAMM) & ERNÄHRUNGS-HINWEISE
-                   =============================================================== */}
+                {/* Hydration & WHO Assessment Strip below the 4 slots */}
                 <div
                   style={{
-                    marginTop: 10,
-                    paddingTop: 10,
-                    borderTop: '2px solid #26354d',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 32,
+                    marginTop: 24,
+                    paddingTop: 16,
                   }}
                 >
-                  {/* TAGES-MAKROS (Balken-Diagramm) */}
-                  <div
-                    style={{
-                      background: '#0b1322',
-                      border: '1px solid #1e293b',
-                      borderRadius: 9,
-                      padding: '8px 9px',
-                      marginBottom: 8,
-                    }}
-                  >
+                  {/* Hydration Controls */}
+                  <div>
+                    <div style={sectionLabelStyle}>HYDRATION TRACKER ({formatShortDateDE(activeDayStr)})</div>
                     <div
                       style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        textTransform: 'uppercase',
-                        color: '#94a3b8',
-                        marginBottom: 6,
                         display: 'flex',
                         justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginTop: 12,
+                        paddingBottom: 12,
+                        borderBottom: '1px solid var(--line-hairline)',
                       }}
                     >
-                      <span>📊 Tages-Makros (WHO-Profil)</span>
-                      <span style={{ color: '#38bdf8' }}>
-                        {Math.round((dayKcal / Math.max(1, activeProfile.target_calories)) * 100)}%
-                      </span>
-                    </div>
-
-                    {[
-                      {
-                        label: 'Kalorien',
-                        val: dayKcal,
-                        target: activeProfile.target_calories,
-                        unit: 'kcal',
-                        color: dayKcal > activeProfile.target_calories * 1.1 ? '#ef4444' : '#38bdf8',
-                      },
-                      {
-                        label: 'Protein',
-                        val: dayProt,
-                        target: activeProfile.target_protein_g,
-                        unit: 'g',
-                        color: '#22c55e',
-                      },
-                      {
-                        label: 'Kohlenhydr.',
-                        val: dayCarbs,
-                        target: activeProfile.target_carbs_g,
-                        unit: 'g',
-                        color: '#f59e0b',
-                      },
-                      {
-                        label: 'Fett',
-                        val: dayFat,
-                        target: activeProfile.target_fat_g,
-                        unit: 'g',
-                        color: '#a855f7',
-                      },
-                      {
-                        label: 'Ballastst.',
-                        val: dayFiber,
-                        target: activeProfile.target_fiber_g,
-                        unit: 'g',
-                        color: '#14b8a6',
-                      },
-                    ].map((m) => {
-                      const pct = Math.min(100, Math.round((m.val / Math.max(1, m.target)) * 100));
-                      return (
-                        <div key={m.label} style={{ marginBottom: 5 }}>
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              fontSize: 10,
-                              marginBottom: 2,
-                            }}
-                          >
-                            <span style={{ color: '#cbd5e1' }}>{m.label}</span>
-                            <span style={{ color: '#94a3b8', fontWeight: 600 }}>
-                              <strong style={{ color: '#f8fafc' }}>{m.val}</strong> / {m.target} {m.unit}
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              width: '100%',
-                              height: 6,
-                              background: '#1e293b',
-                              borderRadius: 99,
-                              overflow: 'hidden',
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: `${pct}%`,
-                                height: '100%',
-                                background: m.color,
-                                borderRadius: 99,
-                                transition: 'width 0.25s ease',
-                              }}
-                            />
-                          </div>
+                      <div>
+                        <div
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 16,
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          {selectedWaterMl} / {waterTargetMl} ml
                         </div>
-                      );
-                    })}
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                          WHO-Richtwert basierend auf Körpergewicht ({activeProfile.current_weight_kg} kg)
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => void handleAdjustWater(activeDayStr, -250)}
+                          style={btnGhostSm}
+                        >
+                          −250 ml
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAdjustWater(activeDayStr, 250)}
+                          style={btnPrimarySm}
+                        >
+                          +250 ml
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAdjustWater(activeDayStr, 500)}
+                          style={btnGhostSm}
+                        >
+                          +500 ml
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* ERNÄHRUNGS-HINWEISE */}
-                  <div
-                    style={{
-                      background: '#0b1322',
-                      border: '1px solid #1e293b',
-                      borderRadius: 9,
-                      padding: '7px 9px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        textTransform: 'uppercase',
-                        color: '#94a3b8',
-                        marginBottom: 5,
-                      }}
-                    >
-                      🩺 Ernährungs-Hinweise
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {hints.slice(0, 3).map((h, i) => (
+                  {/* WHO Nutritional Hints */}
+                  <div>
+                    <div style={sectionLabelStyle}>WHO-ERNÄHRUNGS-STATUS</div>
+                    <div style={{ marginTop: 10 }}>
+                      {dayHints.map((h, i) => (
                         <div
                           key={i}
                           style={{
-                            fontSize: 10,
-                            lineHeight: 1.3,
-                            padding: '4px 6px',
-                            borderRadius: 5,
-                            background:
-                              h.type === 'ok'
-                                ? 'rgba(34, 197, 94, 0.12)'
-                                : h.type === 'warn'
-                                  ? 'rgba(245, 158, 11, 0.14)'
-                                  : 'rgba(56, 189, 248, 0.12)',
-                            color:
-                              h.type === 'ok'
-                                ? '#86efac'
-                                : h.type === 'warn'
-                                  ? '#fde68a'
-                                  : '#bae6fd',
-                            borderLeft: `3px solid ${
-                              h.type === 'ok' ? '#22c55e' : h.type === 'warn' ? '#f59e0b' : '#38bdf8'
-                            }`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '6px 0',
+                            borderBottom: '1px solid var(--line-hairline)',
+                            fontSize: 12.5,
                           }}
                         >
-                          {h.type === 'ok' ? '✓ ' : h.type === 'warn' ? '⚠ ' : 'ℹ '}
-                          {h.text}
+                          <span
+                            style={statusDot(
+                              h.status === 'ok'
+                                ? '#10b981'
+                                : h.status === 'warn'
+                                  ? '#f59e0b'
+                                  : '#ef4444'
+                            )}
+                          />
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: 'var(--text-muted)',
+                              width: 48,
+                            }}
+                          >
+                            {h.domain}
+                          </span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{h.text}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </main>
 
-      {/* =====================================================================
-          3. MODALS FÜR TOOLBAR-FUNKTIONEN & "WÄHLEN AUS..."
-         ===================================================================== */}
-
-      {/* MODAL: WÄHLEN AUS... (Rezept für Slot auswählen) */}
-      {activeModal === 'choose_meal' && chooseTarget && (
-        <div style={modalBackdrop} onClick={() => setActiveModal(null)}>
-          <div style={modalContainer(700)} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeader}>
-              <h3 style={{ margin: 0, color: '#38bdf8' }}>
-                📋 Mahlzeit wählen für {formatShortDateDE(chooseTarget.dayStr)} (
-                {SLOTS.find((s) => s.key === chooseTarget.slot)?.label})
-              </h3>
-              <button onClick={() => setActiveModal(null)} style={closeBtn}>
-                ✕
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <input
-                value={chooseSearch}
-                onChange={(e) => setChooseSearch(e.target.value)}
-                placeholder="Rezept oder Zutat suchen (z.B. Lachs, Skyr, Linsen)..."
-                style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-              />
-              <select
-                value={chooseFilterSlot}
-                onChange={(e) => setChooseFilterSlot(e.target.value)}
-                style={{ ...inputStyle, marginBottom: 0, width: 170 }}
-              >
-                <option value="all">Alle Kategorien</option>
-                <option value="breakfast">🌅 Frühstück</option>
-                <option value="lunch">☀️ Mittag</option>
-                <option value="dinner">🌙 Abend</option>
-                <option value="snack">🍎 Snacks</option>
-              </select>
-            </div>
-
-            <div
-              style={{
-                maxHeight: 330,
-                overflowY: 'auto',
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 10,
-                marginBottom: 16,
-              }}
-            >
-              {recipes
-                .filter((r) =>
-                  chooseFilterSlot === 'all' ? true : r.meal_type === chooseFilterSlot
-                )
-                .filter(
-                  (r) =>
-                    !chooseSearch.trim() ||
-                    r.name.toLowerCase().includes(chooseSearch.toLowerCase()) ||
-                    r.ingredients.some((i) =>
-                      i.toLowerCase().includes(chooseSearch.toLowerCase())
-                    )
-                )
-                .map((r) => (
-                  <div
-                    key={r.id}
-                    onClick={() => handleAssignRecipeToSlot(r)}
-                    style={{
-                      background: '#0f172a',
-                      border: '1px solid #334155',
-                      borderRadius: 10,
-                      padding: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#f8fafc', marginBottom: 4 }}>
-                      {r.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#38bdf8', marginBottom: 6 }}>
-                      🔥 {r.calories} kcal • 💪 {r.protein_g}g P • 🌾 {r.carbs_g}g KH • 🥑 {r.fat_g}g F
-                    </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                      {r.structured_ingredients
-                        .map((i) => `${i.amount}${i.unit} ${i.name}`)
-                        .join(', ')}
-                    </div>
-                  </div>
-                ))}
-            </div>
-
-            <form
-              onSubmit={handleAssignCustomMealToSlot}
-              style={{
-                borderTop: '1px solid #334155',
-                paddingTop: 12,
-                display: 'flex',
-                gap: 8,
-                alignItems: 'flex-end',
-              }}
-            >
-              <div style={{ flex: 2 }}>
-                <label style={labelStyle}>Oder freie Mahlzeit eintragen</label>
-                <input
-                  value={customTitleInput}
-                  onChange={(e) => setCustomTitleInput(e.target.value)}
-                  placeholder="z.B. Auswärts essen / Resteessen"
-                  style={{ ...inputStyle, marginBottom: 0 }}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Kalorien (kcal)</label>
-                <input
-                  type="number"
-                  value={customKcalInput}
-                  onChange={(e) => setCustomKcalInput(e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 0 }}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Protein (g)</label>
-                <input
-                  type="number"
-                  value={customProtInput}
-                  onChange={(e) => setCustomProtInput(e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 0 }}
-                />
-              </div>
-              <button type="submit" style={btnPrimary}>
-                Einplanen
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: NEUES REZEPT HINZUFÜGEN */}
-      {activeModal === 'recipe' && (
-        <div style={modalBackdrop} onClick={() => setActiveModal(null)}>
-          <div style={modalContainer(820)} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeader}>
-              <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Neues Rezept hinzufügen & Rezeptbuch</h3>
-              <button onClick={() => setActiveModal(null)} style={closeBtn}>
-                ✕
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18 }}>
-              <form onSubmit={handleCreateRecipe}>
-                <label style={labelStyle}>Rezept-Titel</label>
-                <input
-                  value={recName}
-                  onChange={(e) => setRecName(e.target.value)}
-                  placeholder="z.B. Steirischer Käferbohnen-Salat mit Kernöl & Ei"
-                  style={inputStyle}
-                />
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
-                  <div>
-                    <label style={labelStyle}>Mahlzeiten-Kategorie</label>
-                    <select
-                      value={recType}
-                      onChange={(e) => setRecType(e.target.value as MealSlot)}
-                      style={inputStyle}
-                    >
-                      <option value="breakfast">🌅 Frühstück</option>
-                      <option value="lunch">☀️ Mittag</option>
-                      <option value="dinner">🌙 Abend</option>
-                      <option value="snack">🍎 Snacks</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Zubereitungszeit (Min)</label>
-                    <input
-                      type="number"
-                      value={recPrep}
-                      onChange={(e) => setRecPrep(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <div>
-                    <label style={labelStyle}>Kalorien (kcal)</label>
-                    <input
-                      type="number"
-                      value={recCalories}
-                      onChange={(e) => setRecCalories(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Protein (g)</label>
-                    <input
-                      type="number"
-                      value={recProtein}
-                      onChange={(e) => setRecProtein(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Kohlenhydrate (g)</label>
-                    <input
-                      type="number"
-                      value={recCarbs}
-                      onChange={(e) => setRecCarbs(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Fett (g)</label>
-                    <input
-                      type="number"
-                      value={recFat}
-                      onChange={(e) => setRecFat(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Ballaststoffe (g)</label>
-                    <input
-                      type="number"
-                      value={recFiber}
-                      onChange={(e) => setRecFiber(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Zucker (g)</label>
-                    <input
-                      type="number"
-                      value={recSugar}
-                      onChange={(e) => setRecSugar(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-
-                <label style={labelStyle}>
-                  Zutaten mit Mengenangabe (pro Zeile, z.B. „180g Hühnerbrustfilet“)
-                </label>
-                <textarea
-                  rows={4}
-                  value={recIngredients}
-                  onChange={(e) => setRecIngredients(e.target.value)}
-                  style={inputStyle}
-                />
-
-                <label style={labelStyle}>Zubereitungshinweise</label>
-                <textarea
-                  rows={2}
-                  value={recInstructions}
-                  onChange={(e) => setRecInstructions(e.target.value)}
-                  style={inputStyle}
-                />
-
-                <button type="submit" style={{ ...btnPrimary, width: '100%' }}>
-                  Rezept speichern
-                </button>
-              </form>
-
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>
-                  Gespeicherte Rezepte ({recipes.length})
-                </div>
-                <div
+              {/* Right Inspector Column (when assigning a meal slot) */}
+              {chooseTarget && (
+                <aside
                   style={{
-                    maxHeight: 410,
-                    overflowY: 'auto',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
+                    borderLeft: '1px solid var(--line-hairline)',
+                    paddingLeft: 24,
                   }}
                 >
-                  {recipes.map((r) => (
-                    <div
-                      key={r.id}
-                      style={{
-                        background: '#0f172a',
-                        border: '1px solid #334155',
-                        borderRadius: 8,
-                        padding: 10,
-                      }}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingBottom: 12,
+                      borderBottom: '1px solid var(--line-hairline)',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <div>
+                      <div style={sectionLabelStyle}>SLOT ZUWEISUNG</div>
+                      <div style={{ fontSize: 14, fontWeight: 500, marginTop: 2 }}>
+                        {SLOTS.find((s) => s.key === chooseTarget.slot)?.label} ·{' '}
+                        {formatFullDateDE(chooseTarget.dayStr)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setChooseTarget(null)}
+                      style={btnGhostSm}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <strong style={{ fontSize: 12 }}>{r.name}</strong>
-                        <button
-                          onClick={async () => {
-                            await api.delete(`/recipes?id=${r.id}`);
-                            await loadAll();
-                          }}
+                      Schließen
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <input
+                      value={chooseSearch}
+                      onChange={(e) => setChooseSearch(e.target.value)}
+                      placeholder="/ Rezept oder Zutat filtern..."
+                      style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                    />
+                    <select
+                      value={chooseFilterSlot}
+                      onChange={(e) => setChooseFilterSlot(e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0, width: 130 }}
+                    >
+                      <option value="all">Alle Slots</option>
+                      <option value="breakfast">Frühstück</option>
+                      <option value="lunch">Mittagessen</option>
+                      <option value="dinner">Abendessen</option>
+                      <option value="snack">Snack</option>
+                    </select>
+                  </div>
+
+                  <div
+                    style={{
+                      maxHeight: 360,
+                      overflowY: 'auto',
+                      borderTop: '1px solid var(--line-hairline)',
+                      marginBottom: 16,
+                    }}
+                  >
+                    {recipes
+                      .filter((r) =>
+                        chooseFilterSlot === 'all' ? true : r.meal_type === chooseFilterSlot
+                      )
+                      .filter(
+                        (r) =>
+                          !chooseSearch.trim() ||
+                          r.name.toLowerCase().includes(chooseSearch.toLowerCase()) ||
+                          r.ingredients.some((i) =>
+                            i.toLowerCase().includes(chooseSearch.toLowerCase())
+                          )
+                      )
+                      .map((r) => (
+                        <div
+                          key={r.id}
+                          onClick={() => void handleAssignRecipeToSlot(r)}
                           style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#ef4444',
-                            fontSize: 11,
+                            padding: '10px 8px',
+                            borderBottom: '1px solid var(--line-hairline)',
                             cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 12,
                           }}
                         >
-                          Löschen
-                        </button>
+                          <div>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 500,
+                                color: 'var(--text-primary)',
+                              }}
+                            >
+                              {r.name}
+                            </div>
+                            <div
+                              style={{
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 11.5,
+                                color: 'var(--text-muted)',
+                                marginTop: 2,
+                              }}
+                            >
+                              {r.calories} kcal · {r.protein_g}g P · {r.carbs_g}g KH · {r.fat_g}g F
+                            </div>
+                          </div>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            Wählen -&gt;
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* Custom Entry Form */}
+                  <form onSubmit={handleAssignCustomMealToSlot}>
+                    <div style={{ ...sectionLabelStyle, marginBottom: 8 }}>
+                      FREIE MAHLZEIT EINTRAGEN
+                    </div>
+                    <input
+                      value={customTitleInput}
+                      onChange={(e) => setCustomTitleInput(e.target.value)}
+                      placeholder="Bezeichnung (z.B. Auswärts essen)"
+                      style={inputStyle}
+                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <label style={labelStyle}>Kalorien (kcal)</label>
+                        <input
+                          type="number"
+                          value={customKcalInput}
+                          onChange={(e) => setCustomKcalInput(e.target.value)}
+                          style={inputStyle}
+                        />
                       </div>
-                      <div style={{ fontSize: 11, color: '#38bdf8', marginTop: 2 }}>
-                        {r.calories} kcal • {r.protein_g}g P • {r.carbs_g}g KH • {r.fat_g}g F •{' '}
-                        {r.fiber_g}g Ballastst.
-                      </div>
-                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
-                        {r.ingredients.join(', ')}
+                      <div>
+                        <label style={labelStyle}>Protein (g)</label>
+                        <input
+                          type="number"
+                          value={customProtInput}
+                          onChange={(e) => setCustomProtInput(e.target.value)}
+                          style={inputStyle}
+                        />
                       </div>
                     </div>
-                  ))}
+                    <button type="submit" style={{ ...btnPrimary, width: '100%' }}>
+                      Freie Mahlzeit einplanen
+                    </button>
+                  </form>
+                </aside>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================
+            TAB 2: WOCHENPLAN & OPTIMIZER
+           =================================================================== */}
+        {activeTab === 'week' && (
+          <div>
+            {/* Top Action Bar for Week Plan */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+                paddingBottom: 16,
+                borderBottom: '1px solid var(--line-hairline)',
+              }}
+            >
+              <div>
+                <div style={sectionLabelStyle}>
+                  7-TAGE-MATRIX · KW {kwNumber} ({formatShortDateDE(weekStart)} –{' '}
+                  {formatFullDateDE(weekEnd)})
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+                  Modus: {OPTIMIZATION_MODES[activeOpt.mode].label} · {selectedCount} von{' '}
+                  {entries.length} Mahlzeiten für Einkauf selektiert
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => void handleSelectWeekMeals(selectedCount < entries.length)}
+                  style={btnGhost}
+                >
+                  {selectedCount < entries.length
+                    ? 'Alle Mahlzeiten auswählen'
+                    : 'Auswahl aufheben'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAutoOptimizeWeek()}
+                  style={btnPrimary}
+                >
+                  Woche optimieren (Batch & Zero-Waste)
+                </button>
+              </div>
+            </div>
+
+            {/* 7-Day Hairline Table */}
+            <div style={{ overflowX: 'auto' }}>
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  textAlign: 'left',
+                  fontSize: 13,
+                }}
+              >
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--line-hairline)' }}>
+                    <th style={thStyle}>TAG</th>
+                    <th style={thStyle}>FRÜHSTÜCK</th>
+                    <th style={thStyle}>MITTAGESSEN</th>
+                    <th style={thStyle}>ABENDESSEN</th>
+                    <th style={thStyle}>SNACK</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>MAKROS / TAG</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>AKTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {days.map((dStr, idx) => {
+                    const dEntries = entries.filter((e) => e.plan_date === dStr);
+                    const dKcal = dEntries.reduce((s, e) => s + (e.calories || 0), 0);
+                    const dProt = dEntries.reduce((s, e) => s + (e.protein_g || 0), 0);
+                    const isToday = dStr === new Date().toISOString().slice(0, 10);
+                    const allDaySelected =
+                      dEntries.length > 0 && dEntries.every((e) => e.selected === 1);
+
+                    return (
+                      <tr
+                        key={dStr}
+                        style={{
+                          borderBottom: '1px solid var(--line-hairline)',
+                          background: dStr === activeDayStr ? 'var(--bg-elevated)' : 'transparent',
+                        }}
+                      >
+                        {/* Day cell */}
+                        <td style={{ padding: '14px 12px 14px 0', verticalAlign: 'top', width: 130 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span
+                              style={statusDot(
+                                dEntries.length >= 3
+                                  ? '#10b981'
+                                  : dEntries.length > 0
+                                    ? '#f59e0b'
+                                    : '#ef4444'
+                              )}
+                            />
+                            <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                              {DAY_NAMES_DE[idx]}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11.5,
+                              color: 'var(--text-muted)',
+                              marginTop: 2,
+                              paddingLeft: 14,
+                            }}
+                          >
+                            {formatShortDateDE(dStr)}
+                            {isToday ? ' · HEUTE' : ''}
+                          </div>
+                        </td>
+
+                        {/* 4 Slot cells */}
+                        {SLOTS.map(({ key: slot }) => {
+                          const entry = dEntries.find((e) => e.slot === slot);
+                          return (
+                            <td
+                              key={slot}
+                              style={{
+                                padding: '14px 12px',
+                                verticalAlign: 'top',
+                                borderLeft: '1px solid var(--line-hairline)',
+                              }}
+                            >
+                              {entry ? (
+                                <div>
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'flex-start',
+                                      justifyContent: 'space-between',
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <label
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: 6,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={entry.selected === 1}
+                                        onChange={() => void handleToggleSelectMeal(entry)}
+                                        style={{ marginTop: 2 }}
+                                      />
+                                      <span
+                                        style={{
+                                          fontSize: 12.5,
+                                          fontWeight: 500,
+                                          color: 'var(--text-primary)',
+                                          lineHeight: 1.35,
+                                        }}
+                                      >
+                                        {entry.custom_title}
+                                      </span>
+                                    </label>
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontFamily: 'var(--font-mono)',
+                                      fontSize: 11,
+                                      color: 'var(--text-muted)',
+                                      marginTop: 4,
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                    }}
+                                  >
+                                    <span>
+                                      {entry.calories} kcal · {entry.protein_g}g P
+                                      {entry.guest_portions > 0
+                                        ? ` · +${entry.guest_portions}G`
+                                        : ''}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleRandomizeSlot(dStr, slot, entry.recipe_id)
+                                      }
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--text-secondary)',
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: 11,
+                                        cursor: 'pointer',
+                                        padding: 0,
+                                      }}
+                                      title="Neu auswürfeln"
+                                    >
+                                      [Random]
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRandomizeSlot(dStr, slot, null)}
+                                    style={btnGhostSm}
+                                  >
+                                    + Planen
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+
+                        {/* Daily Totals */}
+                        <td
+                          style={{
+                            padding: '14px 12px',
+                            verticalAlign: 'top',
+                            textAlign: 'right',
+                            fontFamily: 'var(--font-mono)',
+                            borderLeft: '1px solid var(--line-hairline)',
+                            width: 140,
+                          }}
+                        >
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                            {dKcal} kcal
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {dProt}g Protein
+                          </div>
+                        </td>
+
+                        {/* Actions */}
+                        <td
+                          style={{
+                            padding: '14px 0 14px 12px',
+                            verticalAlign: 'top',
+                            textAlign: 'right',
+                            borderLeft: '1px solid var(--line-hairline)',
+                            width: 150,
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => void handleSelectDayMeals(dStr, !allDaySelected)}
+                              style={btnGhostSm}
+                            >
+                              {allDaySelected ? 'Abwählen' : 'Tag wählen'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDate(dStr);
+                                setActiveTab('day');
+                              }}
+                              style={btnGhostSm}
+                            >
+                              Details
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Optimizer Configuration Panel below Week Table */}
+            <div
+              style={{
+                marginTop: 32,
+                paddingTop: 24,
+                borderTop: '1px solid var(--line-hairline)',
+                display: 'grid',
+                gridTemplateColumns: '1.3fr 1fr',
+                gap: 32,
+              }}
+            >
+              <div>
+                <div style={sectionLabelStyle}>OPTIMIERUNGS-MODUS (BATCH-COOK & PACKUNGS-LOGIK)</div>
+                <div style={{ marginTop: 12 }}>
+                  {(Object.keys(OPTIMIZATION_MODES) as Array<OptimizationOptions['mode']>).map(
+                    (mKey) => {
+                      const m = OPTIMIZATION_MODES[mKey];
+                      const isSelected = activeOpt.mode === mKey;
+                      return (
+                        <div
+                          key={mKey}
+                          onClick={() => void handleUpdateOptimization({ mode: mKey })}
+                          style={{
+                            padding: '12px 14px',
+                            borderBottom: '1px solid var(--line-hairline)',
+                            background: isSelected ? 'var(--bg-elevated)' : 'transparent',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 16,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <span
+                              style={{
+                                ...statusDot(isSelected ? '#10b981' : '#52525b'),
+                                marginTop: 5,
+                              }}
+                            />
+                            <div>
+                              <div
+                                style={{
+                                  fontSize: 13.5,
+                                  fontWeight: 500,
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                {m.label}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: 'var(--text-secondary)',
+                                  marginTop: 2,
+                                }}
+                              >
+                                {m.desc}
+                              </div>
+                            </div>
+                          </div>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: isSelected ? 'var(--text-primary)' : 'var(--text-muted)',
+                            }}
+                          >
+                            {m.code}
+                          </span>
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style={sectionLabelStyle}>VORRATS- & SUPERMARKT-PARAMETER</div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 0',
+                      borderBottom: '1px solid var(--line-hairline)',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={activeOpt.use_pantry_stock}
+                      onChange={(e) =>
+                        void handleUpdateOptimization({ use_pantry_stock: e.target.checked })
+                      }
+                    />
+                    <span>
+                      Verfügbare Vorratsmengen (`available_amount`) vor dem Einkauf automatisch abziehen
+                    </span>
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 0',
+                      borderBottom: '1px solid var(--line-hairline)',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={activeOpt.auto_accumulate_packages}
+                      onChange={(e) =>
+                        void handleUpdateOptimization({
+                          auto_accumulate_packages: e.target.checked,
+                        })
+                      }
+                    />
+                    <span>
+                      Packungsmengen über alle selektierten Mahlzeiten kumulieren (inkl. Gäste)
+                    </span>
+                  </label>
+
+                  <div
+                    style={{
+                      padding: '10px 0',
+                      borderBottom: '1px solid var(--line-hairline)',
+                    }}
+                  >
+                    <div style={{ ...labelStyle, marginBottom: 8 }}>AKTIVE SUPERMARKT-APIS</div>
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      {(['billa', 'hofer', 'spar'] as Array<'billa' | 'hofer' | 'spar'>).map(
+                        (store) => {
+                          const checked = activeOpt.preferred_stores.includes(store);
+                          return (
+                            <label
+                              key={store}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 12.5,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  const next = checked
+                                    ? activeOpt.preferred_stores.filter((s) => s !== store)
+                                    : [...activeOpt.preferred_stores, store];
+                                  if (next.length > 0) {
+                                    void handleUpdateOptimization({ preferred_stores: next });
+                                  }
+                                }}
+                              />
+                              {store.toUpperCase()}
+                            </label>
+                          );
+                        }
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* MODAL: NEUE ZUTAT & BARCODE-SCANNER MIT API-CALL */}
-      {activeModal === 'barcode' && (
-        <div style={modalBackdrop} onClick={() => setActiveModal(null)}>
-          <div style={modalContainer(900)} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeader}>
-              <h3 style={{ margin: 0, color: '#38bdf8' }}>
-                📷 Neue Zutat scannen (Barcode-Scanner & OpenFoodFacts / Supermarkt-API)
-              </h3>
-              <button onClick={() => setActiveModal(null)} style={closeBtn}>
-                ✕
-              </button>
-            </div>
-
-            {/* Barcode Scanner Strip */}
+        {/* ===================================================================
+            TAB 3: EINKAUF & SUPERMARKT-PREISE
+           =================================================================== */}
+        {activeTab === 'groceries' && (
+          <div>
+            {/* Action Header */}
             <div
               style={{
-                background: '#0f172a',
-                border: '1px solid #334155',
-                borderRadius: 10,
-                padding: 12,
-                marginBottom: 14,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+                paddingBottom: 16,
+                borderBottom: '1px solid var(--line-hairline)',
               }}
             >
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input
-                  value={barcodeInput}
-                  onChange={(e) => setBarcodeInput(e.target.value)}
-                  placeholder="EAN-13 / EAN-8 Barcode eingeben..."
-                  style={{ ...inputStyle, marginBottom: 0, width: 220, fontWeight: 700 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => handleBarcodeLookup()}
-                  style={btnPrimary}
-                >
-                  🔍 Barcode per API abfragen
-                </button>
-                <button
-                  type="button"
-                  onClick={cameraActive ? stopCameraScanner : startCameraScanner}
-                  style={btnToolbar}
-                >
-                  {cameraActive ? '⏹ Kamera stoppen' : '📹 Kamera-Scanner starten'}
-                </button>
-                {barcodeSourceInfo && (
-                  <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 600 }}>
-                    {barcodeSourceInfo}
-                  </span>
-                )}
+              <div>
+                <div style={sectionLabelStyle}>
+                  KUMULIERTER EINKAUFSBEDARF & AT-SUPERMARKT-PREISVERGLEICH
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+                  {supermarket
+                    ? `${supermarket.selectedMealsCount} Mahlzeiten (${supermarket.totalPortions} Portionen) · ${supermarket.uniqueIngredientsCount} Zutaten (${supermarket.multiUseIngredientsCount}x mehrfach genutzt) · Vorrat genutzt: ${supermarket.totalPantryUsed}g`
+                    : 'Keine Supermarkt-Berechnung geladen.'}
+                </div>
               </div>
 
-              {cameraActive && (
-                <div style={{ marginTop: 10 }}>
-                  <video
-                    ref={videoRef}
-                    style={{
-                      width: '100%',
-                      maxHeight: 200,
-                      background: '#000',
-                      borderRadius: 8,
-                      border: '1px solid #38bdf8',
-                    }}
-                    muted
-                    playsInline
-                  />
-                </div>
-              )}
-
-              {/* Quick Test Barcodes */}
-              <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>Schnell-Scan (AT-Produkte):</span>
-                {SAMPLE_BARCODES.map((b) => (
-                  <button
-                    key={b.code}
-                    type="button"
-                    onClick={() => {
-                      setBarcodeInput(b.code);
-                      void handleBarcodeLookup(b.code);
-                    }}
-                    style={{
-                      background: '#1e293b',
-                      border: '1px solid #334155',
-                      color: '#cbd5e1',
-                      borderRadius: 6,
-                      padding: '3px 8px',
-                      fontSize: 10,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ║▌║ {b.label}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => void handleTriggerSupermarketApi()}
+                  style={btnGhost}
+                >
+                  {queryingApi ? 'API lädt...' : 'Preise neu berechnen (/supermarket-query)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleTransferToGroceryList('optimal')}
+                  style={btnPrimary}
+                >
+                  Optimal-Mix an HA Einkaufsliste übertragen
+                </button>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
-              {/* Scanned Ingredient Form */}
-              <form onSubmit={handleSaveScannedIngredient}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
-                  <div>
-                    <label style={labelStyle}>Produkt / Zutatenname</label>
-                    <input
-                      value={scannedIngredient.name}
-                      onChange={(e) =>
-                        setScannedIngredient({ ...scannedIngredient, name: e.target.value })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Marke / Hersteller</label>
-                    <input
-                      value={scannedIngredient.brand}
-                      onChange={(e) =>
-                        setScannedIngredient({ ...scannedIngredient, brand: e.target.value })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  <div>
-                    <label style={labelStyle}>Einheit</label>
-                    <select
-                      value={scannedIngredient.unit}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          unit: e.target.value as 'g' | 'ml' | 'Stk',
-                        })
-                      }
-                      style={inputStyle}
-                    >
-                      <option value="g">Gramm (g)</option>
-                      <option value="ml">Milliliter (ml)</option>
-                      <option value="Stk">Stück (Stk)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Packung ({scannedIngredient.unit})</label>
-                    <input
-                      type="number"
-                      value={scannedIngredient.package_size}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          package_size: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ ...labelStyle, color: '#4ade80' }}>
-                      🏠 Vorrat verfügbar ({scannedIngredient.unit})
-                    </label>
-                    <input
-                      type="number"
-                      value={scannedIngredient.available_amount}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          available_amount: Number(e.target.value),
-                        })
-                      }
-                      style={{ ...inputStyle, borderColor: '#22c55e' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Nutri-Score</label>
-                    <input
-                      value={scannedIngredient.nutriscore}
-                      onChange={(e) =>
-                        setScannedIngredient({ ...scannedIngredient, nutriscore: e.target.value })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 4 }}>
-                  Nährwerte pro 100{scannedIngredient.unit} (aus Barcode-API)
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
-                  <div>
-                    <label style={labelStyle}>kcal</label>
-                    <input
-                      type="number"
-                      value={scannedIngredient.calories_per_100}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          calories_per_100: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Protein</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={scannedIngredient.protein_per_100}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          protein_per_100: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>KH</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={scannedIngredient.carbs_per_100}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          carbs_per_100: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Fett</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={scannedIngredient.fat_per_100}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          fat_per_100: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Ballast.</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={scannedIngredient.fiber_per_100}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          fiber_per_100: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Zucker</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={scannedIngredient.sugar_per_100}
-                      onChange={(e) =>
-                        setScannedIngredient({
-                          ...scannedIngredient,
-                          sugar_per_100: Number(e.target.value),
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-
-                {/* Supermarket Pack Sizes & Prices */}
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 4 }}>
-                  Supermarkt-Packungsgrößen & Preise (Billa / Hofer / Spar)
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <div style={{ background: '#0f172a', padding: 8, borderRadius: 8, border: '1px solid #eab308' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#facc15', marginBottom: 4 }}>
-                      🟨 BILLA
-                    </div>
-                    <label style={labelStyle}>Preis (€) / Packung ({scannedIngredient.unit})</label>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={scannedIngredient.price_billa}
-                        onChange={(e) =>
-                          setScannedIngredient({
-                            ...scannedIngredient,
-                            price_billa: Number(e.target.value),
-                          })
-                        }
-                        style={{ ...inputStyle, marginBottom: 0 }}
-                      />
-                      <input
-                        type="number"
-                        value={scannedIngredient.pack_billa}
-                        onChange={(e) =>
-                          setScannedIngredient({
-                            ...scannedIngredient,
-                            pack_billa: Number(e.target.value),
-                          })
-                        }
-                        style={{ ...inputStyle, marginBottom: 0 }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#0f172a', padding: 8, borderRadius: 8, border: '1px solid #3b82f6' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', marginBottom: 4 }}>
-                      🟦 HOFER
-                    </div>
-                    <label style={labelStyle}>Preis (€) / Packung ({scannedIngredient.unit})</label>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={scannedIngredient.price_hofer}
-                        onChange={(e) =>
-                          setScannedIngredient({
-                            ...scannedIngredient,
-                            price_hofer: Number(e.target.value),
-                          })
-                        }
-                        style={{ ...inputStyle, marginBottom: 0 }}
-                      />
-                      <input
-                        type="number"
-                        value={scannedIngredient.pack_hofer}
-                        onChange={(e) =>
-                          setScannedIngredient({
-                            ...scannedIngredient,
-                            pack_hofer: Number(e.target.value),
-                          })
-                        }
-                        style={{ ...inputStyle, marginBottom: 0 }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#0f172a', padding: 8, borderRadius: 8, border: '1px solid #ef4444' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#f87171', marginBottom: 4 }}>
-                      🟥 SPAR
-                    </div>
-                    <label style={labelStyle}>Preis (€) / Packung ({scannedIngredient.unit})</label>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={scannedIngredient.price_spar}
-                        onChange={(e) =>
-                          setScannedIngredient({
-                            ...scannedIngredient,
-                            price_spar: Number(e.target.value),
-                          })
-                        }
-                        style={{ ...inputStyle, marginBottom: 0 }}
-                      />
-                      <input
-                        type="number"
-                        value={scannedIngredient.pack_spar}
-                        onChange={(e) =>
-                          setScannedIngredient({
-                            ...scannedIngredient,
-                            pack_spar: Number(e.target.value),
-                          })
-                        }
-                        style={{ ...inputStyle, marginBottom: 0 }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <button type="submit" style={{ ...btnPrimary, width: '100%', marginTop: 12 }}>
-                  Zutat & Vorratsmenge speichern
-                </button>
-              </form>
-
-              {/* Existing Pantry & Ingredient Stock List */}
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>
-                  🏠 Vorratskammer & Verfügbare Zutatenmengen ({ingredientsCatalog.length})
-                </div>
+            {supermarket && (
+              <>
+                {/* 4-Column Store Comparison Strip */}
                 <div
                   style={{
-                    maxHeight: 390,
-                    overflowY: 'auto',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    borderBottom: '1px solid var(--line-hairline)',
+                    marginBottom: 24,
                   }}
                 >
-                  {ingredientsCatalog.map((ing) => (
+                  {(['billa', 'hofer', 'spar'] as Array<'billa' | 'hofer' | 'spar'>).map(
+                    (st, i) => {
+                      const s = supermarket.stores[st];
+                      const isBest = supermarket.optimalMix.bestSingleStore === st;
+                      return (
+                        <div
+                          key={st}
+                          style={{
+                            padding: '16px 20px',
+                            paddingLeft: i === 0 ? 0 : 20,
+                            borderRight: '1px solid var(--line-hairline)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span style={sectionLabelStyle}>{st.toUpperCase()} GESAMT</span>
+                            <span style={statusDot(isBest ? '#10b981' : '#52525b')} />
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 22,
+                              fontWeight: 400,
+                              fontFamily: 'var(--font-mono)',
+                              marginTop: 6,
+                            }}
+                          >
+                            €{s.totalPrice.toFixed(2)}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: 'var(--text-secondary)',
+                              fontFamily: 'var(--font-mono)',
+                              marginTop: 4,
+                            }}
+                          >
+                            {s.totalPacks} Packungen · Rest {s.totalSurplus}g ({s.efficiencyPct}% Eff.)
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleTransferToGroceryList(st)}
+                            style={{ ...btnGhostSm, marginTop: 10 }}
+                          >
+                            Nur {st.toUpperCase()} an HA senden
+                          </button>
+                        </div>
+                      );
+                    }
+                  )}
+
+                  {/* Optimal Mix Column */}
+                  <div style={{ padding: '16px 0 16px 20px' }}>
                     <div
-                      key={ing.id}
                       style={{
-                        background: '#0f172a',
-                        border: '1px solid #334155',
-                        borderRadius: 8,
-                        padding: '8px 10px',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
                       }}
                     >
+                      <span style={sectionLabelStyle}>OPTIMAL-MIX (BILLA / HOFER / SPAR)</span>
+                      <span style={statusDot('#10b981')} />
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 22,
+                        fontWeight: 400,
+                        fontFamily: 'var(--font-mono)',
+                        marginTop: 6,
+                      }}
+                    >
+                      €{supermarket.optimalMix.totalPrice.toFixed(2)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--text-secondary)',
+                        fontFamily: 'var(--font-mono)',
+                        marginTop: 4,
+                      }}
+                    >
+                      {supermarket.optimalMix.totalPacks} Packungen · Rest{' '}
+                      {supermarket.optimalMix.totalSurplus}g (−
+                      {supermarket.totalWasteSavedByAccumulation}g Überschuss gespart)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cumulative Ingredients Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table
+                    style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: 12.5,
+                      textAlign: 'left',
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--line-hairline)' }}>
+                        <th style={thStyle}>ZUTAT</th>
+                        <th style={thStyle}>VERWENDET IN</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>BRUTTO</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>VORRAT</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>NETTO KAUF</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>BILLA</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>HOFER</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>SPAR</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>ÜBERSCHUSS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {supermarket.cumulativeIngredients.map((item, idx) => (
+                        <tr
+                          key={idx}
+                          style={{
+                            borderBottom: '1px solid var(--line-hairline)',
+                          }}
+                        >
+                          <td style={{ padding: '10px 8px 10px 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span
+                                style={statusDot(item.netToBuy === 0 ? '#10b981' : '#f59e0b')}
+                              />
+                              <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                                {item.name}
+                              </span>
+                              {item.mealOccurrences > 1 && (
+                                <span
+                                  style={{
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: 11,
+                                    color: 'var(--text-muted)',
+                                  }}
+                                >
+                                  [{item.mealOccurrences}x]
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 8px',
+                              color: 'var(--text-secondary)',
+                              maxWidth: 240,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {item.usedInMeals.join(', ')}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 8px',
+                              textAlign: 'right',
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            {item.grossRequired}
+                            {item.unit}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 8px',
+                              textAlign: 'right',
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {item.pantryUsed > 0 ? `−${item.pantryUsed}${item.unit}` : '0'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 8px',
+                              textAlign: 'right',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 500,
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {item.netToBuy}
+                            {item.unit}
+                          </td>
+                          {(['billa', 'hofer', 'spar'] as Array<'billa' | 'hofer' | 'spar'>).map(
+                            (st) => {
+                              const off = item.offers[st];
+                              const isRec = item.recommendedStore === st;
+                              return (
+                                <td
+                                  key={st}
+                                  style={{
+                                    padding: '10px 8px',
+                                    textAlign: 'right',
+                                    fontFamily: 'var(--font-mono)',
+                                    background: isRec ? 'var(--bg-elevated)' : 'transparent',
+                                    color: isRec ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                  }}
+                                >
+                                  {off.packsNeeded === 0 ? (
+                                    <span style={{ color: 'var(--text-muted)' }}>Vorrat</span>
+                                  ) : (
+                                    <span>
+                                      {off.packsNeeded}x {off.packSize}
+                                      {item.unit} · €{off.totalPrice.toFixed(2)}
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            }
+                          )}
+                          <td
+                            style={{
+                              padding: '10px 0 10px 8px',
+                              textAlign: 'right',
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            +{item.recommendedOffer.surplusAmount}
+                            {item.unit}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ===================================================================
+            TAB 4: REZEPTE & VORRAT (2-Column Hairline Split)
+           =================================================================== */}
+        {activeTab === 'catalog' && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 32,
+              alignItems: 'start',
+            }}
+          >
+            {/* LEFT COLUMN: RECIPES */}
+            <div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingBottom: 12,
+                  borderBottom: '1px solid var(--line-hairline)',
+                  marginBottom: 16,
+                }}
+              >
+                <span style={sectionLabelStyle}>REZEPTBUCH ({recipes.length})</span>
+                <button
+                  type="button"
+                  onClick={() => setShowNewRecipeForm(!showNewRecipeForm)}
+                  style={showNewRecipeForm ? btnGhostSm : btnPrimarySm}
+                >
+                  {showNewRecipeForm ? 'Formular schließen' : '+ Neues Rezept'}
+                </button>
+              </div>
+
+              {showNewRecipeForm && (
+                <form
+                  onSubmit={handleCreateRecipe}
+                  style={{
+                    paddingBottom: 20,
+                    marginBottom: 20,
+                    borderBottom: '1px solid var(--line-hairline)',
+                  }}
+                >
+                  <label style={labelStyle}>Rezept-Titel</label>
+                  <input
+                    value={recName}
+                    onChange={(e) => setRecName(e.target.value)}
+                    placeholder="z.B. Steirischer Käferbohnen-Salat mit Kernöl"
+                    style={inputStyle}
+                  />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div>
+                      <label style={labelStyle}>Kategorie</label>
+                      <select
+                        value={recType}
+                        onChange={(e) => setRecType(e.target.value as MealSlot)}
+                        style={inputStyle}
+                      >
+                        <option value="breakfast">Frühstück</option>
+                        <option value="lunch">Mittagessen</option>
+                        <option value="dinner">Abendessen</option>
+                        <option value="snack">Snack</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Zubereitungszeit (Min)</label>
+                      <input
+                        type="number"
+                        value={recPrep}
+                        onChange={(e) => setRecPrep(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                    <div>
+                      <label style={labelStyle}>Kalorien (kcal)</label>
+                      <input
+                        type="number"
+                        value={recCalories}
+                        onChange={(e) => setRecCalories(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Protein (g)</label>
+                      <input
+                        type="number"
+                        value={recProtein}
+                        onChange={(e) => setRecProtein(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Kohlenhydrate (g)</label>
+                      <input
+                        type="number"
+                        value={recCarbs}
+                        onChange={(e) => setRecCarbs(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Fett (g)</label>
+                      <input
+                        type="number"
+                        value={recFat}
+                        onChange={(e) => setRecFat(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Ballaststoffe (g)</label>
+                      <input
+                        type="number"
+                        value={recFiber}
+                        onChange={(e) => setRecFiber(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Zucker (g)</label>
+                      <input
+                        type="number"
+                        value={recSugar}
+                        onChange={(e) => setRecSugar(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+
+                  <label style={labelStyle}>Zutaten mit Mengenangabe (pro Zeile)</label>
+                  <textarea
+                    rows={4}
+                    value={recIngredients}
+                    onChange={(e) => setRecIngredients(e.target.value)}
+                    style={inputStyle}
+                  />
+
+                  <label style={labelStyle}>Zubereitungshinweise</label>
+                  <textarea
+                    rows={2}
+                    value={recInstructions}
+                    onChange={(e) => setRecInstructions(e.target.value)}
+                    style={inputStyle}
+                  />
+
+                  <button type="submit" style={{ ...btnPrimary, width: '100%' }}>
+                    Rezept speichern
+                  </button>
+                </form>
+              )}
+
+              {/* Filter Bar */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <input
+                  value={recipeSearch}
+                  onChange={(e) => setRecipeSearch(e.target.value)}
+                  placeholder="/ Rezept suchen..."
+                  style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                />
+                <select
+                  value={recipeSlotFilter}
+                  onChange={(e) => setRecipeSlotFilter(e.target.value)}
+                  style={{ ...inputStyle, marginBottom: 0, width: 140 }}
+                >
+                  <option value="all">Alle Kategorien</option>
+                  <option value="breakfast">Frühstück</option>
+                  <option value="lunch">Mittagessen</option>
+                  <option value="dinner">Abendessen</option>
+                  <option value="snack">Snack</option>
+                </select>
+              </div>
+
+              {/* Hairline Recipe List */}
+              <div style={{ borderTop: '1px solid var(--line-hairline)' }}>
+                {recipes
+                  .filter((r) =>
+                    recipeSlotFilter === 'all' ? true : r.meal_type === recipeSlotFilter
+                  )
+                  .filter(
+                    (r) =>
+                      !recipeSearch.trim() ||
+                      r.name.toLowerCase().includes(recipeSearch.toLowerCase()) ||
+                      r.ingredients.some((i) =>
+                        i.toLowerCase().includes(recipeSearch.toLowerCase())
+                      )
+                  )
+                  .map((r) => (
+                    <div
+                      key={r.id}
+                      style={{
+                        padding: '12px 0',
+                        borderBottom: '1px solid var(--line-hairline)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 12,
+                      }}
+                    >
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc' }}>
-                          {ing.name}{' '}
-                          <span style={{ fontSize: 10, color: '#64748b' }}>({ing.barcode})</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: 'var(--text-muted)',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {r.meal_type}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13.5,
+                              fontWeight: 500,
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {r.name}
+                          </span>
                         </div>
-                        <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                        <div
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 12,
+                            color: 'var(--text-secondary)',
+                            marginTop: 4,
+                          }}
+                        >
+                          {r.calories} kcal · {r.protein_g}g P · {r.carbs_g}g KH · {r.fat_g}g F ·{' '}
+                          {r.fiber_g}g Ballastst. · {r.prep_minutes} Min
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: 'var(--text-muted)',
+                            marginTop: 4,
+                          }}
+                        >
+                          {r.ingredients.join(', ')}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleAssignRecipeToSlot(r, {
+                              dayStr: activeDayStr,
+                              slot: r.meal_type,
+                            })
+                          }
+                          style={btnGhostSm}
+                          title={`Für ${formatShortDateDE(activeDayStr)} einplanen`}
+                        >
+                          Einplanen ({formatShortDateDE(activeDayStr)})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await api.delete(`/recipes?id=${r.id}`);
+                            await loadAll();
+                          }}
+                          style={btnGhostSm}
+                        >
+                          Löschen
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN: INGREDIENTS & PANTRY STOCK + BARCODE SCANNER */}
+            <div
+              style={{
+                borderLeft: '1px solid var(--line-hairline)',
+                paddingLeft: 32,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingBottom: 12,
+                  borderBottom: '1px solid var(--line-hairline)',
+                  marginBottom: 16,
+                }}
+              >
+                <span style={sectionLabelStyle}>
+                  VORRATSKAMMER & BARCODE-SCANNER ({ingredientsCatalog.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowIngredientForm(!showIngredientForm)}
+                  style={showIngredientForm ? btnGhostSm : btnPrimarySm}
+                >
+                  {showIngredientForm ? 'Formular schließen' : '+ Zutat erfassen'}
+                </button>
+              </div>
+
+              {/* Barcode Lookup Bar */}
+              <div
+                style={{
+                  paddingBottom: 16,
+                  marginBottom: 16,
+                  borderBottom: '1px solid var(--line-hairline)',
+                }}
+              >
+                <div style={{ ...labelStyle, marginBottom: 6 }}>
+                  EAN-BARCODE ABFRAGE (OPENFOODFACTS & AT-KATALOG)
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    value={barcodeInput}
+                    onChange={(e) => setBarcodeInput(e.target.value)}
+                    placeholder="EAN-13 / EAN-8 Barcode..."
+                    style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleBarcodeLookup()}
+                    style={btnPrimary}
+                  >
+                    EAN abfragen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cameraActive ? stopCameraScanner : startCameraScanner}
+                    style={btnGhost}
+                  >
+                    {cameraActive ? 'Kamera stoppen' : 'Kamera-Scan'}
+                  </button>
+                </div>
+
+                {barcodeSourceInfo && (
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11.5,
+                      color: 'var(--text-secondary)',
+                      marginTop: 6,
+                    }}
+                  >
+                    {barcodeSourceInfo}
+                  </div>
+                )}
+
+                {cameraActive && (
+                  <div style={{ marginTop: 10 }}>
+                    <video
+                      ref={videoRef}
+                      style={{
+                        width: '100%',
+                        maxHeight: 180,
+                        background: '#000',
+                        border: '1px solid var(--line-focus)',
+                      }}
+                      muted
+                      playsInline
+                    />
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: 'flex',
+                    gap: 6,
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>AT-Beispiele:</span>
+                  {SAMPLE_BARCODES.map((b) => (
+                    <button
+                      key={b.code}
+                      type="button"
+                      onClick={() => {
+                        setBarcodeInput(b.code);
+                        void handleBarcodeLookup(b.code);
+                      }}
+                      style={btnGhostSm}
+                    >
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Collapsible Ingredient Edit/Create Form */}
+              {showIngredientForm && (
+                <form
+                  onSubmit={handleSaveScannedIngredient}
+                  style={{
+                    paddingBottom: 20,
+                    marginBottom: 20,
+                    borderBottom: '1px solid var(--line-hairline)',
+                  }}
+                >
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
+                    <div>
+                      <label style={labelStyle}>Produkt / Zutatenname</label>
+                      <input
+                        value={scannedIngredient.name}
+                        onChange={(e) =>
+                          setScannedIngredient({ ...scannedIngredient, name: e.target.value })
+                        }
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Marke</label>
+                      <input
+                        value={scannedIngredient.brand}
+                        onChange={(e) =>
+                          setScannedIngredient({ ...scannedIngredient, brand: e.target.value })
+                        }
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    <div>
+                      <label style={labelStyle}>Einheit</label>
+                      <select
+                        value={scannedIngredient.unit}
+                        onChange={(e) =>
+                          setScannedIngredient({
+                            ...scannedIngredient,
+                            unit: e.target.value as 'g' | 'ml' | 'Stk',
+                          })
+                        }
+                        style={inputStyle}
+                      >
+                        <option value="g">g</option>
+                        <option value="ml">ml</option>
+                        <option value="Stk">Stk</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Packung ({scannedIngredient.unit})</label>
+                      <input
+                        type="number"
+                        value={scannedIngredient.package_size}
+                        onChange={(e) =>
+                          setScannedIngredient({
+                            ...scannedIngredient,
+                            package_size: Number(e.target.value),
+                          })
+                        }
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Vorrat ({scannedIngredient.unit})</label>
+                      <input
+                        type="number"
+                        value={scannedIngredient.available_amount}
+                        onChange={(e) =>
+                          setScannedIngredient({
+                            ...scannedIngredient,
+                            available_amount: Number(e.target.value),
+                          })
+                        }
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Nutri-Score</label>
+                      <input
+                        value={scannedIngredient.nutriscore}
+                        onChange={(e) =>
+                          setScannedIngredient({
+                            ...scannedIngredient,
+                            nutriscore: e.target.value,
+                          })
+                        }
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                    <div>
+                      <label style={labelStyle}>Billa (€ / Pack)</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={scannedIngredient.price_billa}
+                          onChange={(e) =>
+                            setScannedIngredient({
+                              ...scannedIngredient,
+                              price_billa: Number(e.target.value),
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                        <input
+                          type="number"
+                          value={scannedIngredient.pack_billa}
+                          onChange={(e) =>
+                            setScannedIngredient({
+                              ...scannedIngredient,
+                              pack_billa: Number(e.target.value),
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Hofer (€ / Pack)</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={scannedIngredient.price_hofer}
+                          onChange={(e) =>
+                            setScannedIngredient({
+                              ...scannedIngredient,
+                              price_hofer: Number(e.target.value),
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                        <input
+                          type="number"
+                          value={scannedIngredient.pack_hofer}
+                          onChange={(e) =>
+                            setScannedIngredient({
+                              ...scannedIngredient,
+                              pack_hofer: Number(e.target.value),
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Spar (€ / Pack)</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={scannedIngredient.price_spar}
+                          onChange={(e) =>
+                            setScannedIngredient({
+                              ...scannedIngredient,
+                              price_spar: Number(e.target.value),
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                        <input
+                          type="number"
+                          value={scannedIngredient.pack_spar}
+                          onChange={(e) =>
+                            setScannedIngredient({
+                              ...scannedIngredient,
+                              pack_spar: Number(e.target.value),
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="submit" style={{ ...btnPrimary, width: '100%' }}>
+                    Zutat & Vorratsmenge speichern
+                  </button>
+                </form>
+              )}
+
+              {/* Pantry Filter */}
+              <input
+                value={ingredientSearch}
+                onChange={(e) => setIngredientSearch(e.target.value)}
+                placeholder="/ Vorrat nach Name oder Barcode filtern..."
+                style={inputStyle}
+              />
+
+              {/* Hairline Pantry List */}
+              <div style={{ borderTop: '1px solid var(--line-hairline)' }}>
+                {ingredientsCatalog
+                  .filter(
+                    (ing) =>
+                      !ingredientSearch.trim() ||
+                      ing.name.toLowerCase().includes(ingredientSearch.toLowerCase()) ||
+                      ing.barcode.includes(ingredientSearch.trim())
+                  )
+                  .map((ing) => (
+                    <div
+                      key={ing.id ?? ing.name}
+                      style={{
+                        padding: '10px 0',
+                        borderBottom: '1px solid var(--line-hairline)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span
+                            style={statusDot(ing.available_amount > 0 ? '#10b981' : '#52525b')}
+                          />
+                          <span
+                            style={{
+                              fontSize: 13.5,
+                              fontWeight: 500,
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {ing.name}
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {ing.barcode}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 11.5,
+                            color: 'var(--text-secondary)',
+                            marginTop: 2,
+                            paddingLeft: 14,
+                          }}
+                        >
                           Billa €{ing.price_billa.toFixed(2)} ({ing.pack_billa}
-                          {ing.unit}) • Hofer €{ing.price_hofer.toFixed(2)} ({ing.pack_hofer}
-                          {ing.unit}) • Spar €{ing.price_spar.toFixed(2)} ({ing.pack_spar}
+                          {ing.unit}) · Hofer €{ing.price_hofer.toFixed(2)} ({ing.pack_hofer}
+                          {ing.unit}) · Spar €{ing.price_spar.toFixed(2)} ({ing.pack_spar}
                           {ing.unit})
                         </div>
                       </div>
+
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>Vorrat:</span>
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 11,
+                            color: 'var(--text-muted)',
+                          }}
+                        >
+                          Vorrat:
+                        </span>
                         <input
                           type="number"
                           value={ing.available_amount}
@@ -2377,65 +3412,63 @@ export default function App() {
                             await loadAll();
                           }}
                           style={{
-                            width: 65,
-                            padding: '4px 6px',
-                            borderRadius: 5,
-                            border: '1px solid #22c55e',
-                            background: '#0b1120',
-                            color: '#4ade80',
-                            fontWeight: 700,
-                            fontSize: 11,
+                            ...inputStyle,
+                            marginBottom: 0,
+                            width: 76,
+                            padding: '4px 8px',
+                            textAlign: 'right',
                           }}
                         />
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>{ing.unit}</span>
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 11.5,
+                            color: 'var(--text-secondary)',
+                            width: 24,
+                          }}
+                        >
+                          {ing.unit}
+                        </span>
                       </div>
                     </div>
                   ))}
-                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* MODAL: USER-PROFIL ANPASSEN (WHO-ERNÄHRUNGSPROFIL & GEWICHTSZIEL) */}
-      {activeModal === 'profile' && profile && (
-        <div style={modalBackdrop} onClick={() => setActiveModal(null)}>
-          <div style={modalContainer(680)} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeader}>
-              <h3 style={{ margin: 0, color: '#38bdf8' }}>
-                👤 User-Profil anpassen (WHO-Ernährungsprofil & Gewichtsziel)
-              </h3>
-              <button onClick={() => setActiveModal(null)} style={closeBtn}>
-                ✕
-              </button>
-            </div>
+        {/* ===================================================================
+            TAB 5: PROFIL & WHO-ZIELE
+           =================================================================== */}
+        {activeTab === 'profile' && profile && (
+          <form
+            onSubmit={handleSaveProfile}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 48,
+              alignItems: 'start',
+            }}
+          >
+            {/* Left Column: Anthropometric Data & Weight Goal */}
+            <div>
+              <div
+                style={{
+                  ...sectionLabelStyle,
+                  paddingBottom: 12,
+                  borderBottom: '1px solid var(--line-hairline)',
+                  marginBottom: 16,
+                }}
+              >
+                KÖRPERDATEN & GEWICHTSZIEL
+              </div>
 
-            <form onSubmit={handleSaveProfile}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 12 }}>
                 <div>
                   <label style={labelStyle}>Name</label>
                   <input
                     value={profile.name}
                     onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Alter</label>
-                  <input
-                    type="number"
-                    value={profile.age}
-                    onChange={(e) => setProfile({ ...profile, age: Number(e.target.value) })}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Größe (cm)</label>
-                  <input
-                    type="number"
-                    value={profile.height_cm}
-                    onChange={(e) => setProfile({ ...profile, height_cm: Number(e.target.value) })}
                     style={inputStyle}
                   />
                 </div>
@@ -2458,7 +3491,28 @@ export default function App() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Alter (Jahre)</label>
+                  <input
+                    type="number"
+                    value={profile.age}
+                    onChange={(e) => setProfile({ ...profile, age: Number(e.target.value) })}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Körpergröße (cm)</label>
+                  <input
+                    type="number"
+                    value={profile.height_cm}
+                    onChange={(e) => setProfile({ ...profile, height_cm: Number(e.target.value) })}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={labelStyle}>Aktuelles Gewicht (kg)</label>
                   <input
@@ -2472,9 +3526,7 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label style={{ ...labelStyle, color: '#38bdf8', fontWeight: 700 }}>
-                    🎯 Gewichtsziel (kg)
-                  </label>
+                  <label style={labelStyle}>Zielgewicht (kg)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -2482,7 +3534,7 @@ export default function App() {
                     onChange={(e) =>
                       setProfile({ ...profile, target_weight_kg: Number(e.target.value) })
                     }
-                    style={{ ...inputStyle, borderColor: '#38bdf8' }}
+                    style={inputStyle}
                   />
                 </div>
                 <div>
@@ -2494,12 +3546,12 @@ export default function App() {
                     }
                     style={inputStyle}
                   >
-                    <option value="-0.6">-0,6 kg/Woche (Intensives Defizit)</option>
-                    <option value="-0.4">-0,4 kg/Woche (Gesundes Abnehmen)</option>
-                    <option value="-0.25">-0,25 kg/Woche (Sanfte Reduktion)</option>
-                    <option value="0">0,0 kg/Woche (Gewicht halten)</option>
-                    <option value="0.25">+0,25 kg/Woche (Lean Muskelaufbau)</option>
-                    <option value="0.5">+0,5 kg/Woche (Masseaufbau)</option>
+                    <option value="-0.6">−0.6 kg/Woche</option>
+                    <option value="-0.4">−0.4 kg/Woche</option>
+                    <option value="-0.25">−0.25 kg/Woche</option>
+                    <option value="0">0.0 kg/Woche (Halten)</option>
+                    <option value="0.25">+0.25 kg/Woche</option>
+                    <option value="0.5">+0.5 kg/Woche</option>
                   </select>
                 </div>
               </div>
@@ -2522,10 +3574,84 @@ export default function App() {
                 <option value="very_active">Leistungssport / Körperliche Arbeit (PAL 1.9)</option>
               </select>
 
-              <label style={{ ...labelStyle, color: '#4ade80', fontWeight: 700 }}>
-                🌍 WHO-Ernährungsprofil wählen
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              {/* Computed Targets Readout */}
+              <div
+                style={{
+                  marginTop: 20,
+                  paddingTop: 16,
+                  borderTop: '1px solid var(--line-hairline)',
+                }}
+              >
+                <div style={sectionLabelStyle}>BERECHNETE TAGES-RICHTWERTE</div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 12,
+                    marginTop: 12,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 12.5,
+                  }}
+                >
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>KALORIEN</div>
+                    <div style={{ color: 'var(--text-primary)', marginTop: 2 }}>
+                      {profile.target_calories} kcal
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>PROTEIN</div>
+                    <div style={{ color: 'var(--text-primary)', marginTop: 2 }}>
+                      {profile.target_protein_g} g
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>KOHLENHYDRATE</div>
+                    <div style={{ color: 'var(--text-primary)', marginTop: 2 }}>
+                      {profile.target_carbs_g} g
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>FETT</div>
+                    <div style={{ color: 'var(--text-primary)', marginTop: 2 }}>
+                      {profile.target_fat_g} g
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>BALLASTSTOFFE</div>
+                    <div style={{ color: 'var(--text-primary)', marginTop: 2 }}>
+                      &gt;= {profile.target_fiber_g} g
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>WASSER</div>
+                    <div style={{ color: 'var(--text-primary)', marginTop: 2 }}>
+                      {profile.target_water_ml} ml
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: WHO Profile Selection */}
+            <div
+              style={{
+                borderLeft: '1px solid var(--line-hairline)',
+                paddingLeft: 32,
+              }}
+            >
+              <div
+                style={{
+                  ...sectionLabelStyle,
+                  paddingBottom: 12,
+                  borderBottom: '1px solid var(--line-hairline)',
+                  marginBottom: 12,
+                }}
+              >
+                WHO-ERNÄHRUNGSPROFIL WÄHLEN
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
                 {(Object.keys(WHO_PROFILES) as Array<UserProfile['who_profile']>).map((key) => {
                   const p = WHO_PROFILES[key];
                   const active = profile.who_profile === key;
@@ -2534,18 +3660,53 @@ export default function App() {
                       key={key}
                       onClick={() => setProfile({ ...profile, who_profile: key })}
                       style={{
-                        padding: '10px 12px',
-                        borderRadius: 8,
-                        background: active ? 'rgba(2, 132, 199, 0.2)' : '#0f172a',
-                        border: active ? '1px solid #38bdf8' : '1px solid #334155',
+                        padding: '12px 14px',
+                        borderBottom: '1px solid var(--line-hairline)',
+                        background: active ? 'var(--bg-elevated)' : 'transparent',
                         cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 12,
                       }}
                     >
-                      <div style={{ fontWeight: 700, fontSize: 13, color: '#f8fafc' }}>
-                        {active ? '🔘 ' : '⚪ '}
-                        {p.label}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span
+                          style={{
+                            ...statusDot(active ? '#10b981' : '#52525b'),
+                            marginTop: 5,
+                          }}
+                        />
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 13.5,
+                              fontWeight: 500,
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {p.label}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: 'var(--text-secondary)',
+                              marginTop: 2,
+                            }}
+                          >
+                            {p.desc}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{p.desc}</div>
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 11,
+                          color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                        }}
+                      >
+                        {p.code}
+                      </span>
                     </div>
                   );
                 })}
@@ -2554,556 +3715,103 @@ export default function App() {
               <button type="submit" style={{ ...btnPrimary, width: '100%' }}>
                 WHO-Profil & Tagesziele berechnen und speichern
               </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: OPTIMIERUNGSOPTIONEN (MENGE AN ZUTATEN, VERSCHWENDUNG MINIMIEREN, ETC.) */}
-      {activeModal === 'optimization' && optimization && (
-        <div style={modalBackdrop} onClick={() => setActiveModal(null)}>
-          <div style={modalContainer(680)} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeader}>
-              <h3 style={{ margin: 0, color: '#38bdf8' }}>
-                ⚙️ Optimierungsoptionen (Mengen-Kumulierung, Zero-Waste & Supermärkte)
-              </h3>
-              <button onClick={() => setActiveModal(null)} style={closeBtn}>
-                ✕
-              </button>
             </div>
-
-            <label style={labelStyle}>Primäres Optimierungs-Ziel</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-              {(Object.keys(OPTIMIZATION_MODES) as Array<OptimizationOptions['mode']>).map((mKey) => {
-                const m = OPTIMIZATION_MODES[mKey];
-                const isSelected = optimization.mode === mKey;
-                return (
-                  <div
-                    key={mKey}
-                    onClick={() => handleUpdateOptimization({ mode: mKey })}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      background: isSelected ? 'rgba(251, 191, 36, 0.14)' : '#0f172a',
-                      border: isSelected ? '1px solid #fbbf24' : '1px solid #334155',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#f8fafc' }}>
-                      {isSelected ? '🔘 ' : '⚪ '}
-                      {m.label}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{m.desc}</div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #334155',
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 14,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}
-            >
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={optimization.use_pantry_stock}
-                  onChange={(e) =>
-                    handleUpdateOptimization({ use_pantry_stock: e.target.checked })
-                  }
-                />
-                <span>
-                  🏠 <strong>Verfügbare Zutatenmengen (Vorratskammer)</strong> vor dem Einkauf automatisch abziehen
-                </span>
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={optimization.auto_accumulate_packages}
-                  onChange={(e) =>
-                    handleUpdateOptimization({ auto_accumulate_packages: e.target.checked })
-                  }
-                />
-                <span>
-                  📦 <strong>Packungsmengen über alle selektierten Mahlzeiten kumulieren</strong> (inkl. Gäste-Portionen)
-                </span>
-              </label>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>Aktive Supermarkt-APIs:</span>
-                {(['billa', 'hofer', 'spar'] as Array<'billa' | 'hofer' | 'spar'>).map((store) => {
-                  const checked = optimization.preferred_stores.includes(store);
-                  return (
-                    <label
-                      key={store}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const next = checked
-                            ? optimization.preferred_stores.filter((s) => s !== store)
-                            : [...optimization.preferred_stores, store];
-                          if (next.length > 0) {
-                            void handleUpdateOptimization({ preferred_stores: next });
-                          }
-                        }}
-                      />
-                      {store.toUpperCase()}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                type="button"
-                onClick={handleAutoOptimizeWeek}
-                style={{ ...btnPrimary, flex: 1, background: '#16a34a' }}
-              >
-                ✨ Ganze Woche automatisch auf minimale Verschwendung & Synergie optimieren
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveModal(null)}
-                style={btnToolbar}
-              >
-                Fertig
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =====================================================================
-          4. UNTEN, VOLLE BREITE: STATUSLEISTE FÜR SELEKTION, KUMULIERUNG & SUPERMARKT-APIS (BILLA, HOFER, SPAR)
-         ===================================================================== */}
-      {supermarket && (
-        <footer
-          style={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 50,
-            background: 'rgba(15, 23, 42, 0.97)',
-            backdropFilter: 'blur(12px)',
-            borderTop: '2px solid #0284c7',
-            boxShadow: '0 -8px 30px rgba(0,0,0,0.6)',
-            padding: '10px 20px',
-          }}
-        >
-          {/* Expandable Detailed Cumulative Ingredients & Store Comparison Drawer */}
-          {statusDrawerOpen && (
-            <div
-              style={{
-                maxHeight: 300,
-                overflowY: 'auto',
-                marginBottom: 12,
-                paddingBottom: 12,
-                borderBottom: '1px solid #334155',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 8,
-                }}
-              >
-                <div>
-                  <strong style={{ color: '#38bdf8', fontSize: 13 }}>
-                    📦 Kumulierte Zutaten & Packungs-Optimierung ({supermarket.selectedMealsCount}{' '}
-                    selektierte Mahlzeiten • {supermarket.totalPortions} Portionen inkl. Gäste)
-                  </strong>
-                  <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 10 }}>
-                    Modus: {OPTIMIZATION_MODES[supermarket.optimizationMode].label}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    onClick={() => handleTransferToGroceryList('optimal')}
-                    style={{ ...btnPrimary, padding: '5px 10px', fontSize: 11 }}
-                  >
-                    🛒 Optimalen Mix in Einkaufsliste & HA übertragen
-                  </button>
-                  <button
-                    onClick={() => setStatusDrawerOpen(false)}
-                    style={{ ...btnToolbar, padding: '5px 10px', fontSize: 11 }}
-                  >
-                    Details einklappen ▼
-                  </button>
-                </div>
-              </div>
-
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: 11,
-                  textAlign: 'left',
-                }}
-              >
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #334155', color: '#94a3b8' }}>
-                    <th style={{ padding: '6px 8px' }}>Kumulierte Zutat</th>
-                    <th style={{ padding: '6px 8px' }}>Verwendet in</th>
-                    <th style={{ padding: '6px 8px' }}>Gesamt-Bedarf</th>
-                    <th style={{ padding: '6px 8px' }}>Aus Vorrat</th>
-                    <th style={{ padding: '6px 8px' }}>Netto Einkauf</th>
-                    <th style={{ padding: '6px 8px', color: '#facc15' }}>🟨 BILLA API</th>
-                    <th style={{ padding: '6px 8px', color: '#60a5fa' }}>🟦 HOFER API</th>
-                    <th style={{ padding: '6px 8px', color: '#f87171' }}>🟥 SPAR API</th>
-                    <th style={{ padding: '6px 8px', color: '#4ade80' }}>♻️ Restmenge (Überschuss)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {supermarket.cumulativeIngredients.map((item, idx) => (
-                    <tr
-                      key={idx}
-                      style={{
-                        borderBottom: '1px solid #1e293b',
-                        background: idx % 2 === 0 ? '#0b1322' : 'transparent',
-                      }}
-                    >
-                      <td style={{ padding: '6px 8px', fontWeight: 700, color: '#f8fafc' }}>
-                        {item.name}
-                        {item.mealOccurrences > 1 && (
-                          <span
-                            style={{
-                              marginLeft: 6,
-                              fontSize: 9,
-                              background: '#0369a1',
-                              color: '#e0f2fe',
-                              padding: '1px 5px',
-                              borderRadius: 4,
-                            }}
-                          >
-                            {item.mealOccurrences}x kumuliert
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '6px 8px', color: '#94a3b8', maxWidth: 220 }}>
-                        {item.usedInMeals.join(', ')}
-                      </td>
-                      <td style={{ padding: '6px 8px', fontWeight: 600 }}>
-                        {item.grossRequired}
-                        {item.unit}
-                      </td>
-                      <td style={{ padding: '6px 8px', color: '#4ade80' }}>
-                        {item.pantryUsed > 0 ? `−${item.pantryUsed}${item.unit}` : '0'}
-                      </td>
-                      <td style={{ padding: '6px 8px', fontWeight: 700, color: '#38bdf8' }}>
-                        {item.netToBuy}
-                        {item.unit}
-                      </td>
-                      {(['billa', 'hofer', 'spar'] as Array<'billa' | 'hofer' | 'spar'>).map(
-                        (st) => {
-                          const off = item.offers[st];
-                          const isRec = item.recommendedStore === st;
-                          return (
-                            <td
-                              key={st}
-                              style={{
-                                padding: '6px 8px',
-                                background: isRec ? 'rgba(34, 197, 94, 0.12)' : 'transparent',
-                                borderLeft: isRec ? '2px solid #22c55e' : 'none',
-                              }}
-                            >
-                              {off.packsNeeded === 0 ? (
-                                <span style={{ color: '#4ade80' }}>Im Vorrat gedeckt</span>
-                              ) : (
-                                <>
-                                  <strong>
-                                    {off.packsNeeded}x {off.packSize}
-                                    {item.unit}
-                                  </strong>{' '}
-                                  = €{off.totalPrice.toFixed(2)}
-                                </>
-                              )}
-                            </td>
-                          );
-                        }
-                      )}
-                      <td style={{ padding: '6px 8px', color: '#fbbf24', fontWeight: 600 }}>
-                        +{item.recommendedOffer.surplusAmount}
-                        {item.unit} Rest
-                        {item.wasteSavedByAccumulation > 0 && (
-                          <span style={{ color: '#4ade80', marginLeft: 4 }}>
-                            ({item.wasteSavedByAccumulation}
-                            {item.unit} gespart)
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Always-Visible Compact Status Bar */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 12,
-            }}
-          >
-            {/* Left: Selection & Accumulation Summary */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div
-                style={{
-                  background: '#0284c7',
-                  color: '#fff',
-                  padding: '5px 10px',
-                  borderRadius: 8,
-                  fontWeight: 800,
-                  fontSize: 12,
-                }}
-              >
-                ☑️ {supermarket.selectedMealsCount} Mahlzeiten ({supermarket.totalPortions} Port.)
-              </div>
-
-              <div style={{ fontSize: 12, color: '#cbd5e1' }}>
-                📦 <strong>{supermarket.uniqueIngredientsCount}</strong> Zutaten kumuliert (
-                <span style={{ color: '#38bdf8' }}>
-                  {supermarket.multiUseIngredientsCount}x mehrfach genutzt
-                </span>
-                ) • 🏠 Vorrat genutzt: <strong style={{ color: '#4ade80' }}>{supermarket.totalPantryUsed}g</strong>{' '}
-                • ♻️ Verpackungs-Effizienz:{' '}
-                <strong style={{ color: '#4ade80' }}>{supermarket.optimalMix.efficiencyPct}%</strong>{' '}
-                <span style={{ color: '#94a3b8', fontSize: 11 }}>
-                  (−{supermarket.totalWasteSavedByAccumulation}g Überschuss durch Kumulierung gespart)
-                </span>
-              </div>
-            </div>
-
-            {/* Center/Right: Live Supermarket API Results (Billa, Hofer, Spar) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div
-                style={storeStatusBadge(
-                  '#eab308',
-                  supermarket.optimalMix.bestSingleStore === 'billa'
-                )}
-              >
-                🟨 <strong>BILLA:</strong> €{supermarket.stores.billa.totalPrice.toFixed(2)}{' '}
-                <span style={{ fontSize: 10, color: '#cbd5e1' }}>
-                  (Rest: {supermarket.stores.billa.totalSurplus}g)
-                </span>
-              </div>
-
-              <div
-                style={storeStatusBadge(
-                  '#3b82f6',
-                  supermarket.optimalMix.bestSingleStore === 'hofer'
-                )}
-              >
-                🟦 <strong>HOFER:</strong> €{supermarket.stores.hofer.totalPrice.toFixed(2)}{' '}
-                <span style={{ fontSize: 10, color: '#cbd5e1' }}>
-                  (Rest: {supermarket.stores.hofer.totalSurplus}g)
-                </span>
-              </div>
-
-              <div
-                style={storeStatusBadge(
-                  '#ef4444',
-                  supermarket.optimalMix.bestSingleStore === 'spar'
-                )}
-              >
-                🟥 <strong>SPAR:</strong> €{supermarket.stores.spar.totalPrice.toFixed(2)}{' '}
-                <span style={{ fontSize: 10, color: '#cbd5e1' }}>
-                  (Rest: {supermarket.stores.spar.totalSurplus}g)
-                </span>
-              </div>
-
-              <div
-                style={{
-                  background: 'rgba(34, 197, 94, 0.16)',
-                  border: '1px solid #22c55e',
-                  color: '#86efac',
-                  padding: '5px 10px',
-                  borderRadius: 8,
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                🏆 Optimal-Mix: €{supermarket.optimalMix.totalPrice.toFixed(2)} (Rest:{' '}
-                {supermarket.optimalMix.totalSurplus}g)
-              </div>
-
-              <button
-                onClick={() => setStatusDrawerOpen(!statusDrawerOpen)}
-                style={{
-                  ...btnToolbar,
-                  padding: '6px 12px',
-                  borderColor: '#38bdf8',
-                  color: '#38bdf8',
-                }}
-              >
-                {statusDrawerOpen ? '▼ Kumulierung ausblenden' : '▲ Kumulierte Zutaten & Preise'}
-              </button>
-            </div>
-          </div>
-        </footer>
-      )}
+          </form>
+        )}
+      </div>
     </div>
   );
 }
 
-const toolbarIconBtn: React.CSSProperties = {
-  background: '#1e293b',
-  border: '1px solid #334155',
-  color: '#e2e8f0',
-  borderRadius: 6,
-  padding: '4px 8px',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer',
+function statusDot(color: '#10b981' | '#f59e0b' | '#ef4444' | '#52525b'): React.CSSProperties {
+  return {
+    display: 'inline-block',
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: color,
+    flexShrink: 0,
+  };
+}
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
 };
 
-const btnToolbar: React.CSSProperties = {
-  padding: '7px 12px',
-  borderRadius: 9,
-  border: '1px solid #334155',
-  background: '#1e293b',
-  color: '#f8fafc',
-  fontWeight: 600,
-  fontSize: 12,
-  cursor: 'pointer',
+const heroMetricStyle: React.CSSProperties = {
+  fontSize: 28,
+  fontWeight: 400,
+  letterSpacing: '-0.03em',
+  fontVariantNumeric: 'tabular-nums',
+  color: 'var(--text-primary)',
 };
 
-const btnToolbarActive: React.CSSProperties = {
-  ...btnToolbar,
-  background: '#0284c7',
-  borderColor: '#38bdf8',
-  color: '#fff',
+const thStyle: React.CSSProperties = {
+  padding: '10px 12px 10px 0',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
 };
 
 const btnPrimary: React.CSSProperties = {
-  padding: '8px 14px',
-  borderRadius: 8,
+  background: '#fafafa',
+  color: '#09090b',
+  fontSize: 12.5,
+  fontWeight: 500,
+  padding: '6px 14px',
+  borderRadius: 4,
   border: 'none',
-  background: '#0284c7',
-  color: '#fff',
-  fontWeight: 700,
-  fontSize: 12,
   cursor: 'pointer',
 };
 
-const mealActionBtn: React.CSSProperties = {
-  background: '#162238',
-  border: '1px solid #26354d',
-  color: '#cbd5e1',
-  borderRadius: 5,
-  padding: '3px 6px',
-  fontSize: 10,
-  fontWeight: 600,
-  cursor: 'pointer',
+const btnPrimarySm: React.CSSProperties = {
+  ...btnPrimary,
+  fontSize: 11.5,
+  padding: '4px 10px',
 };
 
-function macroPill(bg: string, fg: string): React.CSSProperties {
-  return {
-    background: bg,
-    color: fg,
-    padding: '1px 5px',
-    borderRadius: 4,
-    fontWeight: 600,
-    fontSize: 9.5,
-  };
-}
-
-function storeStatusBadge(borderColor: string, isBest: boolean): React.CSSProperties {
-  return {
-    background: isBest ? 'rgba(56, 189, 248, 0.14)' : '#0f172a',
-    border: `1px solid ${borderColor}`,
-    color: '#f8fafc',
-    padding: '5px 9px',
-    borderRadius: 8,
-    fontSize: 12,
-  };
-}
-
-const modalBackdrop: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(2, 6, 23, 0.78)',
-  backdropFilter: 'blur(4px)',
-  zIndex: 80,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 16,
-};
-
-function modalContainer(maxWidth: number): React.CSSProperties {
-  return {
-    width: '100%',
-    maxWidth,
-    maxHeight: '90vh',
-    overflowY: 'auto',
-    background: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: 14,
-    padding: 20,
-    boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
-  };
-}
-
-const modalHeader: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginBottom: 14,
-  paddingBottom: 10,
-  borderBottom: '1px solid #334155',
-};
-
-const closeBtn: React.CSSProperties = {
+const btnGhost: React.CSSProperties = {
   background: 'transparent',
-  border: '1px solid #475569',
-  color: '#cbd5e1',
-  borderRadius: 6,
-  padding: '4px 9px',
+  color: 'var(--text-secondary)',
+  border: '1px solid var(--line-hairline)',
+  fontSize: 12.5,
+  fontWeight: 500,
+  padding: '6px 12px',
+  borderRadius: 4,
   cursor: 'pointer',
-  fontWeight: 700,
+};
+
+const btnGhostSm: React.CSSProperties = {
+  ...btnGhost,
+  fontSize: 11.5,
+  padding: '4px 9px',
 };
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: 11,
-  color: '#94a3b8',
+  fontWeight: 500,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
   marginBottom: 4,
 };
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
+  background: 'var(--bg-input)',
+  border: '1px solid var(--line-hairline)',
+  borderRadius: 4,
   padding: '7px 10px',
-  borderRadius: 6,
-  border: '1px solid #334155',
-  background: '#0f172a',
-  color: '#f8fafc',
-  fontSize: 12,
+  color: 'var(--text-primary)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12.5,
   marginBottom: 10,
 };

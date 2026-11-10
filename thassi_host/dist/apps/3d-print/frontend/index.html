@@ -3,10 +3,141 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Thassi 3D Druck Studio (thassi.3dprint)</title>
-    <script type="module" crossorigin src="./assets/index-f8e-CSej.js"></script>
+    <title>3D-Print — Thassi CAD &amp; Bambu Lab Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-canvas: #09090b;
+        --bg-elevated: #111113;
+        --bg-input: #141417;
+        --line-hairline: rgba(255, 255, 255, 0.06);
+        --line-focus: rgba(255, 255, 255, 0.22);
+        --text-primary: #fafafa;
+        --text-secondary: #a1a1aa;
+        --text-muted: #52525b;
+        --action-fg: #fafafa;
+        --status-ok: #10b981;
+        --status-warn: #f59e0b;
+        --status-err: #ef4444;
+        --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg-canvas);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      input,
+      textarea,
+      select,
+      button {
+        font-family: inherit;
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: none;
+        border-color: var(--line-focus) !important;
+      }
+
+      .tabular-nums {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .row-hover:hover {
+        background: var(--bg-elevated);
+      }
+
+      .ghost-btn {
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--line-hairline);
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+      }
+
+      .ghost-btn:hover:not(:disabled) {
+        color: var(--text-primary);
+        border-color: var(--line-focus);
+        background: var(--bg-elevated);
+      }
+
+      .ghost-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .primary-btn {
+        background: #fafafa;
+        color: #09090b;
+        border: none;
+        border-radius: 4px;
+        padding: 6px 14px;
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.12s ease;
+      }
+
+      .primary-btn:hover:not(:disabled) {
+        opacity: 0.9;
+      }
+
+      .primary-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      @keyframes thassiShimmerPulse {
+        0% {
+          opacity: 0.28;
+        }
+        50% {
+          opacity: 0.72;
+        }
+        100% {
+          opacity: 0.28;
+        }
+      }
+
+      .shimmer-bar {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        animation: thassiShimmerPulse 1.35s ease-in-out infinite;
+      }
+
+      .shimmer-box {
+        background: #111113;
+        border: 1px solid var(--line-hairline);
+        animation: thassiShimmerPulse 1.35s ease-in-out infinite;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-DcpqP3Yb.js"></script>
   </head>
-  <body style="margin: 0; background: #040711; color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <body>
     <div id="root"></div>
   </body>
 </html>

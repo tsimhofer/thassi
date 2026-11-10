@@ -293,8 +293,8 @@ export default defineThassiApp((ctx) => {
     };
   });
 
-  // POST /execute-axon — directly execute an atomic Axon by ID and return full telemetry
-  ctx.route('POST', '/execute-axon', async (req) => {
+  // POST /execute-axon & POST /axons/execute — directly execute an atomic Axon by ID and return full telemetry
+  const handleExecuteAxon = async (req: { body?: unknown }) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
       axonId?: string;
       input?: Record<string, any>;
@@ -308,15 +308,28 @@ export default defineThassiApp((ctx) => {
       upstreamText: body.upstreamText,
       credentials: creds,
     });
+    const ok = result.status === 'success';
     return {
-      ok: result.status === 'success',
+      ok,
+      status: result.status,
+      actionId: result.actionId,
+      axonId: result.axonId,
+      durationMs: result.durationMs,
+      executedAt: result.executedAt,
+      summary: result.summary,
+      data: result.data,
+      error: ok ? undefined : result.summary,
+      errorCode: result.errorCode,
+      remediationHint: result.remediationHint,
       result,
       axons: actionRegistry.listActions(),
     };
-  });
+  };
+  ctx.route('POST', '/execute-axon', handleExecuteAxon);
+  ctx.route('POST', '/axons/execute', handleExecuteAxon);
 
-  // POST /workflows — save or update a workflow
-  ctx.route('POST', '/workflows', async (req) => {
+  // POST /workflows & POST /workflows/save — save or update a workflow
+  const handleSaveWorkflowRoute = async (req: { body?: unknown }) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
       workflow?: SavedWorkflow;
     };
@@ -338,7 +351,9 @@ export default defineThassiApp((ctx) => {
     ctx.db.kvSet('saved_workflows', existing);
     syncScheduledWorkflowJobs();
     return { ok: true, workflows: existing, saved: updated };
-  });
+  };
+  ctx.route('POST', '/workflows', handleSaveWorkflowRoute);
+  ctx.route('POST', '/workflows/save', handleSaveWorkflowRoute);
 
   // POST /workflows/delete — delete a workflow by id
   ctx.route('POST', '/workflows/delete', async (req) => {
@@ -460,8 +475,8 @@ export default defineThassiApp((ctx) => {
     return { ok: true, result };
   });
 
-  // POST /execute-workflow — execute all nodes in topological graph order
-  ctx.route('POST', '/execute-workflow', async (req) => {
+  // POST /execute-workflow & POST /workflows/execute — execute all nodes in topological graph order
+  const handleExecuteWorkflowRoute = async (req: { body?: unknown }) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
       workflow?: SavedWorkflow;
     };
@@ -471,7 +486,9 @@ export default defineThassiApp((ctx) => {
     }
     const report = await executeFullWorkflow(wf);
     return { ok: true, report };
-  });
+  };
+  ctx.route('POST', '/execute-workflow', handleExecuteWorkflowRoute);
+  ctx.route('POST', '/workflows/execute', handleExecuteWorkflowRoute);
 
   // =========================================================================
   // PC AGENT REVERSE BRIDGE (DESKTOP-M8TJERB <-> Home Assistant / Axons)
@@ -509,7 +526,41 @@ export default defineThassiApp((ctx) => {
     };
   });
 
-  ctx.route('POST', '/pc-bridge/input', async (req) => {
+  ctx.route('GET', '/pc/kvm/frame.jpg', async (req) => {
+    const mon = String(req.query.monitor || PcAgentReverseBridge.requestedMonitor || 'primary');
+    PcAgentReverseBridge.requestedMonitor = mon;
+    if (PcAgentReverseBridge.latestFrameJpeg && PcAgentReverseBridge.latestFrameJpeg.length > 100) {
+      return {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+        body: PcAgentReverseBridge.latestFrameJpeg,
+      };
+    }
+    try {
+      const r = await fetch(
+        `http://192.168.188.46:5185/api/screen/frame.jpg?monitor=${encodeURIComponent(mon)}&quality=68&maxWidth=1600`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      if (r.ok) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        PcAgentReverseBridge.latestFrameJpeg = buf;
+        return {
+          status: 200,
+          headers: {
+            'Content-Type': 'image/jpeg',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          },
+          body: buf,
+        };
+      }
+    } catch {}
+    return { status: 404, body: { ok: false, error: 'No PC frame available' } };
+  });
+
+  const handlePcInputRoute = async (req: { body?: unknown }) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, any>;
     if (body.setMonitor) {
       PcAgentReverseBridge.requestedMonitor = String(body.setMonitor);
@@ -525,6 +576,35 @@ export default defineThassiApp((ctx) => {
       4000
     );
     return { ok: true, result: res };
+  };
+  ctx.route('POST', '/pc-bridge/input', handlePcInputRoute);
+  ctx.route('POST', '/pc/kvm/input', handlePcInputRoute);
+
+  ctx.route('POST', '/pc-bridge/antigravity', async (req) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+      prompt?: string;
+      newChat?: boolean;
+      cascadeId?: string;
+      projectName?: string;
+      focusWindow?: boolean;
+    };
+    const prompt = String(body.prompt || '').trim();
+    if (!prompt) {
+      return { ok: false, error: 'Missing prompt text' };
+    }
+    const res = await PcAgentReverseBridge.callEndpoint(
+      'http://192.168.188.46:5185',
+      '/api/antigravity/prompt',
+      {
+        prompt,
+        newChat: body.newChat ?? !body.cascadeId,
+        cascadeId: body.cascadeId || undefined,
+        projectName: body.projectName || 'thassi',
+        focusWindow: body.focusWindow ?? true,
+      },
+      15000
+    );
+    return { ok: res.ok !== false, result: res };
   });
 
   // =========================================================================

@@ -619,6 +619,518 @@ export default defineThassiApp((ctx) => {
     };
   });
 
+  // ============================================================================
+  // HORIZON NOTES (note_yyyyMMdd-HHmmss.json local storage + Google Keep & Drive)
+  // ============================================================================
+  const notesDir = path.join(dataDir, 'notes');
+  fs.mkdirSync(notesDir, { recursive: true });
+  const WINDOWS_NOTES_DIR = 'c:\\Users\\thoma\\source\\repos\\thassi\\data\\notes';
+  const PC_AGENT_BASE_URL = 'http://192.168.188.46:5185';
+
+  interface HorizonNoteRecord {
+    fileName: string;
+    id: string;
+    content: string;
+    createdAt: string;
+    timestampFormatted: string;
+    localPath: string;
+    windowsPath: string;
+    syncedKeep?: boolean;
+    syncedKeepAt?: string | null;
+    keepNoteId?: string | null;
+    syncedDrive?: boolean;
+    syncedDriveAt?: string | null;
+    driveFileId?: string | null;
+    driveWebViewLink?: string | null;
+  }
+
+  function formatTimestampYyyyMmDdHhMmSs(dateInput: Date = new Date()): string {
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Vienna',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(dateInput);
+      const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
+      return `${get('year')}${get('month')}${get('day')}-${get('hour')}${get('minute')}${get('second')}`;
+    } catch {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${dateInput.getFullYear()}${pad(dateInput.getMonth() + 1)}${pad(dateInput.getDate())}-${pad(dateInput.getHours())}${pad(dateInput.getMinutes())}${pad(dateInput.getSeconds())}`;
+    }
+  }
+
+  function generateUniqueNoteFileName(baseDate: Date = new Date()): {
+    fileName: string;
+    timestampFormatted: string;
+  } {
+    let offsetSec = 0;
+    while (offsetSec < 120) {
+      const d = new Date(baseDate.getTime() + offsetSec * 1000);
+      const ts = formatTimestampYyyyMmDdHhMmSs(d);
+      const candidate = `note_${ts}.json`;
+      if (!fs.existsSync(path.join(notesDir, candidate))) {
+        return { fileName: candidate, timestampFormatted: ts };
+      }
+      offsetSec++;
+    }
+    const ts = formatTimestampYyyyMmDdHhMmSs(baseDate);
+    return { fileName: `note_${ts}.json`, timestampFormatted: ts };
+  }
+
+  async function mirrorNoteToWindowsWorkspace(record: HorizonNoteRecord): Promise<void> {
+    try {
+      const jsonB64 = Buffer.from(JSON.stringify(record, null, 2), 'utf-8').toString('base64');
+      const safeFile = record.fileName.replace(/[^a-zA-Z0-9._-]/g, '');
+      const psScript = [
+        `$dir = '${WINDOWS_NOTES_DIR}';`,
+        `if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null };`,
+        `$bytes = [Convert]::FromBase64String('${jsonB64}');`,
+        `[System.IO.File]::WriteAllBytes((Join-Path $dir '${safeFile}'), $bytes);`,
+      ].join(' ');
+      await fetch('http://127.0.0.1:8099/api/apps/workflows/execute-node', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          axonId: 'pc.powershell.exec',
+          input: { script: psScript },
+        }),
+        signal: AbortSignal.timeout(4500),
+      });
+    } catch {
+      // Non-fatal if Windows PC agent is asleep
+    }
+  }
+
+  async function deleteMirroredNoteFromWindowsWorkspace(fileName: string): Promise<void> {
+    try {
+      const safeFile = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '');
+      const psScript = `$p = Join-Path '${WINDOWS_NOTES_DIR}' '${safeFile}'; if (Test-Path $p) { Remove-Item $p -Force }`;
+      await fetch('http://127.0.0.1:8099/api/apps/workflows/execute-node', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          axonId: 'pc.powershell.exec',
+          input: { script: psScript },
+        }),
+        signal: AbortSignal.timeout(4500),
+      });
+    } catch {}
+  }
+
+  function saveHorizonNoteRecord(record: HorizonNoteRecord): void {
+    const fullPath = path.join(notesDir, path.basename(record.fileName));
+    fs.writeFileSync(fullPath, JSON.stringify(record, null, 2), 'utf-8');
+    void mirrorNoteToWindowsWorkspace(record);
+  }
+
+  function migrateExistingSystemNotes(): void {
+    try {
+      const existingFiles = fs.readdirSync(notesDir).filter((f) => /^note_\d{8}-\d{6}\.json$/i.test(f));
+      if (existingFiles.length > 0) return;
+
+      const sysNotes = ctx.sharedDb.query<{
+        id: number;
+        content: string;
+        pinned: number;
+        created_at: string;
+      }>('SELECT * FROM system_notes ORDER BY id ASC LIMIT 50');
+
+      for (const sn of sysNotes) {
+        if (!sn.content?.trim()) continue;
+        const parsedDate = sn.created_at ? new Date(sn.created_at) : new Date();
+        const validDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+        const { fileName, timestampFormatted } = generateUniqueNoteFileName(validDate);
+        const rec: HorizonNoteRecord = {
+          fileName,
+          id: fileName.replace(/\.json$/i, ''),
+          content: sn.content.trim(),
+          createdAt: validDate.toISOString(),
+          timestampFormatted,
+          localPath: `/data/notes/${fileName}`,
+          windowsPath: `${WINDOWS_NOTES_DIR}\\${fileName}`,
+          syncedKeep: false,
+          syncedKeepAt: null,
+          keepNoteId: null,
+          syncedDrive: false,
+          syncedDriveAt: null,
+          driveFileId: null,
+          driveWebViewLink: null,
+        };
+        saveHorizonNoteRecord(rec);
+      }
+    } catch {}
+  }
+
+  migrateExistingSystemNotes();
+
+  function listHorizonNotes(): HorizonNoteRecord[] {
+    try {
+      const files = fs
+        .readdirSync(notesDir)
+        .filter((f) => /^note_.*\.json$/i.test(f))
+        .sort((a, b) => b.localeCompare(a));
+
+      const results: HorizonNoteRecord[] = [];
+      for (const f of files) {
+        try {
+          const raw = fs.readFileSync(path.join(notesDir, f), 'utf-8');
+          const parsed = JSON.parse(raw) as HorizonNoteRecord;
+          results.push({
+            ...parsed,
+            fileName: f,
+            id: parsed.id || f.replace(/\.json$/i, ''),
+            localPath: `/data/notes/${f}`,
+            windowsPath: `${WINDOWS_NOTES_DIR}\\${f}`,
+          });
+        } catch {}
+      }
+      return results;
+    } catch {
+      return [];
+    }
+  }
+
+  // GET /horizon-notes — List all local note_yyyyMMdd-HHmmss.json files
+  ctx.route('GET', '/horizon-notes', () => {
+    const notes = listHorizonNotes();
+    return {
+      notes,
+      count: notes.length,
+      notesDir: '/data/notes',
+      windowsNotesDir: WINDOWS_NOTES_DIR,
+      googleAuthorized: ctx.google.getStatus().authorized,
+    };
+  });
+
+  // POST /horizon-notes — Create a new note_yyyyMMdd-HHmmss.json file locally
+  ctx.route('POST', '/horizon-notes', (req) => {
+    const body = (req.body || {}) as { content?: string };
+    const content = String(body.content || '').trim();
+    if (!content) {
+      return { status: 400, body: { error: 'Note content is required' } };
+    }
+
+    const now = new Date();
+    const { fileName, timestampFormatted } = generateUniqueNoteFileName(now);
+    const record: HorizonNoteRecord = {
+      fileName,
+      id: fileName.replace(/\.json$/i, ''),
+      content,
+      createdAt: now.toISOString(),
+      timestampFormatted,
+      localPath: `/data/notes/${fileName}`,
+      windowsPath: `${WINDOWS_NOTES_DIR}\\${fileName}`,
+      syncedKeep: false,
+      syncedKeepAt: null,
+      keepNoteId: null,
+      syncedDrive: false,
+      syncedDriveAt: null,
+      driveFileId: null,
+      driveWebViewLink: null,
+    };
+
+    saveHorizonNoteRecord(record);
+
+    // Also keep system_notes & memo_entries in sync for Cortex search
+    try {
+      ctx.sharedDb.execute(
+        'INSERT INTO system_notes (content, pinned, created_at) VALUES (?, 0, ?)',
+        [content, record.createdAt]
+      );
+    } catch {}
+
+    try {
+      ctx.db.execute(
+        `INSERT INTO memo_entries
+         (source_type, title, content, tags, file_path, external_id, external_url, pinned, created_at, updated_at)
+         VALUES ('note', ?, ?, 'notiz,horizon,json', ?, ?, '', 0, ?, ?)`,
+        [
+          fileName,
+          content,
+          `notes/${fileName}`,
+          record.id,
+          record.createdAt,
+          record.createdAt,
+        ]
+      );
+    } catch {}
+
+    const notes = listHorizonNotes();
+    return {
+      ok: true,
+      note: record,
+      notes,
+    };
+  });
+
+  // DELETE /horizon-notes?fileName=note_yyyyMMdd-HHmmss.json
+  ctx.route('DELETE', '/horizon-notes', (req) => {
+    const rawFile = String(req.query.fileName || req.query.id || '').trim();
+    if (!rawFile) {
+      return { status: 400, body: { error: 'fileName is required' } };
+    }
+    const normalizedFile = rawFile.endsWith('.json') ? path.basename(rawFile) : `${path.basename(rawFile)}.json`;
+    const fullPath = path.join(notesDir, normalizedFile);
+
+    let deletedContent = '';
+    if (fs.existsSync(fullPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8')) as HorizonNoteRecord;
+        deletedContent = parsed.content || '';
+      } catch {}
+      try {
+        fs.unlinkSync(fullPath);
+      } catch {}
+    }
+
+    void deleteMirroredNoteFromWindowsWorkspace(normalizedFile);
+
+    try {
+      ctx.db.execute('DELETE FROM memo_entries WHERE external_id = ? OR file_path = ?', [
+        normalizedFile.replace(/\.json$/i, ''),
+        `notes/${normalizedFile}`,
+      ]);
+      if (deletedContent) {
+        ctx.sharedDb.execute('DELETE FROM system_notes WHERE content = ?', [deletedContent]);
+      }
+    } catch {}
+
+    return {
+      ok: true,
+      deleted: normalizedFile,
+      notes: listHorizonNotes(),
+    };
+  });
+
+  // POST /horizon-notes/send — Send a note_yyyyMMdd-HHmmss.json to Google Keep/Notes or Google Drive
+  ctx.route('POST', '/horizon-notes/send', async (req) => {
+    const body = (req.body || {}) as { fileName?: string; target?: 'keep' | 'drive' };
+    const rawFile = String(body.fileName || '').trim();
+    const target = body.target === 'drive' ? 'drive' : 'keep';
+    if (!rawFile) {
+      return { status: 400, body: { error: 'fileName is required' } };
+    }
+
+    const normalizedFile = rawFile.endsWith('.json') ? path.basename(rawFile) : `${path.basename(rawFile)}.json`;
+    const fullPath = path.join(notesDir, normalizedFile);
+    if (!fs.existsSync(fullPath)) {
+      return { status: 404, body: { error: `Note file ${normalizedFile} not found` } };
+    }
+
+    const record = JSON.parse(fs.readFileSync(fullPath, 'utf-8')) as HorizonNoteRecord;
+    const nowIso = new Date().toISOString();
+
+    if (target === 'keep') {
+      let keepNoteId = `keep_${record.timestampFormatted}`;
+      let keepUrl = 'https://keep.google.com';
+      let syncedVia = 'Memo Google Keep / HA Notes Bridge';
+
+      // 1. Try Google Keep REST API v1 if OAuth token is available
+      try {
+        const token = await actionRegistry.resolveGoogleAccessToken();
+        if (token) {
+          const keepRes = await fetch('https://keep.googleapis.com/v1/notes', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: normalizedFile.replace(/\.json$/i, ''),
+              body: {
+                text: {
+                  text: record.content,
+                },
+              },
+            }),
+            signal: AbortSignal.timeout(4500),
+          });
+          if (keepRes.ok) {
+            const keepJson = (await keepRes.json()) as { name?: string };
+            if (keepJson.name) {
+              keepNoteId = keepJson.name;
+              syncedVia = 'Google Keep API v1';
+            }
+          }
+        }
+      } catch {}
+
+      // 2. Also push to Home Assistant todo list / persistent notification if connected
+      try {
+        const states = await ctx.ha.getStates();
+        const todoEntity = states.find((s) => s.entity_id.startsWith('todo.'));
+        if (todoEntity) {
+          await ctx.ha.callService('todo', 'add_item', {
+            entity_id: todoEntity.entity_id,
+            item: `${record.content} (${normalizedFile})`,
+          });
+          syncedVia = `Google Keep & HA (${todoEntity.entity_id})`;
+        }
+        await ctx.ha.callService('persistent_notification', 'create', {
+          title: `Google Keep / Notes · ${normalizedFile}`,
+          message: record.content,
+          notification_id: `horizon_keep_${record.timestampFormatted}`,
+        });
+      } catch {}
+
+      // 3. Upsert into memo_entries as source_type = 'keep' (GKEEP badge in Memo & Cortex)
+      try {
+        const extId = `gkeep_${record.id}`;
+        const existing = ctx.db.queryOne<{ id: number }>(
+          'SELECT id FROM memo_entries WHERE external_id = ? OR file_path = ? LIMIT 1',
+          [extId, `notes/${normalizedFile}`]
+        );
+        if (existing) {
+          ctx.db.execute(
+            `UPDATE memo_entries
+             SET source_type = 'keep', title = ?, content = ?, tags = 'google-keep,notiz,horizon', external_id = ?, external_url = ?, updated_at = ?
+             WHERE id = ?`,
+            [normalizedFile, record.content, extId, keepUrl, nowIso, existing.id]
+          );
+        } else {
+          ctx.db.execute(
+            `INSERT INTO memo_entries
+             (source_type, title, content, tags, file_path, external_id, external_url, pinned, created_at, updated_at)
+             VALUES ('keep', ?, ?, 'google-keep,notiz,horizon', ?, ?, ?, 0, ?, ?)`,
+            [normalizedFile, record.content, `notes/${normalizedFile}`, extId, keepUrl, record.createdAt, nowIso]
+          );
+        }
+      } catch {}
+
+      record.syncedKeep = true;
+      record.syncedKeepAt = nowIso;
+      record.keepNoteId = keepNoteId;
+      saveHorizonNoteRecord(record);
+
+      return {
+        ok: true,
+        target: 'keep',
+        syncedVia,
+        keepUrl,
+        note: record,
+        notes: listHorizonNotes(),
+      };
+    }
+
+    // target === 'drive' (Google Drive)
+    let driveFileId = `local_${record.timestampFormatted}`;
+    let driveWebViewLink = 'https://drive.google.com/drive/my-drive';
+    let syncedVia = 'Memo Drive Vault';
+
+    try {
+      const token = await actionRegistry.resolveGoogleAccessToken();
+      if (token) {
+        const boundary = `thassi_note_${Date.now()}`;
+        const metadata = {
+          name: normalizedFile,
+          mimeType: 'application/json',
+          description: `Thassi Horizon Note (${record.timestampFormatted}): ${record.content.slice(0, 200)}`,
+        };
+        const filePayload = JSON.stringify(
+          {
+            ...record,
+            syncedDrive: true,
+            syncedDriveAt: nowIso,
+          },
+          null,
+          2
+        );
+        const multipartBody = [
+          `--${boundary}`,
+          'Content-Type: application/json; charset=UTF-8',
+          '',
+          JSON.stringify(metadata),
+          `--${boundary}`,
+          'Content-Type: application/json; charset=UTF-8',
+          '',
+          filePayload,
+          `--${boundary}--`,
+          '',
+        ].join('\r\n');
+
+        const uploadRes = await fetch(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`,
+            },
+            body: multipartBody,
+            signal: AbortSignal.timeout(7000),
+          }
+        );
+
+        if (uploadRes.ok) {
+          const upData = (await uploadRes.json()) as {
+            id?: string;
+            name?: string;
+            webViewLink?: string;
+          };
+          if (upData.id) {
+            driveFileId = upData.id;
+            driveWebViewLink =
+              upData.webViewLink || `https://drive.google.com/file/d/${upData.id}/view`;
+            syncedVia = 'Google Drive API v3';
+          }
+        }
+      }
+    } catch {}
+
+    // Upsert into memo_entries with source_type = 'drive'
+    try {
+      const extId = `gdrive_${driveFileId}`;
+      const existing = ctx.db.queryOne<{ id: number }>(
+        'SELECT id FROM memo_entries WHERE external_id = ? OR file_path = ? LIMIT 1',
+        [extId, `notes/${normalizedFile}`]
+      );
+      if (existing) {
+        ctx.db.execute(
+          `UPDATE memo_entries
+           SET source_type = 'drive', title = ?, content = ?, tags = 'drive,json,horizon', external_id = ?, external_url = ?, updated_at = ?
+           WHERE id = ?`,
+          [normalizedFile, record.content, extId, driveWebViewLink, nowIso, existing.id]
+        );
+      } else {
+        ctx.db.execute(
+          `INSERT INTO memo_entries
+           (source_type, title, content, tags, file_path, external_id, external_url, pinned, created_at, updated_at)
+           VALUES ('drive', ?, ?, 'drive,json,horizon', ?, ?, ?, 0, ?, ?)`,
+          [
+            normalizedFile,
+            record.content,
+            `notes/${normalizedFile}`,
+            extId,
+            driveWebViewLink,
+            record.createdAt,
+            nowIso,
+          ]
+        );
+      }
+    } catch {}
+
+    record.syncedDrive = true;
+    record.syncedDriveAt = nowIso;
+    record.driveFileId = driveFileId;
+    record.driveWebViewLink = driveWebViewLink;
+    saveHorizonNoteRecord(record);
+
+    return {
+      ok: true,
+      target: 'drive',
+      syncedVia,
+      driveFileId,
+      driveWebViewLink,
+      note: record,
+      notes: listHorizonNotes(),
+    };
+  });
+
   // Publish Memo sensor to Home Assistant
   ctx.scheduleJob({
     id: 'memo-sync-sensor',

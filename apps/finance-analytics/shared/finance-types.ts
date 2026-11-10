@@ -27,7 +27,136 @@ export interface CategoryBreakdownItem {
   pctUsed: number;
   remaining: number;
   overBudget: boolean;
+  /** Projected end-of-month spend based on current daily burn rate */
+  extrapolatedSpend: number;
+  /** Projected end-of-month remaining budget (budgetLimit - extrapolatedSpend) */
+  extrapolatedRemaining: number;
+  /** Projected percentage of budget used by end of month */
+  extrapolatedPct: number;
+  /** Remaining allowance per day for the rest of the month */
+  dailyAllowanceRemaining: number;
 }
+
+export interface FixedCostItem {
+  id: string;
+  name: string;
+  amount: number;
+  category: string;
+  groupLabel: 'Wohnen & Energie' | 'Versicherungen' | 'Abos & Internet';
+  matchPattern: string;
+  isEstimate?: boolean;
+  paidThisMonth?: boolean;
+  actualPaidAmount?: number | null;
+  matchedTxDate?: string | null;
+}
+
+export const DEFAULT_FIXED_COSTS: FixedCostItem[] = [
+  {
+    id: 'kreditrate',
+    name: 'Kreditrate',
+    amount: 750.0,
+    category: 'Housing & Utilities',
+    groupLabel: 'Wohnen & Energie',
+    matchPattern: 'kreditrate|00007-656648|sparkasse n',
+  },
+  {
+    id: 'evn-waerme',
+    name: 'EVN Wärme',
+    amount: 782.0,
+    category: 'Housing & Utilities',
+    groupLabel: 'Wohnen & Energie',
+    matchPattern: 'evn.*wärme|evn.*waerme|evn ag',
+  },
+  {
+    id: 'gemeindeabgabe',
+    name: 'Gemeindeabgabe',
+    amount: 140.0,
+    category: 'Housing & Utilities',
+    groupLabel: 'Wohnen & Energie',
+    matchPattern: 'gemeinde|marktgemeinde',
+  },
+  {
+    id: 'evn-strom',
+    name: 'EVN Strom',
+    amount: 80.0,
+    category: 'Housing & Utilities',
+    groupLabel: 'Wohnen & Energie',
+    matchPattern: 'evn.*strom|evn energie',
+    isEstimate: true,
+  },
+  {
+    id: 'orf-beitrag',
+    name: 'ORF-Beitrag',
+    amount: 7.0,
+    category: 'Housing & Utilities',
+    groupLabel: 'Wohnen & Energie',
+    matchPattern: 'orf-beitrag|obs|gis',
+  },
+  {
+    id: 'generali-hhv',
+    name: 'Generali HHV',
+    amount: 103.68,
+    category: 'Insurance & Finance',
+    groupLabel: 'Versicherungen',
+    matchPattern: '5574-4113|besitz-versi|haushalt',
+  },
+  {
+    id: 'kfz-versicherung',
+    name: 'KFZ-Versicherung',
+    amount: 84.68,
+    category: 'Insurance & Finance',
+    groupLabel: 'Versicherungen',
+    matchPattern: '6010-4061|kraftfahrzeug',
+  },
+  {
+    id: 'generali-leben',
+    name: 'Generali Leben',
+    amount: 71.25,
+    category: 'Insurance & Finance',
+    groupLabel: 'Versicherungen',
+    matchPattern: '0119636|fondsgebundene|lebensvers',
+  },
+  {
+    id: 'unfallversicherung',
+    name: 'Unfallversicherung',
+    amount: 25.34,
+    category: 'Insurance & Finance',
+    groupLabel: 'Versicherungen',
+    matchPattern: '5886-2773|unfallvers',
+  },
+  {
+    id: 'kabelplus',
+    name: 'Kabelplus Internet',
+    amount: 31.4,
+    category: 'Subscriptions',
+    groupLabel: 'Abos & Internet',
+    matchPattern: 'kabelplus',
+  },
+  {
+    id: 'youtube-premium',
+    name: 'Youtube Premium',
+    amount: 27.99,
+    category: 'Subscriptions',
+    groupLabel: 'Abos & Internet',
+    matchPattern: 'youtube',
+  },
+  {
+    id: 'google-one-ai',
+    name: 'Google One AI',
+    amount: 21.99,
+    category: 'Subscriptions',
+    groupLabel: 'Abos & Internet',
+    matchPattern: 'google one|google\\*one|google ai',
+  },
+  {
+    id: 'amazon-prime',
+    name: 'Amazon Prime',
+    amount: 8.99,
+    category: 'Subscriptions',
+    groupLabel: 'Abos & Internet',
+    matchPattern: 'amznprime|amazon prime|d01-|amazon eu.*8\\.99',
+  },
+];
 
 export type PreviewElementId =
   | 'current_balance'
@@ -79,6 +208,39 @@ export interface QuickImportConfig {
   savedCookieCount: number;
 }
 
+export interface ExportReminderConfig {
+  /** Remind when latest transaction or bank sync is older than N days (default: 7) */
+  reminderIntervalDays: number;
+  /** Also remind when a new calendar month starts and no booking exists in the new month yet */
+  remindOnNewMonth: boolean;
+  /** ISO timestamp until which the reminder is snoozed, or null */
+  snoozedUntil: string | null;
+  /** ISO timestamp of the last bank statement import/sync */
+  lastBankSyncAt: string | null;
+  /** ISO timestamp of the last CSV/JSON export from Thassi */
+  lastDataExportAt: string | null;
+}
+
+export interface ExportReminderStatus extends ExportReminderConfig {
+  latestTxDate: string | null;
+  daysSinceLatestTx: number | null;
+  daysSinceLastSync: number | null;
+  daysSinceLastExport: number | null;
+  isSnoozed: boolean;
+  due: boolean;
+  urgency: 'ok' | 'warn' | 'overdue';
+  headlineDe: string;
+  detailDe: string;
+}
+
+export const DEFAULT_EXPORT_REMINDER_CONFIG: ExportReminderConfig = {
+  reminderIntervalDays: 7,
+  remindOnNewMonth: true,
+  snoozedUntil: null,
+  lastBankSyncAt: null,
+  lastDataExportAt: null,
+};
+
 export interface FinanceKpis {
   activeMonth: string;
   currentBalance: number;
@@ -90,13 +252,35 @@ export interface FinanceKpis {
   net: number;
   grocerySpend: number;
   savingsRatePct: number;
+  /** Strict spend today (tx_date === today) */
+  expensesToday?: number;
   /** Total expenses today (or on reference day) */
   expensesDay: number;
   expensesDayDate: string;
   expensesDayLabel: string;
   /** Total expenses over the last 7 days (week) */
   expensesWeek: number;
+  /** Variable everyday expenses over the last 7 days (excluding fixed debits) */
+  expensesWeekVariable?: number;
   expensesWeekRangeLabel: string;
+  /** Variable everyday expenses in activeMonth (Alltag & Lifestyle) */
+  expensesMonthVariable?: number;
+  /** Total configured monthly Fixed Costs (Fixkosten) */
+  fixedCostsTotal?: number;
+  /** Fixed costs already debited in activeMonth */
+  fixedCostsPaidThisMonth?: number;
+  /** Total configured monthly budget across variable categories */
+  variableBudgetTotal?: number;
+  /** Remaining variable budget in activeMonth */
+  variableBudgetRemaining?: number;
+  /** Extrapolated end-of-month variable spend */
+  variableExtrapolatedSpend?: number;
+  /** Extrapolated end-of-month remaining variable budget */
+  variableExtrapolatedRemaining?: number;
+  /** Calendar progress in activeMonth */
+  elapsedDaysInMonth?: number;
+  daysInMonth?: number;
+  remainingDaysInMonth?: number;
   /** Total configured monthly budget across all expense categories */
   totalMonthlyBudget: number;
   haConnected: boolean;
@@ -140,7 +324,7 @@ export const CATEGORY_DEFINITIONS: CategoryMeta[] = [
     labelDe: 'Wohnen & Energie',
     color: '#6366f1',
     icon: '🏠',
-    defaultBudget: 1900,
+    defaultBudget: 1760,
     group: 'fixed',
     groupLabelDe: 'Fixkosten & Wohnen',
     groupColor: '#6366f1',
@@ -150,7 +334,7 @@ export const CATEGORY_DEFINITIONS: CategoryMeta[] = [
     labelDe: 'Versicherung & Bank',
     color: '#8b5cf6',
     icon: '🛡️',
-    defaultBudget: 320,
+    defaultBudget: 285,
     group: 'fixed',
     groupLabelDe: 'Fixkosten & Wohnen',
     groupColor: '#6366f1',
@@ -160,7 +344,7 @@ export const CATEGORY_DEFINITIONS: CategoryMeta[] = [
     labelDe: 'Abos & Internet',
     color: '#a855f7',
     icon: '📡',
-    defaultBudget: 80,
+    defaultBudget: 90,
     group: 'fixed',
     groupLabelDe: 'Fixkosten & Wohnen',
     groupColor: '#6366f1',

@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export interface CsvImportOptions {
@@ -151,30 +152,53 @@ function parsePotentialNumber(val: string, parseEuropeanDecimals: boolean): numb
 }
 
 export class ThassiAppDatabase {
-  public readonly raw: DatabaseSync;
+  public raw: DatabaseSync;
   public readonly dbPath: string;
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    try {
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    } catch {}
     this.raw = this.openWithAutoRecovery(dbPath);
+  }
+
+  private isCorruptionError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /malformed|corrupt|not a database|disk I\/O|EIO|not open/i.test(msg);
+  }
+
+  private recoverCorruptedDatabase(): void {
+    try {
+      this.raw.close();
+    } catch {}
+    try {
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (fs.existsSync(this.dbPath + suffix)) {
+          fs.rmSync(this.dbPath + suffix, { force: true });
+        }
+      }
+    } catch {}
+    this.raw = this.openWithAutoRecovery(this.dbPath);
+  }
+
+  private initSchema(db: DatabaseSync): DatabaseSync {
+    db.exec('PRAGMA journal_mode = WAL;');
+    db.exec('PRAGMA foreign_keys = ON;');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _thassi_kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    db.prepare('SELECT COUNT(*) FROM _thassi_kv').get();
+    return db;
   }
 
   private openWithAutoRecovery(dbPath: string): DatabaseSync {
     try {
-      const db = new DatabaseSync(dbPath);
-      db.exec('PRAGMA journal_mode = WAL;');
-      db.exec('PRAGMA foreign_keys = ON;');
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS _thassi_kv (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-      `);
-      // Quick integrity probe on _thassi_kv
-      db.prepare('SELECT COUNT(*) FROM _thassi_kv').get();
-      return db;
+      return this.initSchema(new DatabaseSync(dbPath));
     } catch {
       try {
         for (const suffix of ['', '-wal', '-shm']) {
@@ -182,46 +206,83 @@ export class ThassiAppDatabase {
             fs.rmSync(dbPath + suffix, { force: true });
           }
         }
-      } catch {}
-      const db = new DatabaseSync(dbPath);
-      db.exec('PRAGMA journal_mode = WAL;');
-      db.exec('PRAGMA foreign_keys = ON;');
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS _thassi_kv (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-      `);
-      return db;
+        return this.initSchema(new DatabaseSync(dbPath));
+      } catch {
+        try {
+          const fallbackDir = path.join(os.tmpdir(), 'thassi_db_fallback');
+          fs.mkdirSync(fallbackDir, { recursive: true });
+          const fallbackPath = path.join(fallbackDir, path.basename(dbPath));
+          return this.initSchema(new DatabaseSync(fallbackPath));
+        } catch {
+          return this.initSchema(new DatabaseSync(':memory:'));
+        }
+      }
     }
   }
 
   /** Execute raw DDL or multi-statement SQL */
   exec(sql: string): void {
-    this.raw.exec(sql);
+    try {
+      this.raw.exec(sql);
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        this.raw.exec(sql);
+        return;
+      }
+      throw err;
+    }
   }
 
   /** Run a SELECT query and return typed rows */
   query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
-    const stmt = this.raw.prepare(sql);
-    return stmt.all(...(params as [ string ])) as unknown as T[];
+    try {
+      const stmt = this.raw.prepare(sql);
+      return stmt.all(...(params as [ string ])) as unknown as T[];
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        return [];
+      }
+      throw err;
+    }
   }
 
   /** Run a SELECT query and return the first row or undefined */
   queryOne<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T | undefined {
-    const stmt = this.raw.prepare(sql);
-    return stmt.get(...(params as [ string ])) as unknown as T | undefined;
+    try {
+      const stmt = this.raw.prepare(sql);
+      return stmt.get(...(params as [ string ])) as unknown as T | undefined;
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        return undefined;
+      }
+      throw err;
+    }
   }
 
   /** Run an INSERT / UPDATE / DELETE statement */
   execute(sql: string, params: unknown[] = []): { changes: number; lastInsertRowid: number | bigint } {
-    const stmt = this.raw.prepare(sql);
-    const res = stmt.run(...(params as [ string ]));
-    return {
-      changes: Number(res.changes),
-      lastInsertRowid: res.lastInsertRowid,
-    };
+    try {
+      const stmt = this.raw.prepare(sql);
+      const res = stmt.run(...(params as [ string ]));
+      return {
+        changes: Number(res.changes),
+        lastInsertRowid: res.lastInsertRowid,
+      };
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        const stmt = this.raw.prepare(sql);
+        const res = stmt.run(...(params as [ string ]));
+        return {
+          changes: Number(res.changes),
+          lastInsertRowid: res.lastInsertRowid,
+        };
+      }
+      throw err;
+    }
   }
 
   /** Key-Value convenience store for app settings, cursors, or state */

@@ -11,7 +11,8 @@ export type PrimitiveType =
   | 'apple'
   | 'lathe'
   | 'heart'
-  | 'star';
+  | 'star'
+  | 'stl_mesh';
 
 export interface PrimitiveNode {
   id: string;
@@ -23,6 +24,11 @@ export interface PrimitiveNode {
   scale: [number, number, number]; // [sx, sy, sz]
   color: string;
   params: Record<string, number>;
+  /**
+   * Compact flat vertex array [x0,y0,z0, x1,y1,z1, x2,y2,z2, ...] (9 floats per triangle)
+   * used when `type === 'stl_mesh'` for real imported STL / 3D meshes.
+   */
+  meshData?: number[];
 }
 
 export interface PrintProfileSpec {
@@ -913,9 +919,470 @@ export function generatePrimitiveRawTriangles(node: PrimitiveNode): Array<[Vec3,
       return generateHeartTriangles(node.params);
     case 'star':
       return generateStarTriangles(node.params);
+    case 'stl_mesh': {
+      const data = node.meshData;
+      if (!Array.isArray(data) || data.length < 9) return [];
+      const tris: Array<[Vec3, Vec3, Vec3]> = [];
+      for (let i = 0; i <= data.length - 9; i += 9) {
+        tris.push([
+          { x: data[i], y: data[i + 1], z: data[i + 2] },
+          { x: data[i + 3], y: data[i + 4], z: data[i + 5] },
+          { x: data[i + 6], y: data[i + 7], z: data[i + 8] },
+        ]);
+      }
+      return tris;
+    }
     default:
       return generateBoxTriangles(node.params);
   }
+}
+
+/**
+ * Parses a binary or ASCII STL buffer into a centered, grounded flat float array
+ * (`[x0,y0,z0, x1,y1,z1, x2,y2,z2, ...]`).
+ * Uses spatial voxel vertex clustering when triangle count exceeds `maxTriangles` so the mesh remains
+ * a connected, watertight 3D surface rather than disconnected shards.
+ */
+export function parseStlBufferToMeshData(
+  bytes: Uint8Array,
+  maxTriangles = 6000
+): {
+  meshData: number[];
+  originalTriangles: number;
+  dimensionsMm: { x: number; y: number; z: number };
+} {
+  if (!bytes || bytes.byteLength < 84) {
+    throw new Error('Ungültige oder leere STL-Datei (< 84 Bytes).');
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const expectedTriCount = view.getUint32(80, true);
+  const isBinary =
+    84 + expectedTriCount * 50 <= bytes.byteLength &&
+    expectedTriCount > 0 &&
+    expectedTriCount < 5_000_000;
+
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
+
+  const rawTris: Array<[Vec3, Vec3, Vec3]> = [];
+
+  if (isBinary) {
+    // First read all valid triangles (up to 250k) so we can compute exact bounding box & voxel cluster
+    const preStride = expectedTriCount > 250_000 ? Math.ceil(expectedTriCount / 250_000) : 1;
+    for (let i = 0; i < expectedTriCount; i += preStride) {
+      const off = 84 + i * 50;
+      if (off + 48 > bytes.byteLength) break;
+      const v0: Vec3 = {
+        x: view.getFloat32(off + 12, true),
+        y: view.getFloat32(off + 16, true),
+        z: view.getFloat32(off + 20, true),
+      };
+      const v1: Vec3 = {
+        x: view.getFloat32(off + 24, true),
+        y: view.getFloat32(off + 28, true),
+        z: view.getFloat32(off + 32, true),
+      };
+      const v2: Vec3 = {
+        x: view.getFloat32(off + 36, true),
+        y: view.getFloat32(off + 40, true),
+        z: view.getFloat32(off + 44, true),
+      };
+      if (
+        Number.isFinite(v0.x) &&
+        Number.isFinite(v0.y) &&
+        Number.isFinite(v0.z) &&
+        Number.isFinite(v1.x) &&
+        Number.isFinite(v2.x)
+      ) {
+        rawTris.push([v0, v1, v2]);
+        for (const v of [v0, v1, v2]) {
+          if (v.x < minX) minX = v.x;
+          if (v.y < minY) minY = v.y;
+          if (v.z < minZ) minZ = v.z;
+          if (v.x > maxX) maxX = v.x;
+          if (v.y > maxY) maxY = v.y;
+          if (v.z > maxZ) maxZ = v.z;
+        }
+      }
+    }
+  } else {
+    const text = new TextDecoder('utf-8').decode(bytes);
+    const vertexRegex =
+      /vertex\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/g;
+    const verts: Vec3[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = vertexRegex.exec(text)) !== null) {
+      const v = {
+        x: parseFloat(m[1]),
+        y: parseFloat(m[2]),
+        z: parseFloat(m[3]),
+      };
+      verts.push(v);
+      if (v.x < minX) minX = v.x;
+      if (v.y < minY) minY = v.y;
+      if (v.z < minZ) minZ = v.z;
+      if (v.x > maxX) maxX = v.x;
+      if (v.y > maxY) maxY = v.y;
+      if (v.z > maxZ) maxZ = v.z;
+    }
+    const total = Math.floor(verts.length / 3);
+    for (let i = 0; i < total; i++) {
+      const idx = i * 3;
+      rawTris.push([verts[idx], verts[idx + 1], verts[idx + 2]]);
+    }
+  }
+
+  if (rawTris.length === 0) {
+    throw new Error('Keine gültigen 3D-Dreiecke in der STL-Datei gefunden.');
+  }
+
+  const spanX = Math.max(0.001, maxX - minX);
+  const spanY = Math.max(0.001, maxY - minY);
+  const spanZ = Math.max(0.001, maxZ - minZ);
+  const maxSpan = Math.max(spanX, spanY, spanZ);
+
+  // Voxel vertex clustering decimation if rawTris exceeds maxTriangles
+  let selectedTris = rawTris;
+  if (rawTris.length > maxTriangles) {
+    const ratio = Math.sqrt(rawTris.length / maxTriangles);
+    const gridRes = Math.max(22, Math.min(95, Math.round(90 / Math.max(1, ratio * 0.48))));
+    const cellSize = maxSpan / gridRes;
+    const snap = (v: Vec3): Vec3 => ({
+      x: minX + Math.round((v.x - minX) / cellSize) * cellSize,
+      y: minY + Math.round((v.y - minY) / cellSize) * cellSize,
+      z: minZ + Math.round((v.z - minZ) / cellSize) * cellSize,
+    });
+    const clustered: Array<[Vec3, Vec3, Vec3]> = [];
+    const seenFaces = new Set<string>();
+    for (const [a, b, c] of rawTris) {
+      const sa = snap(a);
+      const sb = snap(b);
+      const sc = snap(c);
+      const ka = `${sa.x.toFixed(2)},${sa.y.toFixed(2)},${sa.z.toFixed(2)}`;
+      const kb = `${sb.x.toFixed(2)},${sb.y.toFixed(2)},${sb.z.toFixed(2)}`;
+      const kc = `${sc.x.toFixed(2)},${sc.y.toFixed(2)},${sc.z.toFixed(2)}`;
+      if (ka === kb || kb === kc || ka === kc) continue;
+      const faceKey = [ka, kb, kc].sort().join('|');
+      if (seenFaces.has(faceKey)) continue;
+      seenFaces.add(faceKey);
+      clustered.push([sa, sb, sc]);
+    }
+    if (clustered.length >= 24) {
+      selectedTris = clustered;
+    }
+  }
+
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const meshData: number[] = [];
+
+  for (const [a, b, c] of selectedTris) {
+    meshData.push(
+      Number((a.x - cx).toFixed(2)),
+      Number((a.y - cy).toFixed(2)),
+      Number((a.z - minZ).toFixed(2)),
+      Number((b.x - cx).toFixed(2)),
+      Number((b.y - cy).toFixed(2)),
+      Number((b.z - minZ).toFixed(2)),
+      Number((c.x - cx).toFixed(2)),
+      Number((c.y - cy).toFixed(2)),
+      Number((c.z - minZ).toFixed(2))
+    );
+  }
+
+  return {
+    meshData,
+    originalTriangles: isBinary ? expectedTriCount : rawTris.length,
+    dimensionsMm: {
+      x: Number(Math.max(1, maxX - minX).toFixed(1)),
+      y: Number(Math.max(1, maxY - minY).toFixed(1)),
+      z: Number(Math.max(1, maxZ - minZ).toFixed(1)),
+    },
+  };
+}
+
+/**
+ * Parses a binary glTF 2.0 (.glb) buffer (e.g. from Hugging Face Shap-E / Hunyuan3D / Trellis)
+ * into a centered, grounded, scaled (target ~68mm) flat float array (`meshData`) and dominant RGB color.
+ */
+export function parseGlbBufferToMeshData(
+  bytes: Uint8Array,
+  targetSizeMm = 68,
+  maxTriangles = 6000
+): {
+  meshData: number[];
+  originalTriangles: number;
+  dimensionsMm: { x: number; y: number; z: number };
+  dominantColorHex: string;
+} {
+  if (!bytes || bytes.byteLength < 28) {
+    throw new Error('Ungültige GLB-Datei (< 28 Bytes).');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = view.getUint32(0, true);
+  if (magic !== 0x46546c67) {
+    throw new Error('Ungültiger GLB-Header (kein glTF 2.0 Binary).');
+  }
+
+  const jsonChunkLen = view.getUint32(12, true);
+  const jsonChunkType = view.getUint32(16, true);
+  if (jsonChunkType !== 0x4e4f534a) {
+    throw new Error('GLB JSON-Chunk fehlt.');
+  }
+
+  const jsonText = new TextDecoder('utf-8').decode(
+    new Uint8Array(bytes.buffer, bytes.byteOffset + 20, jsonChunkLen)
+  );
+  const gltf = JSON.parse(jsonText) as {
+    accessors?: Array<{
+      bufferView?: number;
+      byteOffset?: number;
+      componentType: number;
+      count: number;
+      type: string;
+    }>;
+    bufferViews?: Array<{
+      buffer: number;
+      byteOffset?: number;
+      byteLength: number;
+      byteStride?: number;
+    }>;
+    meshes?: Array<{
+      primitives?: Array<{
+        attributes?: { POSITION?: number; COLOR_0?: number };
+        indices?: number;
+        mode?: number;
+      }>;
+    }>;
+  };
+
+  const binChunkHeaderOffset = 20 + jsonChunkLen;
+  if (binChunkHeaderOffset + 8 > bytes.byteLength) {
+    throw new Error('GLB Binary-Buffer-Chunk fehlt.');
+  }
+  const binStart = binChunkHeaderOffset + 8;
+
+  const prim = gltf.meshes?.[0]?.primitives?.[0];
+  if (!prim || prim.attributes?.POSITION === undefined) {
+    throw new Error('Keine 3D-Mesh-Primitive in GLB-Datei gefunden.');
+  }
+
+  const posAcc = gltf.accessors?.[prim.attributes.POSITION];
+  if (!posAcc || posAcc.bufferView === undefined) {
+    throw new Error('GLB POSITION-Accessor fehlt.');
+  }
+  const posBv = gltf.bufferViews?.[posAcc.bufferView];
+  if (!posBv) {
+    throw new Error('GLB POSITION-BufferView fehlt.');
+  }
+
+  const posOffset = binStart + (posBv.byteOffset || 0) + (posAcc.byteOffset || 0);
+  const posStride = posBv.byteStride || 12;
+  const vertCount = posAcc.count;
+
+  const vertices: Vec3[] = new Array(vertCount);
+  for (let i = 0; i < vertCount; i++) {
+    const off = posOffset + i * posStride;
+    // Note: Shap-E / glTF uses Y-up or Z-up; we keep coordinates and orient nicely on the build plate
+    const x = view.getFloat32(off, true);
+    const y = view.getFloat32(off + 4, true);
+    const z = view.getFloat32(off + 8, true);
+    vertices[i] = { x, y, z };
+  }
+
+  // Extract average vertex color if COLOR_0 is present
+  let dominantColorHex = '#10b981';
+  if (prim.attributes?.COLOR_0 !== undefined) {
+    const colAcc = gltf.accessors?.[prim.attributes.COLOR_0];
+    const colBv = colAcc?.bufferView !== undefined ? gltf.bufferViews?.[colAcc.bufferView] : undefined;
+    if (colAcc && colBv && colAcc.componentType === 5121) {
+      const colOffset = binStart + (colBv.byteOffset || 0) + (colAcc.byteOffset || 0);
+      const colStride = colBv.byteStride || (colAcc.type === 'VEC4' ? 4 : 3);
+      let rSum = 0,
+        gSum = 0,
+        bSum = 0,
+        samples = 0;
+      const step = Math.max(1, Math.floor(colAcc.count / 500));
+      for (let i = 0; i < colAcc.count; i += step) {
+        const off = colOffset + i * colStride;
+        if (off + 3 <= bytes.byteLength) {
+          rSum += bytes[off];
+          gSum += bytes[off + 1];
+          bSum += bytes[off + 2];
+          samples++;
+        }
+      }
+      if (samples > 0) {
+        const r = Math.min(255, Math.max(70, Math.round(rSum / samples)));
+        const g = Math.min(255, Math.max(70, Math.round(gSum / samples)));
+        const b = Math.min(255, Math.max(70, Math.round(bSum / samples)));
+        dominantColorHex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      }
+    }
+  }
+
+  const rawTris: Array<[Vec3, Vec3, Vec3]> = [];
+  if (prim.indices !== undefined) {
+    const idxAcc = gltf.accessors?.[prim.indices];
+    const idxBv = idxAcc?.bufferView !== undefined ? gltf.bufferViews?.[idxAcc.bufferView] : undefined;
+    if (!idxAcc || !idxBv) {
+      throw new Error('GLB Index-BufferView fehlt.');
+    }
+    const idxOffset = binStart + (idxBv.byteOffset || 0) + (idxAcc.byteOffset || 0);
+    const triCount = Math.floor(idxAcc.count / 3);
+    for (let i = 0; i < triCount; i++) {
+      let i0 = 0,
+        i1 = 0,
+        i2 = 0;
+      if (idxAcc.componentType === 5125) {
+        // UNSIGNED_INT (uint32)
+        const base = idxOffset + i * 12;
+        i0 = view.getUint32(base, true);
+        i1 = view.getUint32(base + 4, true);
+        i2 = view.getUint32(base + 8, true);
+      } else if (idxAcc.componentType === 5123) {
+        // UNSIGNED_SHORT (uint16)
+        const base = idxOffset + i * 6;
+        i0 = view.getUint16(base, true);
+        i1 = view.getUint16(base + 2, true);
+        i2 = view.getUint16(base + 4, true);
+      } else {
+        const base = idxOffset + i * 3;
+        i0 = bytes[base];
+        i1 = bytes[base + 1];
+        i2 = bytes[base + 2];
+      }
+      const v0 = vertices[i0];
+      const v1 = vertices[i1];
+      const v2 = vertices[i2];
+      if (v0 && v1 && v2) {
+        rawTris.push([v0, v1, v2]);
+      }
+    }
+  } else {
+    const triCount = Math.floor(vertCount / 3);
+    for (let i = 0; i < triCount; i++) {
+      rawTris.push([vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]]);
+    }
+  }
+
+  if (rawTris.length === 0) {
+    throw new Error('Keine 3D-Dreiecke im GLB-Mesh enthalten.');
+  }
+
+  // Compute raw bounding box (note: glTF is Y-up by convention, whereas our slicer is Z-up; check if Y or Z is vertical)
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
+  for (const v of vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.z < minZ) minZ = v.z;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+
+  // Convert glTF Y-up (`x, y_up, z_depth`) to Z-up (`x, -z_depth, y_up`) if generated by trimesh/glTF
+  const isGlTfYUp = !jsonText.includes('tmp') || Math.abs(maxY - minY) > 0;
+  const orient = (v: Vec3): Vec3 => (isGlTfYUp ? { x: v.x, y: -v.z, z: v.y } : v);
+
+  let oMinX = Infinity,
+    oMinY = Infinity,
+    oMinZ = Infinity;
+  let oMaxX = -Infinity,
+    oMaxY = -Infinity,
+    oMaxZ = -Infinity;
+
+  const orientedTris: Array<[Vec3, Vec3, Vec3]> = rawTris.map(([a, b, c]) => {
+    const oa = orient(a);
+    const ob = orient(b);
+    const oc = orient(c);
+    for (const v of [oa, ob, oc]) {
+      if (v.x < oMinX) oMinX = v.x;
+      if (v.y < oMinY) oMinY = v.y;
+      if (v.z < oMinZ) oMinZ = v.z;
+      if (v.x > oMaxX) oMaxX = v.x;
+      if (v.y > oMaxY) oMaxY = v.y;
+      if (v.z > oMaxZ) oMaxZ = v.z;
+    }
+    return [oa, ob, oc];
+  });
+
+  const rawSpanX = Math.max(0.0001, oMaxX - oMinX);
+  const rawSpanY = Math.max(0.0001, oMaxY - oMinY);
+  const rawSpanZ = Math.max(0.0001, oMaxZ - oMinZ);
+  const maxRawSpan = Math.max(rawSpanX, rawSpanY, rawSpanZ);
+
+  // Scale normalized [-1, 1] AI meshes up to `targetSizeMm` (e.g. 68mm)
+  const scaleFactor = maxRawSpan < 10 ? targetSizeMm / maxRawSpan : 1;
+
+  // Voxel vertex clustering to simplify dense 140k-triangle AI meshes to ~5,500 smooth connected triangles
+  let finalTris = orientedTris;
+  if (orientedTris.length > maxTriangles) {
+    const gridRes = 46;
+    const cellSize = maxRawSpan / gridRes;
+    const snap = (v: Vec3): Vec3 => ({
+      x: oMinX + Math.round((v.x - oMinX) / cellSize) * cellSize,
+      y: oMinY + Math.round((v.y - oMinY) / cellSize) * cellSize,
+      z: oMinZ + Math.round((v.z - oMinZ) / cellSize) * cellSize,
+    });
+    const clustered: Array<[Vec3, Vec3, Vec3]> = [];
+    const seen = new Set<string>();
+    for (const [a, b, c] of orientedTris) {
+      const sa = snap(a);
+      const sb = snap(b);
+      const sc = snap(c);
+      const ka = `${sa.x.toFixed(4)},${sa.y.toFixed(4)},${sa.z.toFixed(4)}`;
+      const kb = `${sb.x.toFixed(4)},${sb.y.toFixed(4)},${sb.z.toFixed(4)}`;
+      const kc = `${sc.x.toFixed(4)},${sc.y.toFixed(4)},${sc.z.toFixed(4)}`;
+      if (ka === kb || kb === kc || ka === kc) continue;
+      const key = [ka, kb, kc].sort().join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clustered.push([sa, sb, sc]);
+    }
+    if (clustered.length >= 24) {
+      finalTris = clustered;
+    }
+  }
+
+  const cx = (oMinX + oMaxX) / 2;
+  const cy = (oMinY + oMaxY) / 2;
+  const meshData: number[] = [];
+
+  for (const [a, b, c] of finalTris) {
+    meshData.push(
+      Number(((a.x - cx) * scaleFactor).toFixed(2)),
+      Number(((a.y - cy) * scaleFactor).toFixed(2)),
+      Number(((a.z - oMinZ) * scaleFactor).toFixed(2)),
+      Number(((b.x - cx) * scaleFactor).toFixed(2)),
+      Number(((b.y - cy) * scaleFactor).toFixed(2)),
+      Number(((b.z - oMinZ) * scaleFactor).toFixed(2)),
+      Number(((c.x - cx) * scaleFactor).toFixed(2)),
+      Number(((c.y - cy) * scaleFactor).toFixed(2)),
+      Number(((c.z - oMinZ) * scaleFactor).toFixed(2))
+    );
+  }
+
+  return {
+    meshData,
+    originalTriangles: rawTris.length,
+    dimensionsMm: {
+      x: Number(Math.max(1, rawSpanX * scaleFactor).toFixed(1)),
+      y: Number(Math.max(1, rawSpanY * scaleFactor).toFixed(1)),
+      z: Number(Math.max(1, rawSpanZ * scaleFactor).toFixed(1)),
+    },
+    dominantColorHex,
+  };
 }
 
 export function compileSceneToMesh(scene: SceneSpec): CompiledMesh {
@@ -924,17 +1391,29 @@ export function compileSceneToMesh(scene: SceneSpec): CompiledMesh {
   for (const node of scene.nodes) {
     const localTris = generatePrimitiveRawTriangles(node);
     const isSub = node.operation === 'subtract';
+    const isIdentity =
+      node.position[0] === 0 &&
+      node.position[1] === 0 &&
+      node.position[2] === 0 &&
+      node.rotation[0] === 0 &&
+      node.rotation[1] === 0 &&
+      node.rotation[2] === 0 &&
+      node.scale[0] === 1 &&
+      node.scale[1] === 1 &&
+      node.scale[2] === 1;
+    const faceColor = isSub ? '#f43f5e' : node.color || scene.printProfile.filamentColor || '#00AE42';
+
     for (const [p0, p1, p2] of localTris) {
-      const v0 = transformPoint(p0, node.position, node.rotation, node.scale);
-      const v1 = transformPoint(p1, node.position, node.rotation, node.scale);
-      const v2 = transformPoint(p2, node.position, node.rotation, node.scale);
+      const v0 = isIdentity ? { ...p0 } : transformPoint(p0, node.position, node.rotation, node.scale);
+      const v1 = isIdentity ? { ...p1 } : transformPoint(p1, node.position, node.rotation, node.scale);
+      const v2 = isIdentity ? { ...p2 } : transformPoint(p2, node.position, node.rotation, node.scale);
       const normal = isSub ? computeNormal(v0, v2, v1) : computeNormal(v0, v1, v2);
       rawFaces.push({
-        v0: isSub ? v0 : v0,
+        v0,
         v1: isSub ? v2 : v1,
         v2: isSub ? v1 : v2,
         normal,
-        color: isSub ? '#f43f5e' : node.color || scene.printProfile.filamentColor || '#00AE42',
+        color: faceColor,
         nodeId: node.id,
         isSubtract: isSub,
       });
@@ -981,32 +1460,35 @@ export function compileSceneToMesh(scene: SceneSpec): CompiledMesh {
     maxZ += zShift;
   }
 
-  // Deduplicate vertices for 3MF indexed representation & compute signed volume
-  const vertexMap = new Map<string, number>();
+  // Compute signed volume directly without building large vertex string maps on every render
+  let signedVolumeMm3 = 0;
+  const shouldIndexVertices = rawFaces.length <= 12000;
+  const vertexMap = shouldIndexVertices ? new Map<string, number>() : null;
   const indexedVertices: Vec3[] = [];
   const indexedTriangles: Array<[number, number, number]> = [];
-  let signedVolumeMm3 = 0;
 
   const getVertexIndex = (v: Vec3): number => {
-    const key = `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
-    const existing = vertexMap.get(key);
+    const key = `${v.x.toFixed(2)},${v.y.toFixed(2)},${v.z.toFixed(2)}`;
+    const existing = vertexMap!.get(key);
     if (existing !== undefined) return existing;
     const idx = indexedVertices.length;
     indexedVertices.push({
-      x: Number(v.x.toFixed(3)),
-      y: Number(v.y.toFixed(3)),
-      z: Number(v.z.toFixed(3)),
+      x: Number(v.x.toFixed(2)),
+      y: Number(v.y.toFixed(2)),
+      z: Number(v.z.toFixed(2)),
     });
-    vertexMap.set(key, idx);
+    vertexMap!.set(key, idx);
     return idx;
   };
 
   for (const f of rawFaces) {
-    const i0 = getVertexIndex(f.v0);
-    const i1 = getVertexIndex(f.v1);
-    const i2 = getVertexIndex(f.v2);
-    if (i0 !== i1 && i1 !== i2 && i0 !== i2) {
-      indexedTriangles.push([i0, i1, i2]);
+    if (shouldIndexVertices) {
+      const i0 = getVertexIndex(f.v0);
+      const i1 = getVertexIndex(f.v1);
+      const i2 = getVertexIndex(f.v2);
+      if (i0 !== i1 && i1 !== i2 && i0 !== i2) {
+        indexedTriangles.push([i0, i1, i2]);
+      }
     }
     // Signed tetrahedron volume
     const v321 = f.v2.x * f.v1.y * f.v0.z;
@@ -1039,7 +1521,7 @@ export function compileSceneToMesh(scene: SceneSpec): CompiledMesh {
     indexedTriangles,
     stats: {
       triangleCount: rawFaces.length,
-      vertexCount: indexedVertices.length,
+      vertexCount: shouldIndexVertices ? indexedVertices.length : Math.round(rawFaces.length * 1.5),
       dimensionsMm: { x: dimX, y: dimY, z: dimZ },
       bounds: {
         min: { x: Number(minX.toFixed(2)), y: Number(minY.toFixed(2)), z: Number(minZ.toFixed(2)) },
@@ -1219,11 +1701,34 @@ export function export3mfArchive(mesh: CompiledMesh, scene: SceneSpec): Uint8Arr
   <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
 </Relationships>`;
 
+  let verts = mesh.indexedVertices;
+  let tris = mesh.indexedTriangles;
+  if (verts.length === 0 && mesh.triangles.length > 0) {
+    const vMap = new Map<string, number>();
+    verts = [];
+    tris = [];
+    const getIdx = (v: Vec3): number => {
+      const k = `${v.x.toFixed(2)},${v.y.toFixed(2)},${v.z.toFixed(2)}`;
+      const ex = vMap.get(k);
+      if (ex !== undefined) return ex;
+      const i = verts.length;
+      verts.push({ x: Number(v.x.toFixed(2)), y: Number(v.y.toFixed(2)), z: Number(v.z.toFixed(2)) });
+      vMap.set(k, i);
+      return i;
+    };
+    for (const f of mesh.triangles) {
+      const i0 = getIdx(f.v0);
+      const i1 = getIdx(f.v1);
+      const i2 = getIdx(f.v2);
+      if (i0 !== i1 && i1 !== i2 && i0 !== i2) tris.push([i0, i1, i2]);
+    }
+  }
+
   // Shift object to center of Bambu Lab P1S 256x256mm bed (128, 128, 0)
-  const verticesXml = mesh.indexedVertices
+  const verticesXml = verts
     .map((v) => `          <vertex x="${v.x}" y="${v.y}" z="${v.z}"/>`)
     .join('\n');
-  const trianglesXml = mesh.indexedTriangles
+  const trianglesXml = tris
     .map(([v1, v2, v3]) => `          <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
     .join('\n');
 

@@ -1,0 +1,8 @@
+{
+  "id": "google-usage",
+  "name": "Google Usage & AI",
+  "version": "1.0.0",
+  "description": "Zentrale Übersicht über alle Google API-Aufrufe, Gemini Token-Verbrauch, AI Credits, Quotas und OAuth2-Dienste im Thassi OS.",
+  "icon": "mdi:chart-box-outline",
+  "category": "system"
+}

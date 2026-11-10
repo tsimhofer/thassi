@@ -1,11 +1,14 @@
 import fs from 'node:fs';
 import {
+  compileSceneToMesh,
   DEFAULT_PRINT_PROFILE,
+  parseGlbBufferToMeshData,
   PRESET_TEMPLATES,
   type PrimitiveNode,
   type PrimitiveType,
   type SceneSpec,
 } from '../shared/mesh-engine.js';
+import { translatePromptToEnglish } from './open-library-search.js';
 
 export function discoverGeminiApiKey(): string {
   if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY.trim();
@@ -65,16 +68,16 @@ async function resolveGeminiModels(apiKey: string): Promise<string[]> {
 }
 
 const COLOR_MAP: Array<{ pattern: RegExp; hex: string; label: string }> = [
-  { pattern: /\b(rot|red|crimson|rubin|kirsch)\b/i, hex: '#e11d48', label: 'Apfel-Rot' },
-  { pattern: /\b(grün|gruen|green|bambu|smaragd|lime|granny)\b/i, hex: '#22c55e', label: 'Grün' },
-  { pattern: /\b(blau|blue|kobalt|navy|türkis|cyan)\b/i, hex: '#38bdf8', label: 'Blau / Cyan' },
+  { pattern: /\b(rot|red|crimson|rubin|kirsch)\b/i, hex: '#e11d48', label: 'Rot' },
+  { pattern: /\b(grün|gruen|green|bambu|smaragd|lime|granny)\b/i, hex: '#10b981', label: 'Grün' },
+  { pattern: /\b(blau|blue|kobalt|navy|türkis|cyan|eis)\b/i, hex: '#38bdf8', label: 'Blau / Cyan' },
   { pattern: /\b(gelb|yellow|gold|amber|messing|zitrone)\b/i, hex: '#fbbf24', label: 'Gold / Gelb' },
   { pattern: /\b(orange|kupfer|copper|mandarin)\b/i, hex: '#f97316', label: 'Orange' },
   { pattern: /\b(lila|violett|purple|magenta|beere)\b/i, hex: '#a855f7', label: 'Violett' },
   { pattern: /\b(rosa|pink|koralle)\b/i, hex: '#f43f5e', label: 'Pink / Koralle' },
-  { pattern: /\b(braun|holz|wood|bronze|schoko)\b/i, hex: '#854d0e', label: 'Holz-Braun' },
+  { pattern: /\b(braun|holz|wood|bronze|schoko)\b/i, hex: '#b45309', label: 'Holz-Braun' },
   { pattern: /\b(weiss|weiß|white|klar|farblos|schnee)\b/i, hex: '#f8fafc', label: 'Weiß' },
-  { pattern: /\b(schwarz|black|carbon|anthrazit|grau|grey|silber)\b/i, hex: '#64748b', label: 'Anthrazit / Carbon' },
+  { pattern: /\b(schwarz|black|carbon|anthrazit|grau|grey|silber|titan|metall)\b/i, hex: '#94a3b8', label: 'Titan / Silber' },
 ];
 
 function extractColorFromPrompt(prompt: string): { hex: string; label: string } | null {
@@ -88,11 +91,11 @@ function extractColorFromPrompt(prompt: string): { hex: string; label: string } 
   return null;
 }
 
-const KNOWN_OBJECT_ARCHETYPE_REGEX =
-  /\b(apfel|äpfel|aepfel|apple|birne|pear|tasse|kaffeetasse|teetasse|mug|becher|herz|heart|stern|star|pilz|fliegenpilz|mushroom|flasche|karaffe|bottle|schale|schüssel|schuessel|bowl|obstschale|schach|schachfigur|bauer|könig|koenig|dame|pawn|chess|schneemann|snowman|würfel|wuerfel|cube|pyramide|pyramid|kegel|trichter|cone|donut|torus|zahnrad|gear|ritzel|getriebe|vase|blumentopf|pflanztopf|kelch|organizer|sortierbox|stiftehalter|kopfhörer|kopfhoerer|headphone|wandhalter|tischklemme|winkel|bracket)\b/i;
+export const KNOWN_OBJECT_ARCHETYPE_REGEX =
+  /\b(apfel|äpfel|aepfel|apple|birne|pear|tasse|kaffeetasse|teetasse|mug|becher|herz|heart|stern|star|pilz|fliegenpilz|mushroom|flasche|karaffe|bottle|schale|schüssel|schuessel|bowl|obstschale|schach|schachfigur|bauer|könig|koenig|dame|pawn|chess|schneemann|snowman|würfel|wuerfel|cube|pyramide|pyramid|kegel|trichter|funnel|cone|donut|torus|zahnrad|gear|ritzel|getriebe|vase|blumentopf|pflanztopf|planter|pot|kelch|organizer|sortierbox|stiftehalter|kopfhörer|kopfhoerer|headphone|wandhalter|tischklemme|winkel|bracket|haken|wandhaken|hook|benchy|boot|boat|schiff|tugboat|handyhalter|phone|smartphone|tablet|dock|aufsteller|laptop|rakete|rocket|raumschiff|missile|roboter|robot|figur|männchen|miniature|statue|auto|car|fahrzeug|truck|rennauto|schlüsselanhänger|keychain|schild|tag|plakette|anhänger|coin|medaille|knauf|griff|knob|handle|drehknopf|gehäuse|gehaeuse|case|enclosure|box|dose|raspberry|esp32|kabel|cable|clip|klemme|kabelhalter)\b/i;
 
 const INCREMENTAL_MODIFIER_ONLY_REGEX =
-  /\b(höher|hoeher|breiter|kleiner|flacher|kürzer|kuerzer|größer|groesser|skalier|loch|bohrung|durchbruch|farbe|färbe|faerbe|dreh|rotier|twist|ohne\s+blatt|ohne\s+stiel|biss|abgebissen|halbiere)\b/i;
+  /\b(höher|hoeher|breiter|kleiner|flacher|kürzer|kuerzer|größer|groesser|skalier|loch|bohrung|durchbruch|farbe|färbe|faerbe|dreh|rotier|twist|ohne\s+blatt|ohne\s+stiel|biss|abgebissen|halbiere|füge|fuege|hinzu|entferne|mehr\s+zähne|weniger\s+zähne|wandstärke|dicker|dünner)\b/i;
 
 export function isExplicitObjectCreationPrompt(prompt: string): boolean {
   const lower = prompt.trim().toLowerCase();
@@ -106,8 +109,274 @@ export function isExplicitObjectCreationPrompt(prompt: string): boolean {
 }
 
 /**
+ * Ensures any color is bright enough to be clearly visible on the #09090b dark canvas.
+ */
+function ensureHighContrastColor(hex: string | undefined, fallback = '#10b981'): string {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex.trim())) return fallback;
+  const clean = hex.trim().replace('#', '');
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  if (lum < 65) {
+    // Boost dark colors so they never blend into #09090b canvas
+    const boost = Math.min(140, 95 - lum);
+    const nr = Math.min(255, Math.round(r + boost));
+    const ng = Math.min(255, Math.round(g + boost));
+    const nb = Math.min(255, Math.round(b + boost));
+    return `#${nr.toString(16).padStart(2, '0')}${ng.toString(16).padStart(2, '0')}${nb.toString(16).padStart(2, '0')}`;
+  }
+  return `#${clean}`;
+}
+
+/**
+ * Normalizes arbitrary or AI-generated node parameters so `mesh-engine.ts` always receives exact keys.
+ */
+export function normalizePrimitiveNode(raw: Partial<PrimitiveNode>, idx: number, defaultColor: string): PrimitiveNode {
+  const validTypes = new Set<PrimitiveType>([
+    'box',
+    'cylinder',
+    'sphere',
+    'cone',
+    'torus',
+    'gear',
+    'twisted_vase',
+    'bracket',
+    'hex_organizer',
+    'apple',
+    'lathe',
+    'heart',
+    'star',
+  ]);
+
+  const rawType = String(raw.type || 'box').toLowerCase() as PrimitiveType;
+  const type: PrimitiveType = validTypes.has(rawType) ? rawType : 'box';
+  const op = raw.operation === 'subtract' ? 'subtract' : 'union';
+  const p: Record<string, any> = typeof raw.params === 'object' && raw.params ? { ...raw.params } : {};
+  const normParams: Record<string, number> = {};
+
+  const num = (val: unknown, fb: number, min = 0.5, max = 240): number => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return fb;
+    return Math.max(min, Math.min(max, n));
+  };
+
+  if (raw.type === 'stl_mesh' && Array.isArray(raw.meshData) && raw.meshData.length >= 9) {
+    return {
+      id: raw.id || `node-stl-${idx + 1}-${Date.now()}`,
+      name: raw.name || `STL-Mesh ${idx + 1}`,
+      type: 'stl_mesh',
+      operation: op,
+      position:
+        Array.isArray(raw.position) && raw.position.length === 3
+          ? [Number(raw.position[0]) || 0, Number(raw.position[1]) || 0, Number(raw.position[2]) || 0]
+          : [0, 0, 0],
+      rotation:
+        Array.isArray(raw.rotation) && raw.rotation.length === 3
+          ? [Number(raw.rotation[0]) || 0, Number(raw.rotation[1]) || 0, Number(raw.rotation[2]) || 0]
+          : [0, 0, 0],
+      scale:
+        Array.isArray(raw.scale) && raw.scale.length === 3
+          ? [
+              num(raw.scale[0], 1, 0.1, 10),
+              num(raw.scale[1], 1, 0.1, 10),
+              num(raw.scale[2], 1, 0.1, 10),
+            ]
+          : [1, 1, 1],
+      color: ensureHighContrastColor(raw.color, defaultColor),
+      params: p,
+      meshData: raw.meshData,
+    };
+  }
+
+  switch (type) {
+    case 'box': {
+      normParams.width = num(p.width ?? p.w ?? p.x ?? p.size, 44, 2, 220);
+      normParams.depth = num(p.depth ?? p.d ?? p.y ?? p.length ?? p.size, 44, 2, 220);
+      normParams.height = num(p.height ?? p.h ?? p.z ?? p.thickness, 28, 1.5, 220);
+      normParams.bevel = num(p.bevel ?? p.chamfer ?? p.fillet ?? p.radius, 3, 0, 25);
+      normParams.wallThickness = num(p.wallThickness ?? p.wall ?? 0, 0, 0, 20);
+      break;
+    }
+    case 'cylinder': {
+      const baseR = num(
+        p.radiusBottom ?? p.radius ?? (p.diameter ? Number(p.diameter) / 2 : undefined) ?? p.outerRadius,
+        18,
+        1,
+        120
+      );
+      normParams.radiusBottom = baseR;
+      normParams.radiusTop = num(p.radiusTop ?? p.radius ?? baseR, baseR, 0.8, 120);
+      normParams.innerRadius = num(
+        p.innerRadius ?? p.boreRadius ?? (p.innerDiameter ? Number(p.innerDiameter) / 2 : 0),
+        0,
+        0,
+        Math.min(normParams.radiusBottom, normParams.radiusTop) - 0.8
+      );
+      normParams.height = num(p.height ?? p.h ?? p.length ?? p.z, 32, 1.5, 220);
+      normParams.segments = num(p.segments, 40, 8, 72);
+      break;
+    }
+    case 'cone': {
+      normParams.radiusBottom = num(p.radiusBottom ?? p.radius ?? p.outerRadius, 22, 1.5, 110);
+      normParams.radiusTop = num(p.radiusTop ?? p.topRadius ?? 1.5, 1.5, 0.5, 110);
+      normParams.innerRadius = num(p.innerRadius ?? 0, 0, 0, normParams.radiusBottom - 1);
+      normParams.height = num(p.height ?? p.h, 38, 2, 220);
+      normParams.segments = num(p.segments, 36, 4, 64);
+      break;
+    }
+    case 'sphere': {
+      normParams.radius = num(p.radius ?? (p.diameter ? Number(p.diameter) / 2 : undefined) ?? 20, 20, 2, 110);
+      normParams.domeOnly = p.domeOnly ? 1 : 0;
+      break;
+    }
+    case 'torus': {
+      normParams.radius = num(p.radius ?? p.majorRadius ?? p.outerRadius, 22, 4, 100);
+      normParams.tubeRadius = num(p.tubeRadius ?? p.minorRadius ?? p.thickness ?? 5, 5, 1, normParams.radius - 1);
+      break;
+    }
+    case 'gear': {
+      normParams.teeth = Math.round(num(p.teeth ?? p.toothCount ?? 24, 24, 6, 72));
+      normParams.outerRadius = num(
+        p.outerRadius ?? p.radius ?? (p.diameter ? Number(p.diameter) / 2 : undefined),
+        32,
+        8,
+        110
+      );
+      normParams.toothDepth = num(p.toothDepth ?? normParams.outerRadius * 0.15, 4.5, 1.5, 15);
+      normParams.boreRadius = num(
+        p.boreRadius ?? p.innerRadius ?? (p.boreDiameter ? Number(p.boreDiameter) / 2 : undefined),
+        5,
+        1,
+        normParams.outerRadius * 0.65
+      );
+      normParams.height = num(p.height ?? p.thickness ?? 12, 12, 2, 80);
+      break;
+    }
+    case 'twisted_vase': {
+      normParams.radiusBottom = num(p.radiusBottom ?? p.rBottom ?? p.radius, 26, 8, 95);
+      normParams.radiusTop = num(p.radiusTop ?? p.rTop ?? normParams.radiusBottom * 1.2, 32, 8, 105);
+      normParams.height = num(p.height ?? p.h, 85, 20, 220);
+      normParams.wallThickness = num(p.wallThickness ?? p.wall ?? 2.6, 2.6, 1.2, 8);
+      normParams.twistDeg = num(p.twistDeg ?? p.twist ?? 90, 90, -360, 360);
+      normParams.ribCount = Math.round(num(p.ribCount ?? p.ribs ?? 14, 14, 0, 36));
+      normParams.ribAmplitude = num(p.ribAmplitude ?? 3.0, 3.0, 0, 10);
+      break;
+    }
+    case 'bracket': {
+      normParams.width = num(p.width ?? p.w, 38, 10, 160);
+      normParams.depth = num(p.depth ?? p.d, 58, 16, 160);
+      normParams.height = num(p.height ?? p.h, 68, 16, 180);
+      normParams.thickness = num(p.thickness ?? p.wallThickness ?? 6.5, 6.5, 3, 20);
+      normParams.lipHeight = num(p.lipHeight ?? 18, 18, 0, 60);
+      break;
+    }
+    case 'hex_organizer': {
+      normParams.width = num(p.width ?? 84, 84, 24, 220);
+      normParams.depth = num(p.depth ?? 56, 56, 24, 220);
+      normParams.height = num(p.height ?? 38, 38, 12, 140);
+      normParams.wallThickness = num(p.wallThickness ?? 2.4, 2.4, 1.4, 6);
+      normParams.slotsX = Math.round(num(p.slotsX ?? p.cols ?? 3, 3, 1, 5));
+      normParams.slotsY = Math.round(num(p.slotsY ?? p.rows ?? 2, 2, 1, 4));
+      break;
+    }
+    case 'apple': {
+      normParams.radius = num(p.radius ?? 34, 34, 10, 95);
+      normParams.height = num(p.height ?? 58, 58, 15, 160);
+      normParams.lobeCount = Math.round(num(p.lobeCount ?? 5, 5, 0, 12));
+      normParams.lobeAmplitude = num(p.lobeAmplitude ?? 1.4, 1.4, 0, 8);
+      normParams.topIndent = num(p.topIndent ?? 11, 11, 2, 30);
+      normParams.bottomIndent = num(p.bottomIndent ?? 5, 5, 1, 20);
+      normParams.segments = Math.round(num(p.segments ?? 36, 36, 16, 64));
+      break;
+    }
+    case 'lathe': {
+      const h = num(p.height ?? p.h, 70, 12, 220);
+      const rB = num(p.rBottom ?? p.radiusBottom ?? p.radius ?? 24, 24, 2, 100);
+      const rL = num(p.rLower ?? rB * 1.25, rB * 1.25, 2, 110);
+      const rM = num(p.rMid ?? rL * 0.95, rL * 0.95, 2, 110);
+      const rU = num(p.rUpper ?? rM * 0.85, rM * 0.85, 2, 110);
+      const rN = num(p.rNeck ?? rU * 0.7, rU * 0.7, 1.5, 110);
+      const rT = num(p.rTop ?? p.radiusTop ?? rN, rN, 1.5, 110);
+      normParams.height = h;
+      normParams.rBottom = rB;
+      normParams.rLower = rL;
+      normParams.rMid = rM;
+      normParams.rUpper = rU;
+      normParams.rNeck = rN;
+      normParams.rTop = rT;
+      normParams.topIndent = num(p.topIndent ?? 0, 0, 0, h * 0.7);
+      normParams.bottomIndent = num(p.bottomIndent ?? 0, 0, 0, h * 0.25);
+      normParams.wallThickness = num(p.wallThickness ?? p.wall ?? 0, 0, 0, 12);
+      normParams.lobeCount = Math.round(num(p.lobeCount ?? 0, 0, 0, 24));
+      normParams.lobeAmplitude = num(p.lobeAmplitude ?? 0, 0, 0, 10);
+      normParams.segments = Math.round(num(p.segments ?? 36, 36, 16, 64));
+      break;
+    }
+    case 'heart': {
+      normParams.width = num(p.width ?? 66, 66, 16, 180);
+      normParams.depth = num(p.depth ?? 60, 60, 16, 180);
+      normParams.height = num(p.height ?? 22, 22, 4, 90);
+      normParams.bevel = num(p.bevel ?? 4, 4, 0, 18);
+      break;
+    }
+    case 'star': {
+      normParams.points = Math.round(num(p.points ?? 5, 5, 3, 14));
+      normParams.outerRadius = num(p.outerRadius ?? p.radius ?? 40, 40, 10, 110);
+      normParams.innerRadius = num(
+        p.innerRadius ?? normParams.outerRadius * 0.44,
+        normParams.outerRadius * 0.44,
+        4,
+        normParams.outerRadius * 0.85
+      );
+      normParams.height = num(p.height ?? 18, 18, 4, 80);
+      break;
+    }
+  }
+
+  const pos: [number, number, number] =
+    Array.isArray(raw.position) && raw.position.length === 3
+      ? [
+          num(raw.position[0], 0, -110, 110),
+          num(raw.position[1], 0, -110, 110),
+          num(raw.position[2], 0, -40, 180),
+        ]
+      : [0, 0, 0];
+
+  const rot: [number, number, number] =
+    Array.isArray(raw.rotation) && raw.rotation.length === 3
+      ? [
+          Number(raw.rotation[0]) || 0,
+          Number(raw.rotation[1]) || 0,
+          Number(raw.rotation[2]) || 0,
+        ]
+      : [0, 0, 0];
+
+  const scale: [number, number, number] =
+    Array.isArray(raw.scale) && raw.scale.length === 3
+      ? [
+          num(raw.scale[0], 1, 0.15, 4),
+          num(raw.scale[1], 1, 0.15, 4),
+          num(raw.scale[2], 1, 0.15, 4),
+        ]
+      : [1, 1, 1];
+
+  return {
+    id: raw.id || `node-${idx + 1}-${Date.now()}`,
+    name: raw.name || `Bauteil ${idx + 1}`,
+    type,
+    operation: op,
+    position: pos,
+    rotation: rot,
+    scale,
+    color: op === 'subtract' ? '#f43f5e' : ensureHighContrastColor(raw.color, defaultColor),
+    params: normParams,
+  };
+}
+
+/**
  * Deterministic Antigravity Parametric CAD synthesizer & modifier.
- * Handles both initial 3D object creation from prompt and iterative modifications to an active SceneSpec.
+ * Produces rich, multi-part, immediately recognizable 3D assemblies for any prompt.
  */
 export function runLocalAntigravityCadEngine(
   prompt: string,
@@ -118,7 +387,6 @@ export function runLocalAntigravityCadEngine(
   const nowIso = new Date().toISOString();
   const colorMatch = extractColorFromPrompt(cleanPrompt);
 
-  // CASE A: If no existing scene OR prompt requests creating a specific object archetype
   const isNewRequest = !existingScene || isExplicitObjectCreationPrompt(cleanPrompt);
 
   if (isNewRequest) {
@@ -159,11 +427,11 @@ export function runLocalAntigravityCadEngine(
       }
 
       baseScene.title =
-        colorMatch && colorMatch.label !== 'Apfel-Rot'
+        colorMatch && colorMatch.label !== 'Rot'
           ? `3D-Apfel (${colorMatch.label})`
           : '3D-Apfel mit Stiel & Blatt';
       baseScene.description = `Organischer 3D-Apfel generiert aus Prompt: "${cleanPrompt}"`;
-      summary = `Naturgetreuer 3D-Apfel (Ø${(bodyNode?.params.radius || 34) * 2}×${(bodyNode?.params.height || 58) + 8}mm) mit oberer Stielgrube, unterer Kelch-Einbuchtung, 5-fach gewölbtem Fruchtkörper, braunem Stiel und grünem Blatt generiert.`;
+      summary = `Naturgetreuer 3D-Apfel (Ø${(bodyNode?.params.radius || 34) * 2}×${(bodyNode?.params.height || 58) + 8}mm) mit Stielgrube, Stiel und Blatt generiert.`;
     } else if (/\b(birne|pear)\b/i.test(lower)) {
       preserveNodeColors = true;
       const bodyColor = colorMatch?.hex || '#84cc16';
@@ -178,7 +446,7 @@ export function runLocalAntigravityCadEngine(
         nodes: [
           {
             id: 'node-pear-body',
-            name: 'Birnen-Fruchtkörper (Rotationsprofil)',
+            name: 'Birnen-Fruchtkörper',
             type: 'lathe',
             operation: 'union',
             position: [0, 0, 0],
@@ -208,7 +476,7 @@ export function runLocalAntigravityCadEngine(
             position: [1, 0, 73],
             rotation: [0, 12, 0],
             scale: [1, 1, 1],
-            color: '#854d0e',
+            color: '#b45309',
             params: { radiusBottom: 2.2, radiusTop: 3.0, height: 18, segments: 18 },
           },
           {
@@ -219,14 +487,643 @@ export function runLocalAntigravityCadEngine(
             position: [11, 0, 81],
             rotation: [15, -25, 10],
             scale: [1.7, 0.75, 0.22],
-            color: '#16a34a',
+            color: '#10b981',
             params: { radius: 8.5, domeOnly: 0 },
           },
         ],
         promptHistory: [],
       };
-      summary = 'Organische 3D-Birne (Ø68×91mm) mit bauchiger Unterseite, schlankem Hals, Stiel und Blatt erstellt.';
-    } else if (/\b(tasse|kaffeetasse|teetasse|mug|haferl)\b/i.test(lower)) {
+      summary = 'Organische 3D-Birne (Ø68×91mm) mit Stiel und Blatt erstellt.';
+    } else if (/\b(benchy|boot|boat|schiff|tugboat|dampfer|kutter)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const hullColor = colorMatch?.hex || '#38bdf8';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3DBenchy — Schiffsmodell mit Kabine & Schornstein',
+        description: `Mehrteiliges Boot-Benchmarkmodell generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: hullColor },
+        nodes: [
+          {
+            id: 'node-boat-hull-lower',
+            name: 'Schiffsrumpf (Unterwasserschiff)',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: hullColor,
+            params: { width: 60, depth: 31, height: 13, bevel: 8, wallThickness: 0 },
+          },
+          {
+            id: 'node-boat-hull-deck',
+            name: 'Oberdeck & Bordwand',
+            type: 'box',
+            operation: 'union',
+            position: [2, 0, 11],
+            rotation: [0, -3, 0],
+            scale: [1, 1, 1],
+            color: hullColor,
+            params: { width: 66, depth: 34, height: 8, bevel: 9, wallThickness: 3.2 },
+          },
+          {
+            id: 'node-boat-bow',
+            name: 'Bugspitze (Vorsteven)',
+            type: 'cone',
+            operation: 'union',
+            position: [28, 0, 11],
+            rotation: [0, 72, 0],
+            scale: [0.65, 1.0, 1.0],
+            color: hullColor,
+            params: { radiusBottom: 15, radiusTop: 2, height: 18, segments: 24 },
+          },
+          {
+            id: 'node-boat-cabin',
+            name: 'Steuerhaus / Brücke',
+            type: 'box',
+            operation: 'union',
+            position: [3, 0, 16],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f8fafc',
+            params: { width: 26, depth: 24, height: 22, bevel: 3.5, wallThickness: 3.0 },
+          },
+          {
+            id: 'node-boat-roof',
+            name: 'Kabinen-Dachschild',
+            type: 'box',
+            operation: 'union',
+            position: [3, 0, 37],
+            rotation: [0, -4, 0],
+            scale: [1, 1, 1],
+            color: hullColor,
+            params: { width: 31, depth: 28, height: 4, bevel: 3, wallThickness: 0 },
+          },
+          {
+            id: 'node-boat-chimney',
+            name: 'Schräger Dampfer-Schornstein',
+            type: 'cylinder',
+            operation: 'union',
+            position: [9, 0, 39],
+            rotation: [0, 22, 0],
+            scale: [1, 1, 1],
+            color: '#f97316',
+            params: { radiusBottom: 4.5, radiusTop: 5.2, innerRadius: 2.6, height: 14, segments: 28 },
+          },
+          {
+            id: 'node-boat-window',
+            name: 'Brückenfenster-Durchbruch',
+            type: 'cylinder',
+            operation: 'subtract',
+            position: [3, 0, 27],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f43f5e',
+            params: { radiusBottom: 6.5, radiusTop: 6.5, height: 32, segments: 24 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Mehrteiliges 3DBenchy-Schiffsmodell (74×34×52mm) mit Rumpf, Steuerhaus, Brückenfenster und geneigtem Schornstein generiert.';
+    } else if (/\b(handyhalter|phone|smartphone|tablet|dock|aufsteller|handyständer|handystaender)\b/i.test(lower)) {
+      const standColor = colorMatch?.hex || '#10b981';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Ergonomischer Smartphone- & Tablet-Dock',
+        description: `Winkel-Aufsteller mit Ladekabel-Kanal generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: standColor },
+        nodes: [
+          {
+            id: 'node-phone-base',
+            name: 'Standfuß-Platte',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: standColor,
+            params: { width: 78, depth: 86, height: 7, bevel: 5, wallThickness: 0 },
+          },
+          {
+            id: 'node-phone-backrest',
+            name: 'Geneigte Rückenstütze (68°)',
+            type: 'box',
+            operation: 'union',
+            position: [0, 8, 5],
+            rotation: [-22, 0, 0],
+            scale: [1, 1, 1],
+            color: standColor,
+            params: { width: 72, depth: 7, height: 92, bevel: 3.5, wallThickness: 0 },
+          },
+          {
+            id: 'node-phone-lip',
+            name: 'Vordere Haltelippe (Rutschschutz)',
+            type: 'box',
+            operation: 'union',
+            position: [0, -28, 5],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: standColor,
+            params: { width: 74, depth: 14, height: 18, bevel: 3.5, wallThickness: 0 },
+          },
+          {
+            id: 'node-phone-strut',
+            name: 'Hintere Stützstrebe',
+            type: 'box',
+            operation: 'union',
+            position: [0, 26, 5],
+            rotation: [24, 0, 0],
+            scale: [1, 1, 1],
+            color: standColor,
+            params: { width: 46, depth: 7, height: 58, bevel: 2.5, wallThickness: 0 },
+          },
+          {
+            id: 'node-usb-cutout',
+            name: 'USB-C Ladekabel-Aussparung',
+            type: 'box',
+            operation: 'subtract',
+            position: [0, -24, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f43f5e',
+            params: { width: 20, depth: 32, height: 24, bevel: 2, wallThickness: 0 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Smartphone- & Tablet-Dock (78×86×94mm) mit 68° Neigungswinkel, Haltelippe und USB-C Kabeldurchführung generiert.';
+    } else if (/\b(rakete|rocket|raumschiff|spaceship|apollo|falcon|missile)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const bodyColor = colorMatch?.hex || '#f8fafc';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Mehrstufige Weltraum-Rakete mit Leitwerken',
+        description: `Aerodynamische 3D-Rakete generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: bodyColor },
+        nodes: [
+          {
+            id: 'node-rocket-nozzle',
+            name: 'Triebwerksdüse (Schubglocke)',
+            type: 'cone',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 15, radiusTop: 10, innerRadius: 7, height: 14, segments: 32 },
+          },
+          {
+            id: 'node-rocket-fuselage',
+            name: 'Raketenrumpf (Hauptstufe)',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 12],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: bodyColor,
+            params: {
+              height: 86,
+              rBottom: 14,
+              rLower: 18,
+              rMid: 18.5,
+              rUpper: 17,
+              rNeck: 13,
+              rTop: 9,
+              segments: 40,
+            },
+          },
+          {
+            id: 'node-rocket-nose',
+            name: 'Aerodynamische Raketenspitze',
+            type: 'cone',
+            operation: 'union',
+            position: [0, 0, 96],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#e11d48',
+            params: { radiusBottom: 9.5, radiusTop: 0.8, height: 28, segments: 36 },
+          },
+          {
+            id: 'node-rocket-fin-1',
+            name: 'Leitwerk-Finne X',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 2],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#e11d48',
+            params: { width: 58, depth: 4.5, height: 34, bevel: 2, wallThickness: 0 },
+          },
+          {
+            id: 'node-rocket-fin-2',
+            name: 'Leitwerk-Finne Y',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 2],
+            rotation: [0, 0, 90],
+            scale: [1, 1, 1],
+            color: '#e11d48',
+            params: { width: 58, depth: 4.5, height: 34, bevel: 2, wallThickness: 0 },
+          },
+          {
+            id: 'node-rocket-porthole',
+            name: 'Kabinen-Bullauge',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, -16, 66],
+            rotation: [0, 0, 0],
+            scale: [1, 0.5, 1],
+            color: '#38bdf8',
+            params: { radius: 6.5, domeOnly: 0 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Mehrstufige 3D-Rakete (Ø58×124mm) mit Schubdüse, Kreuz-Leitwerken, Bullauge und roter Spitze erstellt.';
+    } else if (/\b(roboter|robot|bot|androide|figur|männchen|maennchen|miniature|statue|charakter)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const mainCol = colorMatch?.hex || '#38bdf8';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Artikulierter Mecha-Roboter (Print-in-Place Stil)',
+        description: `Mehrteilige Roboter-Figur generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: mainCol },
+        nodes: [
+          {
+            id: 'node-robot-leg-l',
+            name: 'Linkes Standbein & Fuß',
+            type: 'box',
+            operation: 'union',
+            position: [-12, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { width: 14, depth: 20, height: 28, bevel: 2.5, wallThickness: 0 },
+          },
+          {
+            id: 'node-robot-leg-r',
+            name: 'Rechtes Standbein & Fuß',
+            type: 'box',
+            operation: 'union',
+            position: [12, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { width: 14, depth: 20, height: 28, bevel: 2.5, wallThickness: 0 },
+          },
+          {
+            id: 'node-robot-torso',
+            name: 'Gepanzerter Torso-Kern',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 26],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: mainCol,
+            params: { width: 42, depth: 26, height: 38, bevel: 4, wallThickness: 0 },
+          },
+          {
+            id: 'node-robot-core',
+            name: 'Brust-Reaktorring',
+            type: 'cylinder',
+            operation: 'union',
+            position: [0, -14, 45],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#fbbf24',
+            params: { radiusBottom: 8, radiusTop: 8, innerRadius: 3.5, height: 5, segments: 28 },
+          },
+          {
+            id: 'node-robot-arm-l',
+            name: 'Linker Greifarm',
+            type: 'cylinder',
+            operation: 'union',
+            position: [-26, 0, 32],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 6, radiusTop: 6.5, height: 28, segments: 24 },
+          },
+          {
+            id: 'node-robot-arm-r',
+            name: 'Rechter Greifarm',
+            type: 'cylinder',
+            operation: 'union',
+            position: [26, 0, 32],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 6, radiusTop: 6.5, height: 28, segments: 24 },
+          },
+          {
+            id: 'node-robot-head',
+            name: 'Sensorkopf mit Visier',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 64],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: mainCol,
+            params: { width: 28, depth: 22, height: 20, bevel: 4, wallThickness: 0 },
+          },
+          {
+            id: 'node-robot-antenna',
+            name: 'Kopf-Antenne',
+            type: 'cylinder',
+            operation: 'union',
+            position: [0, 0, 84],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f97316',
+            params: { radiusBottom: 2, radiusTop: 3.5, height: 12, segments: 18 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = '8-teilige Mecha-Roboterfigur (64×26×96mm) mit Beinen, Torso-Reaktor, Greifarmen, Visierkopf und Antenne erstellt.';
+    } else if (/\b(auto|car|fahrzeug|truck|lkw|rennauto|sportwagen|mobil)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const carColor = colorMatch?.hex || '#e11d48';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Aerodynamisches Concept-Car mit 4 Rädern',
+        description: `3D-Fahrzeugmodell generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: carColor },
+        nodes: [
+          {
+            id: 'node-car-chassis',
+            name: 'Fahrzeug-Karosserie',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 6],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: carColor,
+            params: { width: 88, depth: 42, height: 15, bevel: 5, wallThickness: 0 },
+          },
+          {
+            id: 'node-car-cabin',
+            name: 'Sport-Cockpit / Dachkuppel',
+            type: 'box',
+            operation: 'union',
+            position: [-4, 0, 19],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#38bdf8',
+            params: { width: 46, depth: 34, height: 14, bevel: 6, wallThickness: 0 },
+          },
+          {
+            id: 'node-car-spoiler',
+            name: 'Heckspoiler-Flügel',
+            type: 'box',
+            operation: 'union',
+            position: [-38, 0, 21],
+            rotation: [0, 10, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { width: 12, depth: 44, height: 6, bevel: 1.5, wallThickness: 0 },
+          },
+          {
+            id: 'node-wheel-fl',
+            name: 'Vorderrad Links',
+            type: 'cylinder',
+            operation: 'union',
+            position: [25, -24, 11],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 11, radiusTop: 11, innerRadius: 4, height: 8, segments: 28 },
+          },
+          {
+            id: 'node-wheel-fr',
+            name: 'Vorderrad Rechts',
+            type: 'cylinder',
+            operation: 'union',
+            position: [25, 16, 11],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 11, radiusTop: 11, innerRadius: 4, height: 8, segments: 28 },
+          },
+          {
+            id: 'node-wheel-rl',
+            name: 'Hinterrad Links',
+            type: 'cylinder',
+            operation: 'union',
+            position: [-25, -24, 11],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 11, radiusTop: 11, innerRadius: 4, height: 8, segments: 28 },
+          },
+          {
+            id: 'node-wheel-rr',
+            name: 'Hinterrad Rechts',
+            type: 'cylinder',
+            operation: 'union',
+            position: [-25, 16, 11],
+            rotation: [90, 0, 0],
+            scale: [1, 1, 1],
+            color: '#94a3b8',
+            params: { radiusBottom: 11, radiusTop: 11, innerRadius: 4, height: 8, segments: 28 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = '3D-Fahrzeugmodell (88×48×33mm) mit Karosserie, Cockpit-Kuppel, Heckspoiler und 4 Rädern generiert.';
+    } else if (/\b(schlüsselanhänger|schluesselanhaenger|keychain|schild|tag|plakette|anhänger|anhaenger|coin|medaille|badge)\b/i.test(lower)) {
+      preserveNodeColors = true;
+      const badgeColor = colorMatch?.hex || '#fbbf24';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: '3D-Schlüsselanhänger / Emblem-Tag mit Ringöse',
+        description: `Präzisions-Keychain generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: badgeColor },
+        nodes: [
+          {
+            id: 'node-keychain-plate',
+            name: 'Gefaste Trägerplatte',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: badgeColor,
+            params: { width: 64, depth: 34, height: 5, bevel: 10, wallThickness: 0 },
+          },
+          {
+            id: 'node-keychain-star',
+            name: 'Erhabenes 3D-Stern-Relief',
+            type: 'star',
+            operation: 'union',
+            position: [6, 0, 4.5],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f8fafc',
+            params: { points: 5, outerRadius: 12, innerRadius: 5.5, height: 3.5 },
+          },
+          {
+            id: 'node-keychain-hole',
+            name: 'Schlüsselring-Bohrung (Ø7mm)',
+            type: 'cylinder',
+            operation: 'subtract',
+            position: [-22, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f43f5e',
+            params: { radiusBottom: 3.5, radiusTop: 3.5, height: 14, segments: 24 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Schlüsselanhänger-Plakette (64×34×8mm) mit erhabenem Relief-Emblem und Ø7mm Schlüsselring-Bohrung erstellt.';
+    } else if (/\b(gehäuse|gehaeuse|case|enclosure|raspberry|esp32|arduino|elektronikbox|verteilerdose)\b/i.test(lower)) {
+      const boxCol = colorMatch?.hex || '#38bdf8';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Elektronik-Gehäuse mit Standoffs & Port-Durchbruch',
+        description: `Funktionales Gehäuse generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: boxCol },
+        nodes: [
+          {
+            id: 'node-enc-shell',
+            name: 'Hohle Gehäuse-Wanne (2.8mm Wand)',
+            type: 'box',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: boxCol,
+            params: { width: 92, depth: 64, height: 34, bevel: 5, wallThickness: 2.8 },
+          },
+          {
+            id: 'node-standoff-1',
+            name: 'Platinen-Standoff VL (M3)',
+            type: 'cylinder',
+            operation: 'union',
+            position: [-36, -22, 2],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: boxCol,
+            params: { radiusBottom: 4, radiusTop: 4, innerRadius: 1.5, height: 8, segments: 20 },
+          },
+          {
+            id: 'node-standoff-2',
+            name: 'Platinen-Standoff VR (M3)',
+            type: 'cylinder',
+            operation: 'union',
+            position: [36, -22, 2],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: boxCol,
+            params: { radiusBottom: 4, radiusTop: 4, innerRadius: 1.5, height: 8, segments: 20 },
+          },
+          {
+            id: 'node-standoff-3',
+            name: 'Platinen-Standoff HL (M3)',
+            type: 'cylinder',
+            operation: 'union',
+            position: [-36, 22, 2],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: boxCol,
+            params: { radiusBottom: 4, radiusTop: 4, innerRadius: 1.5, height: 8, segments: 20 },
+          },
+          {
+            id: 'node-standoff-4',
+            name: 'Platinen-Standoff HR (M3)',
+            type: 'cylinder',
+            operation: 'union',
+            position: [36, 22, 2],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: boxCol,
+            params: { radiusBottom: 4, radiusTop: 4, innerRadius: 1.5, height: 8, segments: 20 },
+          },
+          {
+            id: 'node-usb-port',
+            name: 'Seitlicher USB / Kabel-Ausschnitt',
+            type: 'box',
+            operation: 'subtract',
+            position: [45, 0, 12],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f43f5e',
+            params: { width: 14, depth: 18, height: 12, bevel: 1, wallThickness: 0 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Elektronik-Gehäuse (92×64×34mm, 2.8mm Wandstärke) mit 4 M3-Platinen-Standoffs und USB-Port-Ausschnitt erstellt.';
+    } else if (/\b(knauf|griff|knob|handle|drehknopf|schubladengriff)\b/i.test(lower)) {
+      const knobCol = colorMatch?.hex || '#f59e0b';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Geriffelter Drehknopf / Möbelknauf mit M4-Aufnahme',
+        description: `Ergonomischer Griffknauf generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: knobCol },
+        nodes: [
+          {
+            id: 'node-knob-neck',
+            name: 'Distanzschaft mit M4-Bohrung',
+            type: 'cylinder',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: knobCol,
+            params: { radiusBottom: 11, radiusTop: 10, innerRadius: 2.1, height: 16, segments: 32 },
+          },
+          {
+            id: 'node-knob-head',
+            name: 'Verzahnter Griffkranz (18 Mulden)',
+            type: 'gear',
+            operation: 'union',
+            position: [0, 0, 14],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: knobCol,
+            params: { teeth: 18, outerRadius: 22, toothDepth: 2.2, boreRadius: 2.1, height: 18 },
+          },
+          {
+            id: 'node-knob-cap',
+            name: 'Gewölbte Griffkuppel',
+            type: 'sphere',
+            operation: 'union',
+            position: [0, 0, 30],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 0.45],
+            color: knobCol,
+            params: { radius: 20, domeOnly: 1 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Ergonomischer Drehknopf / Knauf (Ø44×39mm) mit 18 Griffmulden, Schaft und M4-Innenbohrung erstellt.';
+    } else if (/\b(tasse|kaffeetasse|teetasse|mug|haferl|becher)\b/i.test(lower)) {
       const mugColor = colorMatch?.hex || '#38bdf8';
       baseScene = {
         projectId: `proj-${Date.now()}`,
@@ -490,7 +1387,7 @@ export function runLocalAntigravityCadEngine(
       preserveNodeColors = true;
       baseScene = {
         projectId: `proj-${Date.now()}`,
-        title: '3D-Schneemann mit Hut & Karottennase',
+        title: '3D-Schneemann mit Karottennase',
         description: `Generiert aus Prompt: "${cleanPrompt}"`,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -565,7 +1462,7 @@ export function runLocalAntigravityCadEngine(
       }
       baseScene.title = `Stirnzahnrad Z${gearNode.params.teeth}`;
       summary = `Präzisions-Zahnrad mit ${gearNode.params.teeth} Zähnen (Ø${gearNode.params.outerRadius * 2}mm, Bohrung Ø${(gearNode.params.boreRadius || 5) * 2}mm) generiert.`;
-    } else if (/\b(vase|blumentopf|topf|gefäß|gefaess|spiral|kelch|lampe)\b/i.test(lower)) {
+    } else if (/\b(vase|blumentopf|pflanztopf|topf|planter|pot|gefäß|gefaess|spiral|kelch|lampe)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.twisted_rib_vase();
       const heightMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm\s*(?:hoch|höhe|hoehe|high)/i);
       const ribMatch = lower.match(/(\d+)\s*(?:rippen|ribs|rillen)/i);
@@ -574,7 +1471,7 @@ export function runLocalAntigravityCadEngine(
       if (ribMatch) vaseNode.params.ribCount = Math.max(0, Math.min(36, Number(ribMatch[1])));
       baseScene.title = `Spiral-Designvase (${vaseNode.params.height}mm)`;
       summary = `Skulpturale Torsions-Vase (Höhe ${vaseNode.params.height}mm, ${vaseNode.params.ribCount} Rippen) erstellt.`;
-    } else if (/\b(organizer|kasten|schublade|sortier|fach|fächer|faecher|tray|stiftehalter|halterung für kabel)\b/i.test(lower)) {
+    } else if (/\b(organizer|kasten|schublade|sortier|fach|fächer|faecher|tray|stiftehalter|kabelhalter|kabel|cable|clip)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.smart_home_organizer();
       const orgNode = baseScene.nodes[0];
       const gridMatch = lower.match(/(\d+)\s*[x×]\s*(\d+)/);
@@ -584,10 +1481,47 @@ export function runLocalAntigravityCadEngine(
       }
       baseScene.title = `Modularer Organizer (${orgNode.params.slotsX}×${orgNode.params.slotsY} Fächer)`;
       summary = `Organizer-Box (${orgNode.params.width}×${orgNode.params.depth}×${orgNode.params.height}mm) mit ${orgNode.params.slotsX * orgNode.params.slotsY} Kammern generiert.`;
-    } else if (/\b(kopfhörer|kopfhoerer|headphone|haken|hook|winkel|bracket|wandhalter|tischklemme|klemme|ständer|staender)\b/i.test(lower)) {
+    } else if (/\b(kopfhörer|kopfhoerer|headphone|haken|wandhaken|hook|winkel|bracket|wandhalter|tischklemme|klemme|ständer|staender)\b/i.test(lower)) {
       baseScene = PRESET_TEMPLATES.desk_headphone_stand();
       baseScene.title = cleanPrompt.length <= 42 ? cleanPrompt : 'Tisch- & Wandhalterung (Bracket)';
       summary = `Verstärkte Halterung / Tischklemme (38×62×74mm) mit Kabeldurchführung generiert.`;
+    } else if (/\b(trichter|funnel)\b/i.test(lower)) {
+      const funnelCol = colorMatch?.hex || '#f97316';
+      baseScene = {
+        projectId: `proj-${Date.now()}`,
+        title: 'Präzisions-Einfülltrichter mit Auslaufrohr',
+        description: `Hohler Trichter generiert aus Prompt: "${cleanPrompt}"`,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        buildPlateMm: [256, 256, 256],
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: funnelCol },
+        nodes: [
+          {
+            id: 'node-funnel-spout',
+            name: 'Unteres Auslaufrohr',
+            type: 'cylinder',
+            operation: 'union',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: funnelCol,
+            params: { radiusBottom: 7, radiusTop: 8, innerRadius: 5, height: 28, segments: 36 },
+          },
+          {
+            id: 'node-funnel-cone',
+            name: 'Oberer Trichterkonus',
+            type: 'cone',
+            operation: 'union',
+            position: [0, 0, 26],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: funnelCol,
+            params: { radiusBottom: 8, radiusTop: 38, innerRadius: 5.5, height: 48, segments: 44 },
+          },
+        ],
+        promptHistory: [],
+      };
+      summary = 'Hohler Einfülltrichter (Ø76×74mm) mit Auslaufrohr erstellt.';
     } else if (/\b(kugel|sphere|ball|kuppel|dome|murmel)\b/i.test(lower)) {
       const rMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
       const rad = rMatch ? Math.max(8, Number(rMatch[1].replace(',', '.')) / 2) : 28;
@@ -608,14 +1542,14 @@ export function runLocalAntigravityCadEngine(
             position: [0, 0, 0],
             rotation: [0, 0, 0],
             scale: [1, 1, 1],
-            color: colorMatch?.hex || '#00AE42',
+            color: colorMatch?.hex || '#10b981',
             params: { radius: rad, domeOnly: /\b(kuppel|dome|halbkugel)\b/i.test(lower) ? 1 : 0 },
           },
         ],
         promptHistory: [],
       };
       summary = `Sphären-Geometrie (Ø${rad * 2}mm) auf der Bauplatte erstellt.`;
-    } else if (/\b(pyramide|pyramid|kegel|cone|trichter)\b/i.test(lower)) {
+    } else if (/\b(pyramide|pyramid|kegel|cone)\b/i.test(lower)) {
       const isPyramid = /\b(pyramide|pyramid)\b/i.test(lower);
       baseScene = {
         projectId: `proj-${Date.now()}`,
@@ -723,37 +1657,90 @@ export function runLocalAntigravityCadEngine(
       };
       summary = `Zylinder-Adapter (Außen-Ø${outerR * 2}mm, Innen-Ø${(innerR * 2).toFixed(1)}mm, Höhe ${height}mm) erstellt.`;
     } else {
-      // Sculptural rotational / custom CAD object fallback
+      // Multi-part sculpted CAD assembly fallback (NEVER a single boring cube!)
       const dims = (lower.match(/(\d+(?:[.,]\d+)?)\s*mm/g) || []).map((s) =>
         Number(s.replace(/mm/i, '').replace(',', '.').trim())
       );
-      const w = dims[0] || 60;
-      const d = dims[1] || 48;
-      const h = dims[2] || 36;
+      const w = dims[0] || 68;
+      const d = dims[1] || 56;
+      const h = dims[2] || 54;
+      const mainColor = colorMatch?.hex || '#10b981';
+
       baseScene = {
         projectId: `proj-${Date.now()}`,
-        title: cleanPrompt.slice(0, 48) || 'Antigravity 3D-Objekt',
-        description: `KI-generiertes 3D-Druckmodell für "${cleanPrompt}"`,
+        title: cleanPrompt.slice(0, 48) || 'Parametrische 3D-Baugruppe',
+        description: `Mehrteiliges 3D-Druckmodell für "${cleanPrompt}"`,
         createdAt: nowIso,
         updatedAt: nowIso,
         buildPlateMm: [256, 256, 256],
-        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: colorMatch?.hex || '#00AE42' },
+        printProfile: { ...DEFAULT_PRINT_PROFILE, filamentColor: mainColor },
         nodes: [
           {
-            id: 'node-base-chassis',
-            name: 'Hauptkörper (Gefast)',
+            id: 'node-base-plate',
+            name: 'Gefaster Grundsockel mit Montageflansch',
             type: 'box',
             operation: 'union',
             position: [0, 0, 0],
             rotation: [0, 0, 0],
             scale: [1, 1, 1],
-            color: colorMatch?.hex || '#00AE42',
-            params: { width: w, depth: d, height: h, bevel: 5, wallThickness: /\b(hohl|gehäuse|box)\b/i.test(lower) ? 2.8 : 0 },
+            color: mainColor,
+            params: { width: w, depth: d, height: 10, bevel: 5, wallThickness: 0 },
+          },
+          {
+            id: 'node-sculpted-core',
+            name: 'Konturierter Hauptkörper (Rotationsprofil)',
+            type: 'lathe',
+            operation: 'union',
+            position: [0, 0, 8],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: mainColor,
+            params: {
+              height: Math.max(24, h - 8),
+              rBottom: Math.round(Math.min(w, d) * 0.36),
+              rLower: Math.round(Math.min(w, d) * 0.42),
+              rMid: Math.round(Math.min(w, d) * 0.34),
+              rUpper: Math.round(Math.min(w, d) * 0.38),
+              rNeck: Math.round(Math.min(w, d) * 0.26),
+              rTop: Math.round(Math.min(w, d) * 0.3),
+              lobeCount: 6,
+              lobeAmplitude: 1.8,
+              wallThickness: /\b(hohl|gehäuse|box|topf)\b/i.test(lower) ? 2.8 : 0,
+              segments: 40,
+            },
+          },
+          {
+            id: 'node-top-crown',
+            name: 'Oberer Abschlusskranz',
+            type: 'gear',
+            operation: 'union',
+            position: [0, 0, Math.max(22, h - 10)],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#38bdf8',
+            params: {
+              teeth: 16,
+              outerRadius: Math.round(Math.min(w, d) * 0.32),
+              toothDepth: 2.2,
+              boreRadius: 6,
+              height: 10,
+            },
+          },
+          {
+            id: 'node-center-bore',
+            name: 'Zentrale Funktionsbohrung',
+            type: 'cylinder',
+            operation: 'subtract',
+            position: [0, 0, 4],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: '#f43f5e',
+            params: { radiusBottom: 6, radiusTop: 6, height: h + 10, segments: 28 },
           },
         ],
         promptHistory: [],
       };
-      summary = `Parametrisches 3D-Modell (${w}×${d}×${h}mm) für "${cleanPrompt}" generiert.`;
+      summary = `Mehrteilige 3D-Baugruppe (${w}×${d}×${h}mm) mit Grundsockel, konturiertem Hauptkörper, Abschlusskranz und Bohrung für "${cleanPrompt}" generiert.`;
     }
 
     if (colorMatch && !preserveNodeColors) {
@@ -787,7 +1774,6 @@ export function runLocalAntigravityCadEngine(
     scene.printProfile.filamentColor = colorMatch.hex;
     for (const n of scene.nodes) {
       if (n.operation === 'subtract') continue;
-      // Preserve stem/leaf accent colors when recoloring an apple/pear unless specifically targeting stem/leaf
       if (
         (n.id.includes('stem') || n.id.includes('leaf')) &&
         !/\b(stiel|blatt|komplett|alles)\b/i.test(lower)
@@ -824,7 +1810,6 @@ export function runLocalAntigravityCadEngine(
     changes.push('Seitliche Biss-Aussparung hinzugefügt');
   }
 
-  // Percentage scaling (e.g., "20% größer", "skaliere auf 150%", "30% höher")
   const pctMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*%/);
   const pctVal = pctMatch ? Number(pctMatch[1].replace(',', '.')) : null;
   const mmMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*mm/);
@@ -909,7 +1894,7 @@ export function runLocalAntigravityCadEngine(
     }
   }
 
-  // Add hole / bore / cutout ("loch", "bohrung", "ausschnitt", "schraubloch")
+  // Add hole / bore / cutout
   if (/\b(loch|löcher|loecher|bohrung|bore|hole|aushöhlen|durchbruch)\b/i.test(lower)) {
     const holeDia = mmVal || 10;
     const holeRad = Math.max(1, holeDia / 2);
@@ -927,30 +1912,30 @@ export function runLocalAntigravityCadEngine(
       rotation: [0, 0, 0],
       scale: [1, 1, 1],
       color: '#f43f5e',
-      params: { radiusBottom: holeRad, radiusTop: holeRad, height: 80, segments: 32 },
+      params: { radiusBottom: holeRad, radiusTop: holeRad, height: 95, segments: 32 },
     });
     changes.push(`Präzisionsbohrung (Ø${holeDia}mm) hinzugefügt`);
   }
 
-  // Add extra feature / attachment ("füge ... hinzu", "sockel", "ring", "knauf")
+  // Add extra feature / attachment
   if (
-    /\b(füge|fuege|add|hinzu|oben|sockel|basis|ring|knauf|griff|henkel)\b/i.test(lower) &&
+    /\b(füge|fuege|add|hinzu|oben|sockel|basis|ring|knauf|griff|henkel|räder|raeder|wheels)\b/i.test(lower) &&
     !/\b(loch|bohrung)\b/i.test(lower)
   ) {
     const refHeight = scene.nodes[0]?.params?.height || 45;
-    if (/\b(ring|öse|oese|torus|henkel)\b/i.test(lower)) {
+    if (/\b(ring|öse|oese|torus|henkel|griff|handle)\b/i.test(lower)) {
       scene.nodes.push({
         id: `node-ring-${Date.now()}`,
-        name: 'Befestigungsring / Öse',
+        name: 'Befestigungsring / Henkel',
         type: 'torus',
         operation: 'union',
-        position: [0, 0, refHeight - 4],
+        position: [26, 0, Math.max(12, refHeight * 0.45)],
         rotation: [90, 0, 0],
         scale: [1, 1, 1],
         color: scene.printProfile.filamentColor,
-        params: { radius: mmVal ? mmVal / 2 : 14, tubeRadius: 3.5 },
+        params: { radius: mmVal ? mmVal / 2 : 16, tubeRadius: 4.2 },
       });
-      changes.push(`Befestigungsring / Öse hinzugefügt`);
+      changes.push(`Henkel / Ringöse hinzugefügt`);
     } else if (/\b(sockel|basis|base|platte|boden)\b/i.test(lower)) {
       scene.nodes.unshift({
         id: `node-base-${Date.now()}`,
@@ -961,7 +1946,7 @@ export function runLocalAntigravityCadEngine(
         rotation: [0, 0, 0],
         scale: [1, 1, 1],
         color: scene.printProfile.filamentColor,
-        params: { width: mmVal || 76, depth: mmVal || 76, height: 6, bevel: 4 },
+        params: { width: mmVal || 76, depth: mmVal || 76, height: 6, bevel: 4, wallThickness: 0 },
       });
       changes.push(`Verstärkte Sockelplatte hinzugefügt`);
     } else if (/\b(kugel|knauf|kuppel|sphere)\b/i.test(lower)) {
@@ -992,7 +1977,7 @@ export function runLocalAntigravityCadEngine(
     changes.push(`Torsions-/Rotationswinkel erhöht`);
   }
 
-  // Position move via prompt ("verschiebe nach links/rechts/vorne/hinten")
+  // Position move via prompt
   if (/\b(verschieb|move|links|rechts|vorne|hinten)\b/i.test(lower)) {
     const step = mmVal || 15;
     const dx = /\brechts\b/i.test(lower) ? step : /\blinks\b/i.test(lower) ? -step : 0;
@@ -1004,7 +1989,6 @@ export function runLocalAntigravityCadEngine(
     changes.push(`Objekt auf Bauplatte verschoben (ΔX=${dx}mm, ΔY=${dy}mm)`);
   }
 
-  // If no specific modifier rule matched, apply a visible parametric refinement
   if (changes.length === 0) {
     const primary = scene.nodes[0];
     if (primary) {
@@ -1033,40 +2017,191 @@ export function runLocalAntigravityCadEngine(
 }
 
 /**
- * Uses Google Gemini AI (if available) combined with Antigravity Parametric CAD verification
- * to synthesize or mutate the 3D SceneSpec.
+ * Generates a genuine 3D mesh (.glb) via Hugging Face Text-to-3D (`hysts/Shap-E`)
+ * and parses its vertices/indices into a grounded, printable 3D SceneSpec.
+ */
+export async function generate3dSceneFromHuggingFace(
+  prompt: string
+): Promise<{ scene: SceneSpec; summary: string; engine: string }> {
+  const cleanPrompt = prompt.trim();
+  const englishPrompt = translatePromptToEnglish(cleanPrompt);
+  const hfPrompt =
+    englishPrompt.toLowerCase() !== cleanPrompt.toLowerCase()
+      ? `a 3D model of ${englishPrompt}`
+      : cleanPrompt;
+
+  const baseUrl = 'https://hysts-shap-e.hf.space';
+  const seed = Math.floor(Math.random() * 100000);
+
+  // 1. Enqueue Gradio Text-to-3D generation job
+  const callRes = await fetch(`${baseUrl}/gradio_api/call/text-to-3d`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      data: [hfPrompt, seed, 15.0, 32],
+    }),
+    signal: AbortSignal.timeout(12000),
+  });
+
+  if (!callRes.ok) {
+    throw new Error(`Hugging Face Shap-E API HTTP ${callRes.status}`);
+  }
+
+  const callJson = (await callRes.json()) as { event_id?: string };
+  if (!callJson.event_id) {
+    throw new Error('Hugging Face Shap-E lieferte keine event_id.');
+  }
+
+  // 2. Await SSE completion and extract .glb file URL
+  const sseRes = await fetch(`${baseUrl}/gradio_api/call/text-to-3d/${callJson.event_id}`, {
+    headers: { Accept: 'text/event-stream' },
+    signal: AbortSignal.timeout(35000),
+  });
+
+  if (!sseRes.ok) {
+    throw new Error(`Hugging Face Stream HTTP ${sseRes.status}`);
+  }
+
+  const sseText = await sseRes.text();
+  let glbUrl: string | null = null;
+
+  for (const line of sseText.split('\n')) {
+    if (line.startsWith('data:')) {
+      const jsonStr = line.slice(5).trim();
+      try {
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed) && parsed[0]) {
+          if (typeof parsed[0].url === 'string') {
+            glbUrl = parsed[0].url;
+          } else if (typeof parsed[0].path === 'string') {
+            glbUrl = `${baseUrl}/gradio_api/file=${parsed[0].path}`;
+          }
+        }
+      } catch {
+        // Ignore intermediate heartbeat lines
+      }
+    }
+  }
+
+  if (!glbUrl) {
+    throw new Error('Hugging Face Shap-E lieferte keine 3D-GLB-Datei.');
+  }
+
+  // 3. Download binary .glb and parse triangles into printable SceneSpec
+  const glbRes = await fetch(glbUrl, {
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!glbRes.ok) {
+    throw new Error(`GLB-Download von Hugging Face fehlgeschlagen (HTTP ${glbRes.status}).`);
+  }
+
+  const ab = await glbRes.arrayBuffer();
+  const parsedGlb = parseGlbBufferToMeshData(new Uint8Array(ab), 68, 5500);
+  const colorMatch = extractColorFromPrompt(cleanPrompt);
+  const finalColor = ensureHighContrastColor(
+    colorMatch?.hex || parsedGlb.dominantColorHex,
+    '#10b981'
+  );
+  const nowIso = new Date().toISOString();
+
+  const scene: SceneSpec = {
+    projectId: `hf-shape-${Date.now()}`,
+    title: `${cleanPrompt} (Hugging Face 3D)`,
+    description: `KI-generiertes 3D-Mesh via Hugging Face Shap-E (${parsedGlb.originalTriangles} Dreiecke · Prompt: "${hfPrompt}")`,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    buildPlateMm: [256, 256, 256],
+    printProfile: {
+      ...DEFAULT_PRINT_PROFILE,
+      filamentColor: finalColor,
+    },
+    nodes: [
+      {
+        id: `node-hf-glb-${Date.now()}`,
+        name: `${cleanPrompt} (Shap-E 3D Mesh)`,
+        type: 'stl_mesh',
+        operation: 'union',
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        color: finalColor,
+        params: {
+          originalTriangles: parsedGlb.originalTriangles,
+          width: parsedGlb.dimensionsMm.x,
+          depth: parsedGlb.dimensionsMm.y,
+          height: parsedGlb.dimensionsMm.z,
+        },
+        meshData: parsedGlb.meshData,
+      },
+    ],
+    promptHistory: [
+      {
+        id: `ph-hf-${Date.now()}`,
+        prompt: cleanPrompt,
+        summary: `Echtes 3D-Mesh (${parsedGlb.dimensionsMm.x}×${parsedGlb.dimensionsMm.y}×${parsedGlb.dimensionsMm.z}mm, ${parsedGlb.originalTriangles} Roh-Dreiecke) via Hugging Face Shap-E generiert.`,
+        engine: 'Hugging Face Shap-E (Text-to-3D)',
+        timestamp: nowIso,
+      },
+    ],
+  };
+
+  return {
+    scene,
+    summary: `3D-Mesh (${parsedGlb.dimensionsMm.x}×${parsedGlb.dimensionsMm.y}×${parsedGlb.dimensionsMm.z}mm) via Hugging Face Shap-E generiert.`,
+    engine: 'Hugging Face Shap-E (Text-to-3D)',
+  };
+}
+
+/**
+ * Uses Hugging Face Text-to-3D (Shap-E) as primary 3D generator, with Google Gemini CAD as secondary.
+ * NEVER silently returns dummy/hardcoded template data if AI generation fails.
  */
 export async function generateOrModify3dSceneWithAi(
   prompt: string,
   existingScene?: SceneSpec | null,
   customApiKey?: string
 ): Promise<{ scene: SceneSpec; summary: string; engine: string }> {
-  const lower = prompt.trim().toLowerCase();
-
-  // If the prompt directly requests one of our high-precision multi-node organic/mechanical archetypes
-  // (such as "Apfel", "Birne", "Tasse", "Herz", "Stern", "Pilz", "Schachfigur", "Schneemann"),
-  // synthesize the exact multi-part parametric CAD mesh immediately so it is guaranteed to be accurate.
-  if (
-    isExplicitObjectCreationPrompt(prompt) &&
-    KNOWN_OBJECT_ARCHETYPE_REGEX.test(lower)
-  ) {
+  // If modifying an existing STL/GLB mesh scene in the Refine view:
+  // If the user explicitly asks to generate a completely new object, call Hugging Face Text-to-3D;
+  // otherwise apply parametric geometric/color/boolean modifications (scale, height, bore hole, color, base plate) to the existing mesh!
+  const hasStlMeshNode = Boolean(existingScene?.nodes.some((n) => n.type === 'stl_mesh'));
+  if (existingScene && hasStlMeshNode && !isExplicitObjectCreationPrompt(prompt)) {
     return runLocalAntigravityCadEngine(prompt, existingScene);
   }
 
-  const apiKey = customApiKey || discoverGeminiApiKey();
+  // Primary 3D AI Generator: Hugging Face Text-to-3D (Shap-E)
+  let hfError = '';
+  if (!existingScene || isExplicitObjectCreationPrompt(prompt)) {
+    try {
+      return await generate3dSceneFromHuggingFace(prompt);
+    } catch (err) {
+      hfError = err instanceof Error ? err.message : String(err);
+    }
+  }
 
-  if (apiKey) {
-    const models = await resolveGeminiModels(apiKey);
-    const systemInstruction = `Du bist der Antigravity 3D-CAD Kernel für das Home Assistant Modul "thassi.3dprint" (Bambu Lab X1C 256x256x256mm).
+  const apiKey = customApiKey || discoverGeminiApiKey();
+  if (!apiKey) {
+    throw new Error(
+      `Hugging Face 3D-Generierung fehlgeschlagen (${hfError || 'Nicht erreichbar'}) und kein Gemini API-Key konfiguriert.`
+    );
+  }
+
+  const models = await resolveGeminiModels(apiKey);
+  const systemInstruction = `Du bist der Antigravity 3D-CAD Kernel für das Modul "thassi.3dprint" (Bambu Lab 256x256x256mm).
 Erzeuge oder verändere das 3D-Objekt basierend auf dem User-Prompt.
-Verfügbare PrimitiveTypes:
-- "apple": params { radius, height, lobeCount, lobeAmplitude, topIndent, bottomIndent, segments } (Organischer 3D-Apfelkörper mit Stielgrube)
-- "lathe": params { height, rBottom, rLower, rMid, rUpper, rNeck, rTop, topIndent, bottomIndent, wallThickness, lobeCount, lobeAmplitude, segments } (Rotationskörper für Birnen, Flaschen, Schalen, Kelche, Figuren)
-- "heart": params { width, depth, height, bevel } (3D-Herz)
-- "star": params { points, outerRadius, innerRadius, height } (3D-Stern)
+WICHTIG:
+1. Erstelle NIEMALS nur einen einzelnen simplen Quader ("box")! Jedes neue Objekt MUSS aus mindestens 4 bis 10 zusammenhängenden Bauteilen (Nodes) konstruiert werden, damit die echte 3D-Form detailliert und realistisch erkennbar ist (z.B. Rumpf + Kabine + Dach + Räder/Flügel/Griff + Abzugs-Bohrungen).
+2. Alle Koordinaten in Millimetern (Z=0 ist die Bauplatte). Positioniere zusammenhängende Bauteile so, dass sie sich physisch berühren/überlappen.
+3. Nutze helle, kontrastreiche Farben (#10b981, #38bdf8, #f59e0b, #e11d48, #f8fafc, #a855f7, #94a3b8).
+
+Verfügbare PrimitiveTypes und ihre EXAKTEN Parameter:
+- "lathe": params { height, rBottom, rLower, rMid, rUpper, rNeck, rTop, topIndent, bottomIndent, wallThickness, lobeCount, lobeAmplitude, segments } (Ideal für organische Körper, Flaschen, Kelche, Tassen, Figuren, Rümpfe)
+- "apple": params { radius, height, lobeCount, lobeAmplitude, topIndent, bottomIndent, segments }
+- "heart": params { width, depth, height, bevel }
+- "star": params { points, outerRadius, innerRadius, height }
 - "box": params { width, depth, height, bevel, wallThickness }
 - "cylinder": params { radiusBottom, radiusTop, innerRadius, height, segments }
-- "sphere": params { radius, domeOnly (0|1) }
+- "sphere": params { radius, domeOnly }
 - "cone": params { radiusBottom, radiusTop, innerRadius, height, segments }
 - "torus": params { radius, tubeRadius }
 - "gear": params { teeth, outerRadius, toothDepth, boreRadius, height }
@@ -1087,11 +2222,11 @@ Jeder Node hat:
   "params": { ... }
 }
 
-Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
+Antworte AUSSCHLIESSLICH mit validem JSON:
 {
   "title": "Projekttitel",
   "description": "Kurzbeschreibung",
-  "filamentColor": "#00AE42",
+  "filamentColor": "#10b981",
   "filamentType": "PLA",
   "infillPercent": 20,
   "layerHeightMm": 0.2,
@@ -1099,143 +2234,124 @@ Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Block:
   "nodes": [ ... ]
 }`;
 
-    const userMessage = existingScene
-      ? `Aktuelles 3D-Modell (JSON):\n${JSON.stringify({
-          title: existingScene.title,
-          description: existingScene.description,
-          printProfile: existingScene.printProfile,
-          nodes: existingScene.nodes,
-        })}\n\nUser-Prompt: "${prompt}"\nModifiziere das Modell (oder erstelle das gewünschte Objekt neu, falls ein anderes Objekt genannt wird).`
-      : `Erstelle ein neues druckbares 3D-Modell für folgenden User-Prompt: "${prompt}"`;
+  const userMessage = existingScene
+    ? `Aktuelles 3D-Modell (JSON):\n${JSON.stringify({
+        title: existingScene.title,
+        description: existingScene.description,
+        printProfile: existingScene.printProfile,
+        nodes: existingScene.nodes,
+      })}\n\nUser-Prompt: "${prompt}"\nModifiziere das bestehende 3D-Modell gezielt nach dem Wunsch des Users (oder baue es komplett neu aus 4-10 Nodes auf, falls ein anderes Objekt gewünscht ist).`
+    : `Erstelle ein detailliertes, mehrteiliges 3D-Druckmodell (mindestens 4-8 Nodes) für folgenden User-Prompt: "${prompt}"`;
 
-    for (const model of models.slice(0, 2)) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${userMessage}` }] }],
-              generationConfig: {
-                temperature: 0.25,
-                responseMimeType: 'application/json',
-              },
-            }),
-            signal: AbortSignal.timeout(9000),
-          }
+  let lastError = 'Unbekannter Gemini API-Fehler';
+
+  for (const model of models.slice(0, 2)) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${userMessage}` }] }],
+            generationConfig: {
+              temperature: 0.3,
+              responseMimeType: 'application/json',
+            },
+          }),
+          signal: AbortSignal.timeout(12000),
+        }
+      );
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        let cleanMsg = errBody.slice(0, 160);
+        try {
+          const errJson = JSON.parse(errBody);
+          if (errJson?.error?.message) cleanMsg = String(errJson.error.message);
+        } catch {}
+        lastError = `Gemini API (${model}, HTTP ${res.status}): ${cleanMsg}`;
+        continue;
+      }
+
+      const data = (await res.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cleaned = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/```\s*$/, '')
+        .trim();
+      const parsed = JSON.parse(cleaned) as {
+        title?: string;
+        description?: string;
+        filamentColor?: string;
+        filamentType?: 'PLA' | 'PETG' | 'ABS' | 'ASA' | 'TPU';
+        infillPercent?: number;
+        layerHeightMm?: number;
+        summary?: string;
+        nodes?: Partial<PrimitiveNode>[];
+      };
+
+      if (Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
+        const defaultCol = ensureHighContrastColor(
+          parsed.filamentColor || existingScene?.printProfile.filamentColor,
+          '#10b981'
+        );
+        const sanitizedNodes: PrimitiveNode[] = parsed.nodes.map((n, idx) =>
+          normalizePrimitiveNode(n, idx, defaultCol)
         );
 
-        if (!res.ok) continue;
+        const nowIso = new Date().toISOString();
+        const summaryText = parsed.summary || `3D-Modell per ${model} generiert`;
+        const engineName = `Google Gemini (${model})`;
 
-        const data = (await res.json()) as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-        };
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const cleaned = rawText
-          .replace(/^```json\s*/i, '')
-          .replace(/```\s*$/, '')
-          .trim();
-        const parsed = JSON.parse(cleaned) as {
-          title?: string;
-          description?: string;
-          filamentColor?: string;
-          filamentType?: 'PLA' | 'PETG' | 'ABS' | 'ASA' | 'TPU';
-          infillPercent?: number;
-          layerHeightMm?: number;
-          summary?: string;
-          nodes?: PrimitiveNode[];
-        };
-
-        if (Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
-          const validTypes = new Set<PrimitiveType>([
-            'box',
-            'cylinder',
-            'sphere',
-            'cone',
-            'torus',
-            'gear',
-            'twisted_vase',
-            'bracket',
-            'hex_organizer',
-            'apple',
-            'lathe',
-            'heart',
-            'star',
-          ]);
-
-          const sanitizedNodes: PrimitiveNode[] = parsed.nodes.map((n, idx) => ({
-            id: n.id || `node-ai-${idx}-${Date.now()}`,
-            name: n.name || `Bauteil ${idx + 1}`,
-            type: validTypes.has(n.type) ? n.type : 'box',
-            operation: n.operation === 'subtract' ? 'subtract' : 'union',
-            position:
-              Array.isArray(n.position) && n.position.length === 3
-                ? (n.position.map(Number) as [number, number, number])
-                : [0, 0, 0],
-            rotation:
-              Array.isArray(n.rotation) && n.rotation.length === 3
-                ? (n.rotation.map(Number) as [number, number, number])
-                : [0, 0, 0],
-            scale:
-              Array.isArray(n.scale) && n.scale.length === 3
-                ? (n.scale.map((v) => Math.max(0.1, Number(v) || 1)) as [number, number, number])
-                : [1, 1, 1],
-            color:
-              n.color ||
-              parsed.filamentColor ||
-              existingScene?.printProfile.filamentColor ||
-              '#00AE42',
-            params:
-              typeof n.params === 'object' && n.params
-                ? n.params
-                : { width: 40, depth: 40, height: 30 },
-          }));
-
-          const nowIso = new Date().toISOString();
-          const summaryText = parsed.summary || `3D-Modell per ${model} aktualisiert`;
-          const engineName = `Antigravity AI (${model})`;
-
-          const nextScene: SceneSpec = {
-            projectId: existingScene?.projectId || `proj-${Date.now()}`,
-            title: parsed.title || existingScene?.title || prompt.slice(0, 40),
-            description: parsed.description || existingScene?.description || prompt,
-            createdAt: existingScene?.createdAt || nowIso,
-            updatedAt: nowIso,
-            buildPlateMm: [256, 256, 256],
-            printProfile: {
-              ...(existingScene?.printProfile || DEFAULT_PRINT_PROFILE),
-              filamentColor:
-                parsed.filamentColor || existingScene?.printProfile.filamentColor || '#00AE42',
-              filamentType:
-                parsed.filamentType || existingScene?.printProfile.filamentType || 'PLA',
-              infillPercent: Number(
-                parsed.infillPercent || existingScene?.printProfile.infillPercent || 20
-              ),
-              layerHeightMm: Number(
-                parsed.layerHeightMm || existingScene?.printProfile.layerHeightMm || 0.2
-              ),
+        const nextScene: SceneSpec = {
+          projectId: existingScene?.projectId || `proj-${Date.now()}`,
+          title: parsed.title || existingScene?.title || prompt.slice(0, 40),
+          description: parsed.description || existingScene?.description || prompt,
+          createdAt: existingScene?.createdAt || nowIso,
+          updatedAt: nowIso,
+          buildPlateMm: [256, 256, 256],
+          printProfile: {
+            ...(existingScene?.printProfile || DEFAULT_PRINT_PROFILE),
+            filamentColor: defaultCol,
+            filamentType:
+              parsed.filamentType || existingScene?.printProfile.filamentType || 'PLA',
+            infillPercent: Number(
+              parsed.infillPercent || existingScene?.printProfile.infillPercent || 20
+            ),
+            layerHeightMm: Number(
+              parsed.layerHeightMm || existingScene?.printProfile.layerHeightMm || 0.2
+            ),
+          },
+          nodes: sanitizedNodes,
+          promptHistory: [
+            {
+              id: `ph-${Date.now()}`,
+              prompt,
+              summary: summaryText,
+              engine: engineName,
+              timestamp: nowIso,
             },
-            nodes: sanitizedNodes,
-            promptHistory: [
-              {
-                id: `ph-${Date.now()}`,
-                prompt,
-                summary: summaryText,
-                engine: engineName,
-                timestamp: nowIso,
-              },
-              ...(existingScene?.promptHistory || []),
-            ].slice(0, 30),
-          };
+            ...(existingScene?.promptHistory || []),
+          ].slice(0, 30),
+        };
 
+        const compiled = compileSceneToMesh(nextScene);
+        if (compiled.triangles.length >= 12) {
           return { scene: nextScene, summary: summaryText, engine: engineName };
         }
-      } catch {
-        // Try next candidate model or fallback
+        lastError = `Gemini (${model}) lieferte ein leeres 3D-Mesh (${compiled.triangles.length} Dreiecke).`;
+      } else {
+        lastError = `Gemini (${model}) lieferte keine gültigen 3D-Nodes.`;
       }
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
     }
   }
 
-  return runLocalAntigravityCadEngine(prompt, existingScene);
+  throw new Error(
+    `KI-3D-Generierung fehlgeschlagen: ${hfError ? `Hugging Face (${hfError}) · ` : ''}${lastError}`
+  );
 }

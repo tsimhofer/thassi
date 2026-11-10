@@ -493,6 +493,61 @@ export default function App() {
         </div>
       </header>
 
+      {/* DATA RECENCY & GOOGLE DRIVE STATUS STRIP */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          padding: '8px 0',
+          borderBottom: '1px solid var(--line-hairline)',
+          fontSize: 11.5,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: overview?.googleAuthorized ? 'var(--dot-ok)' : 'var(--dot-warn)',
+              display: 'inline-block',
+            }}
+          />
+          <span>
+            LETZTES DOKUMENT-UPDATE: {results[0]?.updatedAt ? results[0].updatedAt.slice(0, 16).replace('T', ' ') : 'KEINE DATEN'}
+          </span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span>
+            GOOGLE DRIVE OAUTH: {overview?.googleAuthorized ? 'VERBUNDEN' : 'NICHT AUTORISIERT'}
+          </span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span>GESAMTINDEX: {counts.total} EINTRÄGE</span>
+        </div>
+
+        {!overview?.googleAuthorized && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-sans)' }}>
+            <span style={{ color: 'var(--dot-warn)', fontSize: 12 }}>
+              Hinweis: Google Drive OAuth noch nicht verknüpft (lokale .md & SQLite aktiv)
+            </span>
+            <a
+              href="/apps/cortex/?tab=vault"
+              style={{
+                color: 'var(--text-primary)',
+                fontSize: 11,
+                textDecoration: 'underline',
+              }}
+            >
+              Zentraler API-Vault ↗
+            </a>
+          </div>
+        )}
+      </div>
+
       {/* DOMAIN / SOURCE TABS */}
       <nav
         style={{

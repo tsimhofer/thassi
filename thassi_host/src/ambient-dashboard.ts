@@ -1,615 +1,546 @@
 import { getHassSidebarStylerScript } from './hass-sidebar-sync.js';
+import { getUniformAppStylesheetTag } from './thassi-uniform-ui.js';
 
 export function renderUnifiedDashboardHtml(ingressPath: string): string {
   const sidebarStylerScript = getHassSidebarStylerScript();
+  const uniformStylesheetTag = getUniformAppStylesheetTag();
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Thassi Horizon</title>
   <script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)};</script>
+  ${uniformStylesheetTag}
   <style>
     :root {
-      --text: #f8fafc;
-      --text-soft: rgba(248, 250, 252, 0.72);
-      --text-muted: rgba(248, 250, 252, 0.45);
-      --accent: #38bdf8;
-      --sun-glow: #fbbf24;
-      --nav-safe-left: 0px;
-      --devices-dock-height: 44px;
-      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --bg-canvas: #09090b;
+      --bg-elevated: #111113;
+      --bg-input: #141417;
+      --line-hairline: rgba(255, 255, 255, 0.06);
+      --line-strong: rgba(255, 255, 255, 0.12);
+      --line-focus: rgba(255, 255, 255, 0.24);
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #52525b;
+      --dot-ok: #10b981;
+      --dot-warn: #f59e0b;
+      --dot-err: #ef4444;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
     }
+
     * { box-sizing: border-box; user-select: none; }
     input, textarea, select { user-select: text !important; -webkit-user-select: text !important; }
+
     html, body {
       margin: 0;
       padding: 0;
       width: 100vw;
       height: 100dvh;
       overflow: hidden;
-      background: #040711;
-      color: var(--text);
+      background: var(--bg-canvas);
+      color: var(--text-primary);
       font-family: var(--font-sans);
+      font-size: 13px;
       -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
     }
 
-    /* TOOLBAR / LEFT NAVBAR HIDDEN ALTOGETHER PER USER REQUEST */
+    /* Legacy compatibility layers hidden */
     #left-ambient-navbar,
     #mobile-nav-toggle,
-    #mobile-nav-backdrop {
+    #mobile-nav-backdrop,
+    #sky-stage,
+    #pinned-rooms-tray,
+    #timeline-devices-separator {
       display: none !important;
-      width: 0 !important;
-      height: 0 !important;
-      pointer-events: none !important;
-      visibility: hidden !important;
     }
 
-    /* DIRECT SPECIAL-VIEW NAVIGATION BUTTONS IN HORIZON DASHBOARD */
-    .w-nav-btn {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: rgba(248, 250, 252, 0.78);
-      border-radius: 7px;
-      padding: 1px 6px;
-      font-family: var(--font-sans);
-      font-size: 9.5px;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      transition: all 0.18s ease;
-      line-height: 1.3;
-    }
-    .w-nav-btn:hover {
-      background: rgba(56, 189, 248, 0.18);
-      border-color: rgba(56, 189, 248, 0.45);
-      color: #ffffff;
-    }
-    .horizon-view-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: rgba(248, 250, 252, 0.78);
-      border-radius: 8px;
-      padding: 3px 9px;
-      font-family: var(--font-sans);
-      font-size: 10.5px;
-      font-weight: 500;
-      letter-spacing: 0.05em;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      transition: all 0.2s ease;
-    }
-    .horizon-view-btn:hover {
-      background: rgba(56, 189, 248, 0.16);
-      border-color: rgba(56, 189, 248, 0.4);
-      color: #ffffff;
-    }
-    .cal-filter-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-    }
-    #horizon-cal-filter-popover {
-      display: none;
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      width: 310px;
-      max-height: 340px;
-      background: rgba(11, 17, 32, 0.96);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      border-radius: 10px;
-      padding: 12px;
-      box-shadow: 0 14px 38px rgba(0, 0, 0, 0.78);
-      z-index: 95;
-      pointer-events: auto;
-      flex-direction: column;
-      gap: 8px;
-    }
-    #horizon-cal-filter-popover.open {
-      display: flex;
-    }
-    .cal-filter-list {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      overflow-y: auto;
-      max-height: 210px;
-      padding-right: 2px;
-    }
-    .cal-filter-row {
+    /* ============================================================================
+       ZONE A: UNIFORM TOP HEADER BAR (52PX)
+       ============================================================================ */
+    #horizon-header-bar {
+      height: 52px;
+      min-height: 52px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line-hairline);
+      background: var(--bg-canvas);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      padding: 6px 8px;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      cursor: pointer;
-      font-size: 11.5px;
-      color: #e2e8f0;
-      user-select: none;
-    }
-    .cal-filter-row:hover {
-      background: rgba(56, 189, 248, 0.1);
-      border-color: rgba(56, 189, 248, 0.3);
+      gap: 16px;
+      z-index: 60;
     }
 
-    /* 1. DYNAMIC DAYTIME SKY, WEATHER FX & ABSTRACT CELESTIAL HORIZON STAGE */
-    #sky-stage {
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100dvh;
-      z-index: 1;
-      pointer-events: none;
-      transition: background 1.2s cubic-bezier(0.22, 1, 0.36, 1);
-      overflow: hidden;
-    }
-    #starfield {
-      position: absolute;
-      inset: 0;
-      transition: opacity 1.5s ease;
-    }
-    .star {
-      position: absolute;
-      background: #fff;
-      border-radius: 50%;
-      animation: twinkle var(--dur, 4s) ease-in-out infinite alternate;
-    }
-    @keyframes twinkle {
-      0% { opacity: 0.15; transform: scale(0.8); }
-      100% { opacity: 0.95; transform: scale(1.2); }
-    }
-
-    /* Subtle Background Weather Effects */
-    #weather-fx-layer {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      z-index: 2;
-      overflow: hidden;
-    }
-    #weather-cloud-veil-1,
-    #weather-cloud-veil-2 {
-      position: absolute;
-      left: -20%;
-      right: -20%;
-      border-radius: 50%;
-      filter: blur(60px);
-      opacity: 0;
-      transition: opacity 1.8s ease;
-    }
-    #weather-cloud-veil-1 {
-      top: 4vh;
-      height: 32vh;
-      background: radial-gradient(ellipse at 38% 50%, rgba(148, 163, 184, 0.22), rgba(100, 116, 139, 0.08) 55%, transparent 78%);
-      animation: cloudDriftSlow 46s ease-in-out infinite alternate;
-    }
-    #weather-cloud-veil-2 {
-      top: 18vh;
-      height: 36vh;
-      background: radial-gradient(ellipse at 66% 50%, rgba(203, 213, 225, 0.16), rgba(71, 85, 105, 0.08) 60%, transparent 80%);
-      animation: cloudDriftSlow 62s ease-in-out infinite alternate-reverse;
-    }
-    @keyframes cloudDriftSlow {
-      0% { transform: translate3d(-4%, 0, 0) scale(1); }
-      100% { transform: translate3d(4%, 1.5%, 0) scale(1.06); }
-    }
-    #weather-fx-canvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    /* Atmospheric horizon mist & glow */
-    #horizon-glow {
-      position: absolute;
-      left: -10%;
-      right: -10%;
-      bottom: 22vh;
-      height: 36vh;
-      filter: blur(58px);
-      opacity: 0.72;
-      transition: background 1.2s ease, opacity 1.2s ease;
-    }
-
-    /* Abstract Horizon & Celestial Trajectory SVG */
-    #solar-arc-svg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      overflow: visible;
-      z-index: 3;
-    }
-
-    /* Abstract Sun Sculpture (Super Subtle & Bottom-Aligned) */
-    #sun-assembly {
-      position: absolute;
-      width: 0;
-      height: 0;
-      z-index: 3;
-      pointer-events: none;
-      transform: translate3d(0, 0, 0);
-      transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), top 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.8s ease, transform 0.8s ease;
-      will-change: left, top;
-    }
-    .abstract-sun-bloom {
-      position: absolute;
-      width: 56px;
-      height: 56px;
-      left: -28px;
-      top: -28px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.025) 45%, transparent 72%);
-      filter: blur(10px);
-    }
-    .abstract-sun-outer-ring {
-      position: absolute;
-      width: 34px;
-      height: 34px;
-      left: -17px;
-      top: -17px;
-      animation: rotateOrbital 90s linear infinite;
-    }
-    .abstract-sun-mid-ring {
-      position: absolute;
-      width: 18px;
-      height: 18px;
-      left: -9px;
-      top: -9px;
-      border-radius: 50%;
-      border: 0.75px solid rgba(255, 255, 255, 0.16);
-      background: transparent;
-      box-shadow: none;
-    }
-    .abstract-sun-annulus {
-      position: absolute;
-      width: 7px;
-      height: 7px;
-      left: -3.5px;
-      top: -3.5px;
-      border-radius: 50%;
-      border: 0.9px solid rgba(255, 255, 255, 0.34);
-      background: rgba(255, 255, 255, 0.06);
-      box-shadow: none;
-    }
-    .abstract-sun-singularity {
-      position: absolute;
-      width: 2px;
-      height: 2px;
-      left: -1px;
-      top: -1px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.55);
-      box-shadow: none;
-    }
-    @keyframes abstractPulse {
-      0% { transform: scale(0.96); opacity: 0.65; }
-      100% { transform: scale(1.04); opacity: 0.9; }
-    }
-    @keyframes rotateOrbital {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    /* Abstract Lunar Sculpture (Slightly More Visible + Dynamic Moon Phase) */
-    #moon-assembly {
-      position: absolute;
-      width: 0;
-      height: 0;
-      z-index: 4;
-      pointer-events: none;
-      transition: left 0.8s ease, top 0.8s ease, opacity 1s ease;
-    }
-    .abstract-moon-bloom {
-      position: absolute;
-      width: 68px;
-      height: 68px;
-      left: -34px;
-      top: -34px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(255, 255, 255, 0.16) 0%, rgba(226, 232, 240, 0.06) 48%, transparent 74%);
-      filter: blur(12px);
-    }
-    .abstract-moon-svg {
-      position: absolute;
-      width: 40px;
-      height: 40px;
-      left: -20px;
-      top: -20px;
-      overflow: visible;
-    }
-
-    /* 2. LEFT-ALIGNED MONUMENTAL DATE, TIME & SIMPLIFIED WEATHER FORECAST */
-    #hero-clock-region {
-      position: fixed;
-      top: 3.2vh;
-      left: 24px;
-      margin-left: 0;
-      text-align: left;
-      z-index: 15;
-      pointer-events: none;
+    .hh-left {
       display: flex;
-      flex-direction: column;
-      align-items: flex-start;
+      align-items: center;
+      gap: 18px;
+      min-width: 0;
+      flex-shrink: 0;
+    }
+
+    .hh-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .hh-title {
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: -0.025em;
+      color: var(--text-primary);
+    }
+
+    .hh-code {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      padding: 2px 6px;
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      background: var(--bg-elevated);
+    }
+
+    .hh-vsep {
+      width: 1px;
+      height: 20px;
+      background: var(--line-hairline);
+    }
+
+    /* Inline Clock & Date */
+    #hero-clock-region {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
     .clock-row {
       display: flex;
       align-items: baseline;
-      justify-content: flex-start;
-      gap: 10px;
-      line-height: 0.92;
+      gap: 2px;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
     }
     #hero-time {
-      font-size: clamp(4.0rem, 7.6vw, 7.4rem);
-      font-weight: 200;
-      letter-spacing: -0.045em;
-      font-variant-numeric: tabular-nums;
-      color: #ffffff;
-      text-shadow: 0 12px 45px rgba(0, 0, 0, 0.35);
-    }
-    #hero-seconds {
-      font-size: clamp(1.2rem, 2.0vw, 1.9rem);
-      font-weight: 300;
-      color: rgba(255, 255, 255, 0.56);
-      font-variant-numeric: tabular-nums;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-primary);
       letter-spacing: -0.02em;
     }
+    #hero-seconds {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    #hero-seconds::before {
+      content: ":";
+    }
     #hero-date-row {
-      margin-top: 6px;
       display: flex;
       align-items: center;
-      gap: 8px;
-      pointer-events: auto;
+      gap: 6px;
     }
     #hero-date {
-      font-size: clamp(1.0rem, 1.45vw, 1.38rem);
-      font-weight: 300;
-      letter-spacing: 0.04em;
-      color: rgba(255, 255, 255, 0.84);
-      text-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
     }
     .hero-cal-icon-btn {
       background: transparent;
-      border: none;
-      color: rgba(248, 250, 252, 0.42);
-      padding: 3px;
-      border-radius: 6px;
+      border: 1px solid var(--line-hairline);
+      color: var(--text-secondary);
+      padding: 3px 5px;
+      border-radius: 3px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
     }
     .hero-cal-icon-btn:hover {
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.08);
-      transform: translateY(-1px);
+      color: var(--text-primary);
+      border-color: var(--line-focus);
+      background: var(--bg-elevated);
     }
     #solar-telemetry {
       display: none;
     }
 
-    /* Simplified Minimal Weather Component (Directly Below Date) */
+    /* Inline Weather Telemetry */
     #hero-weather-strip {
-      margin-top: 6px;
-      pointer-events: auto;
       display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 5px;
-      padding: 0;
-      background: transparent;
-      border: none;
-      box-shadow: none;
+      align-items: center;
     }
     .mw-current-row {
       display: flex;
       align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .mw-icon-wrap {
+      display: inline-flex;
+      align-items: center;
+      color: var(--text-secondary);
+    }
+    .mw-temp-now {
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+    .mw-cond-text {
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .mw-hi-lo {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    /* Inline Cortex Command Bar in Header */
+    #horizon-cortex-center-stage {
+      position: relative;
+      flex: 1;
+      max-width: 540px;
+      min-width: 220px;
+      z-index: 80;
+    }
+    .cortex-prompt-pill {
+      width: 100%;
+      height: 34px;
+      border-radius: 4px;
+      background: var(--bg-input);
+      border: 1px solid var(--line-hairline);
+      display: flex;
+      align-items: center;
+      padding: 0 4px 0 10px;
+      gap: 8px;
+      transition: border-color 0.15s ease;
+    }
+    .cortex-prompt-pill:focus-within,
+    .cortex-prompt-pill:hover {
+      border-color: var(--line-focus);
+    }
+    .cortex-prompt-pill.is-waiting {
+      border-color: var(--text-primary);
+    }
+    .cortex-ai-icon-wrap {
+      display: flex;
+      align-items: center;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .cortex-prompt-input {
+      flex: 1;
+      height: 100%;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+    }
+    .cortex-prompt-input::placeholder {
+      color: var(--text-muted);
+    }
+    .cortex-waiting-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-hairline);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      white-space: nowrap;
+    }
+    .cortex-waiting-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--dot-warn);
+    }
+    .cortex-send-btn {
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 3px;
+      background: var(--text-primary);
+      color: var(--bg-canvas);
+      border: none;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .cortex-send-btn:hover:not(:disabled) {
+      background: #e4e4e7;
+    }
+    .cortex-send-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    /* Cortex Dropdown & Response Flyout */
+    #cortex-preview-dropdown,
+    #cortex-response-card {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      border-radius: 4px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-strong);
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 10px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 95;
+    }
+    .cortex-preview-item {
+      padding: 8px 10px;
+      border-radius: 3px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--line-hairline);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 10px;
     }
-    .mw-main-left {
+    .cortex-preview-item:hover {
+      border-color: var(--line-focus);
+      background: var(--bg-input);
+    }
+    .cortex-preview-left {
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
     }
-    .mw-icon-wrap {
-      width: 22px;
-      height: 22px;
+    .cortex-badge-tag {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      padding: 2px 5px;
+      border-radius: 3px;
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--line-hairline);
+      flex-shrink: 0;
+    }
+    .cortex-resp-header {
       display: flex;
       align-items: center;
-      justify-content: center;
-      color: #38bdf8;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line-hairline);
+      padding-bottom: 8px;
+      gap: 8px;
     }
-    .mw-temp-now {
-      font-size: 18px;
-      font-weight: 400;
-      letter-spacing: -0.02em;
-      color: #ffffff;
-      font-variant-numeric: tabular-nums;
-      text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
-    }
-    .mw-cond-text {
-      font-size: 12px;
-      color: rgba(248, 250, 252, 0.72);
-      font-weight: 400;
-    }
-    .mw-hi-lo {
-      font-size: 11.5px;
-      color: rgba(248, 250, 252, 0.48);
-      font-variant-numeric: tabular-nums;
-    }
-    .mw-day-slots {
-      display: none !important;
+    .cortex-resp-body {
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
-    /* 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS (health, meals, finances, notes) */
+    /* Right Freshness & Status Strip */
+    .hh-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+    .hh-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      font-size: 10.5px;
+    }
+
+    /* ============================================================================
+       ZONE B: 4-COLUMN EXECUTIVE KPI STRIP (#top-right-widgets)
+       ============================================================================ */
     #top-right-widgets {
-      position: fixed;
-      top: 3.5vh;
-      right: 28px;
-      z-index: 30;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line-hairline);
+      background: var(--bg-canvas);
+      z-index: 45;
+      flex-shrink: 0;
+    }
+
+    .ambient-widget {
+      position: relative;
+      padding: 12px 24px;
+      border-right: 1px solid var(--line-hairline);
+      background: var(--bg-canvas);
+      cursor: pointer;
       display: flex;
       flex-direction: column;
-      align-items: flex-end;
-      gap: 16px;
-      max-height: 62vh;
+      justify-content: center;
+      transition: background-color 0.12s ease;
     }
-    .ambient-widget {
-      text-align: right;
-      cursor: pointer;
-      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease, padding 0.3s ease;
-      border: none;
-      background: transparent;
-      padding: 2px 0;
-      border-radius: 18px;
-      max-width: 360px;
+    .ambient-widget:last-child {
+      border-right: none;
     }
-    .ambient-widget:hover:not(.expanded) {
-      transform: translateX(-4px);
+    .ambient-widget:hover {
+      background: var(--bg-elevated);
     }
-    .ambient-widget.expanded {
-      cursor: default;
-      padding: 16px 20px;
-      background: rgba(6, 10, 22, 0.62);
-      backdrop-filter: blur(28px) saturate(140%);
-      -webkit-backdrop-filter: blur(28px) saturate(140%);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
-      transform: translateX(-4px);
-      width: 330px;
-    }
+
     .w-header {
       display: flex;
       flex-direction: column;
-      align-items: flex-end;
       gap: 4px;
-      cursor: pointer;
+      width: 100%;
     }
     .w-label-row {
       display: flex;
       align-items: center;
-      gap: 7px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.18em;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.52);
+      color: var(--text-muted);
+    }
+    .w-label-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .w-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 10px var(--accent);
+      background: var(--dot-ok);
+      box-shadow: none !important;
+      flex-shrink: 0;
     }
     .w-primary {
-      font-size: 15px;
-      font-weight: 300;
-      letter-spacing: -0.01em;
-      color: #ffffff;
-      text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 400;
+      letter-spacing: -0.025em;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
       display: flex;
       align-items: baseline;
       gap: 8px;
-      justify-content: flex-end;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .w-primary strong {
       font-weight: 500;
     }
-    /* Hide verbose sub-lines in minimal preview cards */
     .w-sub {
+      display: block;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .health-minimal-badges {
       display: none;
     }
-
-    /* a) Health Minimal Preview: Heart Icon with HR inside + Progress Circle with Step Count inside */
-    .health-minimal-badges {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 2px;
+    #compact-health {
+      display: flex !important;
     }
-    .hm-badge {
-      position: relative;
-      width: 44px;
-      height: 44px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .hm-badge svg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      overflow: visible;
-      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
-    }
-    .hm-badge-val {
-      position: relative;
-      z-index: 2;
-      font-size: 10.5px;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      color: #ffffff;
-      letter-spacing: -0.03em;
-      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
-      line-height: 1;
-    }
-    .hm-heart-val {
-      padding-bottom: 2px;
+    #sub-health {
+      display: block !important;
     }
 
-    /* b) Finances Minimal Preview: In hidden mode ONLY show eye toggle next to title */
-    #widget-finances.finances-is-hidden:not(.expanded) #compact-finances {
-      display: none !important;
-    }
     .finances-eye-icon-btn {
-      background: transparent;
-      border: none;
-      color: rgba(248, 250, 252, 0.75);
-      padding: 0 2px;
-      font-size: 12px;
+      background: var(--bg-input);
+      border: 1px solid var(--line-hairline);
+      color: var(--text-secondary);
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
       cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      transition: color 0.2s ease, transform 0.2s ease;
     }
     .finances-eye-icon-btn:hover {
-      color: #38bdf8;
-      transform: scale(1.1);
+      color: var(--text-primary);
+      border-color: var(--line-focus);
     }
 
+    .w-nav-btn {
+      background: transparent;
+      border: 1px solid var(--line-hairline);
+      color: var(--text-secondary);
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .w-nav-btn:hover {
+      background: var(--bg-input);
+      border-color: var(--line-focus);
+      color: var(--text-primary);
+    }
+
+    /* Expandable Inspector Popover below KPI Cell */
     .w-expand-body {
-      max-height: 0;
-      opacity: 0;
-      overflow: hidden;
-      transition: max-height 0.42s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, margin-top 0.3s ease;
-      text-align: left;
+      display: none;
+      position: absolute;
+      top: calc(100% + 1px);
+      left: 0;
+      width: min(360px, 94vw);
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-strong);
+      padding: 14px 16px;
+      z-index: 85;
+      cursor: default;
+    }
+    #widget-notes .w-expand-body,
+    #widget-finances .w-expand-body {
+      left: auto;
+      right: 0;
+    }
+    .ambient-widget.expanded {
+      background: var(--bg-elevated);
     }
     .ambient-widget.expanded .w-expand-body {
-      max-height: 360px;
-      opacity: 1;
-      margin-top: 14px;
+      display: block;
     }
+
     .w-stat-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px 18px;
-      margin-bottom: 14px;
+      gap: 10px 16px;
+      margin-bottom: 12px;
     }
     .w-stat-item {
       display: flex;
@@ -619,144 +550,547 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     .w-stat-k {
       font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: rgba(255, 255, 255, 0.45);
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
     }
     .w-stat-v {
-      font-size: 14px;
+      font-family: var(--font-mono);
+      font-size: 13px;
       font-weight: 500;
-      color: #fff;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
     }
     .w-action-link {
-      display: inline-block;
-      margin-top: 6px;
-      font-size: 11.5px;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      color: #38bdf8;
-      text-decoration: none;
       background: none;
       border: none;
       padding: 0;
+      font-family: var(--font-sans);
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-primary);
       cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 3px;
     }
-    .w-action-link:hover { text-decoration: underline; }
+
     .minimal-input {
       width: 100%;
-      background: rgba(255, 255, 255, 0.07);
-      border: none;
-      border-radius: 10px;
-      padding: 8px 11px;
-      color: #fff;
-      font-size: 12.5px;
+      background: var(--bg-input);
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      padding: 6px 10px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
       outline: none;
+    }
+    .minimal-input:focus {
+      border-color: var(--line-focus);
+    }
+
+    #notes-list {
+      max-height: 220px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .note-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 10px;
+      border: 1px solid var(--line-hairline);
+      background: var(--bg-canvas);
+      font-size: 12px;
+    }
+    .note-row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .note-content-text {
+      flex: 1;
+      line-height: 1.4;
+      color: var(--text-primary);
+      word-break: break-word;
       user-select: text;
     }
-    .minimal-input::placeholder { color: rgba(255, 255, 255, 0.38); }
-    .note-row {
+    .note-row-meta {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
-      padding: 6px 0;
-      font-size: 12.5px;
-      color: rgba(255, 255, 255, 0.88);
+      gap: 6px;
+    }
+    .note-file-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .note-actions-group {
+      display: inline-flex;
+      gap: 4px;
+    }
+    .note-action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--line-hairline);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .note-action-btn:hover,
+    .note-action-btn.synced {
+      border-color: var(--line-focus);
+      color: var(--text-primary);
     }
     .note-del {
       background: none;
       border: none;
-      color: rgba(255, 255, 255, 0.35);
+      color: var(--text-muted);
       cursor: pointer;
-      font-size: 13px;
-      padding: 0 4px;
+      font-size: 12px;
     }
-    .note-del:hover { color: #f87171; }
+    .note-del:hover { color: var(--dot-err); }
 
-    /* 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER (TRANSPARENT FOR FULL-BLEED HORIZON) */
-    #timeline-dock {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: var(--devices-dock-height, 44px);
-      height: 28vh;
-      min-height: 195px;
-      z-index: 20;
-      background: transparent;
+    /* ============================================================================
+       ZONE C: PRIMARY HAIRLINE WORKSPACE (MASTER ROOM MATRIX + RIGHT INSPECTOR)
+       ============================================================================ */
+    #devices-dock {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 390px;
+      background: var(--bg-canvas);
+      overflow: hidden;
+    }
+
+    /* Left Column: Smart Home Room & Device Matrix */
+    .sh-matrix-column {
       display: flex;
       flex-direction: column;
-      justify-content: flex-end;
-      transition: bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      pointer-events: none;
+      min-height: 0;
+      border-right: 1px solid var(--line-hairline);
     }
 
-    /* Whisper-quiet minimal controls right above the timeline */
-    #timeline-toolbar {
+    #room-dock-bar {
+      height: 40px;
+      min-height: 40px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line-hairline);
+      background: var(--bg-elevated);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .sh-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .sh-section-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    #sh-matrix-summary {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .room-dock-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .room-dock-group::-webkit-scrollbar { display: none; }
+
+    .room-pill {
+      background: transparent;
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      padding: 3px 8px;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .room-pill:hover {
+      color: var(--text-primary);
+      border-color: var(--line-focus);
+      background: var(--bg-input);
+    }
+    .room-pill.pinned-tab {
+      color: var(--bg-canvas);
+      background: var(--text-primary);
+      border-color: var(--text-primary);
+    }
+    .room-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .room-pill.has-on .room-dot {
+      background: var(--dot-ok);
+    }
+    .room-lightbulb-icon {
+      display: none;
+    }
+    .td-sep-unpin-btn {
+      background: transparent;
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      cursor: pointer;
+    }
+
+    /* Live Hairline Room Grid */
+    #rooms-live-matrix-grid {
+      flex: 1;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      align-content: start;
+      background: var(--bg-canvas);
+    }
+
+    .sh-room-cell {
+      border-right: 1px solid var(--line-hairline);
+      border-bottom: 1px solid var(--line-hairline);
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-canvas);
+    }
+
+    .sh-room-head {
+      height: 36px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line-hairline);
+      background: var(--bg-elevated);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .sh-room-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sh-room-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+    }
+    .sh-room-meta-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sh-room-telemetry {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .sh-room-off-btn {
+      background: transparent;
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      padding: 1px 6px;
+      cursor: pointer;
+    }
+    .sh-room-off-btn:hover {
+      color: var(--text-primary);
+      border-color: var(--line-focus);
+    }
+
+    .sh-room-devices {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .rf-dev-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--line-hairline);
+      background: var(--bg-canvas);
+      transition: background-color 0.12s ease;
+    }
+    .rf-dev-row:last-child {
+      border-bottom: none;
+    }
+    .rf-dev-row:hover {
+      background: var(--bg-elevated);
+    }
+    .rf-dev-row.is-on {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .rf-dev-main {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 28px 6px 24px;
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      pointer-events: auto;
+      gap: 8px;
     }
+    .rf-dev-label {
+      font-size: 12.5px;
+      font-weight: 400;
+      color: var(--text-secondary);
+    }
+    .rf-dev-row.is-on .rf-dev-label {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+    .rf-dev-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rf-power-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .rf-toggle-btn {
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      padding: 3px 9px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--bg-input);
+      color: var(--text-secondary);
+    }
+    .rf-toggle-btn:hover {
+      border-color: var(--line-focus);
+      color: var(--text-primary);
+    }
+    .rf-toggle-btn.on {
+      background: var(--text-primary);
+      color: var(--bg-canvas);
+      border-color: var(--text-primary);
+      font-weight: 600;
+    }
+    .rf-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 2px;
+    }
+    .rf-slider {
+      flex: 1;
+      accent-color: var(--text-primary);
+      height: 3px;
+      cursor: pointer;
+    }
+    .rf-effect-pills {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }
+    .rf-fx-pill {
+      border: 1px solid var(--line-hairline);
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      background: var(--bg-input);
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .rf-fx-pill.active {
+      background: var(--text-primary);
+      color: var(--bg-canvas);
+      border-color: var(--text-primary);
+    }
+
+    /* Right Column: Hardware, 3D Print & Vision Inspector (#statusbar-right-previews) */
+    #statusbar-right-previews {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      background: var(--bg-canvas);
+    }
+
+    .sb-preview-item {
+      border-bottom: 1px solid var(--line-hairline);
+      display: flex;
+      flex-direction: column;
+    }
+    .sb-preview-head {
+      height: 36px;
+      padding: 0 16px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--line-hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .sb-preview-trigger {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+    }
+    .sb-meta {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .sb-caret {
+      display: none;
+    }
+    .sb-upward-flyout {
+      padding: 12px 16px;
+      background: var(--bg-canvas);
+      display: block !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      position: static !important;
+      width: 100% !important;
+      border: none !important;
+      box-shadow: none !important;
+      transform: none !important;
+      pointer-events: auto !important;
+    }
+    .w-3d-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .w-3d-info {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ============================================================================
+       ZONE D: BOTTOM 24H CHRONOLOGICAL HORIZON TIMELINE (#timeline-dock)
+       ============================================================================ */
+    #timeline-dock {
+      height: 185px;
+      min-height: 185px;
+      border-top: 1px solid var(--line-hairline);
+      background: var(--bg-canvas);
+      display: flex;
+      flex-direction: column;
+      z-index: 30;
+      flex-shrink: 0;
+    }
+
+    #timeline-toolbar {
+      height: 34px;
+      min-height: 34px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line-hairline);
+      background: var(--bg-elevated);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
     .tl-controls {
       display: flex;
       align-items: center;
-      gap: 14px;
-      opacity: 0.55;
-      transition: opacity 0.25s ease;
+      gap: 12px;
     }
-    .tl-controls:hover {
-      opacity: 0.98;
-    }
+
     .tl-pill {
       background: none;
       border: none;
-      color: rgba(255, 255, 255, 0.55);
+      border-bottom: 1px solid transparent;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
       font-size: 10.5px;
       font-weight: 500;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       cursor: pointer;
-      padding: 2px 0;
-      transition: color 0.2s ease;
+      padding: 4px 2px;
     }
     .tl-pill:hover, .tl-pill.active {
-      color: #ffffff;
+      color: var(--text-primary);
+      border-bottom-color: var(--text-primary);
     }
     .tl-pill.return-now {
-      color: #38bdf8;
+      color: var(--text-primary);
+      border: 1px solid var(--line-strong);
+      border-radius: 3px;
+      padding: 2px 8px;
       display: none;
     }
 
-    /* Timeline viewport & moving canvas */
     #timeline-viewport {
       position: relative;
-      width: 100vw;
-      height: calc(28vh - 28px);
-      min-height: 168px;
-      overflow-x: clip;
-      overflow-y: visible;
+      width: 100%;
+      flex: 1;
+      overflow: hidden;
       cursor: grab;
-      pointer-events: auto;
+      background: var(--bg-canvas);
     }
     #timeline-viewport:active { cursor: grabbing; }
 
-    /* Fixed "NOW" Marker at 25% from left */
     #fixed-now-marker {
       position: absolute;
-      left: 25vw;
-      top: 6px;
+      left: 25%;
+      top: 0;
       bottom: 0;
-      width: 1.5px;
-      background: linear-gradient(
-        to bottom,
-        rgba(56, 189, 248, 0) 0%,
-        #38bdf8 22%,
-        #fbbf24 85%,
-        rgba(251, 191, 36, 0.2) 100%
-      );
-      box-shadow: 0 0 18px rgba(56, 189, 248, 0.85);
+      width: 1px;
+      background: var(--text-primary);
       z-index: 25;
       pointer-events: none;
     }
@@ -765,29 +1099,27 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       top: 4px;
       left: 0;
       transform: translateX(-50%);
-      padding: 2px 8px;
-      border-radius: 99px;
-      background: rgba(56, 189, 248, 0.16);
-      backdrop-filter: blur(12px);
-      color: #e0f2fe;
+      padding: 1px 6px;
+      border-radius: 2px;
+      background: var(--text-primary);
+      color: var(--bg-canvas);
+      font-family: var(--font-mono);
       font-size: 9.5px;
       font-weight: 600;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.06em;
       white-space: nowrap;
     }
     #fixed-now-orb {
       position: absolute;
-      bottom: 37px;
-      left: 0.75px;
+      bottom: 28px;
+      left: 0.5px;
       transform: translate(-50%, 50%);
-      width: 9px;
-      height: 9px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
-      background: #fbbf24;
-      box-shadow: 0 0 16px 4px rgba(251, 191, 36, 0.9);
+      background: var(--text-primary);
     }
 
-    /* Moving World Track */
     #timeline-world {
       position: absolute;
       top: 0;
@@ -795,90 +1127,34 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       left: 0;
       will-change: transform;
     }
-
-    /* Horizontal Axis Line (0° Horizon Line) */
     #timeline-axis-line {
       position: absolute;
       left: -20000px;
       width: 40000px;
-      bottom: 38px;
+      bottom: 28px;
       height: 1px;
-      background: rgba(255, 255, 255, 0.22);
+      background: var(--line-strong);
       z-index: 5;
       pointer-events: none;
     }
-
-    /* Celestial Altitude Layer (Behind Timeline Ticks & Calendar Events) */
     #timeline-celestial-layer {
       position: absolute;
       inset: 0;
       pointer-events: none;
       z-index: 1;
-      overflow: visible;
+      opacity: 0.35;
     }
     #tl-celestial-svg {
       position: absolute;
       left: 0;
-      bottom: 38px;
+      bottom: 28px;
       width: 1px;
       height: 1px;
       overflow: visible;
-      pointer-events: none;
     }
-    .tl-horizon-node {
-      position: absolute;
-      bottom: 38px;
-      transform: translate(-50%, 50%);
-      pointer-events: none;
-      z-index: 2;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .tl-horizon-node, .tl-celestial-body {
+      display: none !important;
     }
-    .tl-horizon-dot {
-      width: 4.5px;
-      height: 4.5px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.75);
-      box-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
-    }
-    .tl-horizon-node.moon-cross .tl-horizon-dot {
-      background: rgba(186, 230, 253, 0.72);
-    }
-    .tl-horizon-time {
-      position: absolute;
-      top: -15px;
-      font-size: 8.5px;
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: 0.03em;
-      color: rgba(248, 250, 252, 0.62);
-      white-space: nowrap;
-      background: rgba(4, 7, 17, 0.58);
-      padding: 0.5px 4px;
-      border-radius: 3px;
-    }
-    .tl-horizon-node.moon-cross .tl-horizon-time {
-      top: 6px;
-      color: rgba(186, 230, 253, 0.55);
-    }
-    .tl-celestial-body {
-      position: absolute;
-      width: 34px;
-      height: 34px;
-      transform: translate(-50%, 50%);
-      pointer-events: none;
-      z-index: 2;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: opacity 0.35s ease, filter 0.35s ease;
-    }
-    .tl-celestial-body.below-horizon {
-      opacity: 0.36;
-      filter: saturate(0.45) brightness(0.72);
-    }
-
     #timeline-ticks-layer {
       position: absolute;
       inset: 0;
@@ -892,1208 +1168,170 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       pointer-events: auto;
     }
 
-    /* Hour Ticks & Day Dividers */
     .tl-tick {
       position: absolute;
       bottom: 0;
-      height: 38px;
+      height: 28px;
       transform: translateX(-50%);
       display: flex;
       flex-direction: column;
       align-items: center;
       pointer-events: none;
-      z-index: 6;
     }
     .tl-tick-mark {
       width: 1px;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.2);
-      margin-bottom: 6px;
+      height: 5px;
+      background: var(--line-strong);
+      margin-bottom: 4px;
     }
     .tl-tick.major .tl-tick-mark {
-      height: 11px;
-      background: rgba(255, 255, 255, 0.42);
+      height: 8px;
+      background: var(--text-muted);
     }
     .tl-tick-label {
-      font-size: 10px;
-      font-weight: 400;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-muted);
       font-variant-numeric: tabular-nums;
-      color: rgba(255, 255, 255, 0.42);
       white-space: nowrap;
     }
     .tl-tick.day-start .tl-tick-mark {
-      height: 165px;
-      margin-top: -127px;
-      background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.38));
+      height: 140px;
+      margin-top: -112px;
+      background: var(--line-strong);
     }
     .tl-tick.day-start .tl-tick-label {
-      color: #38bdf8;
+      color: var(--text-primary);
       font-weight: 600;
-      letter-spacing: 0.08em;
       text-transform: uppercase;
-      font-size: 10.5px;
     }
 
-    /* 4. GOOGLE CALENDAR EVENT RECTANGLES ON THE TIMELINE (FLAT + LOCATION, ATTENDEES, DESCRIPTION) */
     .tl-event-rect {
       position: absolute;
-      height: 54px;
-      border-radius: 4px;
-      padding: 4px 10px;
-      background: rgba(11, 18, 32, 0.94);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-left: 3px solid var(--ev-color, #38bdf8);
-      box-shadow: none;
+      height: 44px;
+      border-radius: 3px;
+      padding: 4px 8px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-strong);
+      border-left: 2px solid var(--text-primary);
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 1.5px;
+      gap: 1px;
       overflow: hidden;
       cursor: pointer;
       z-index: 12;
-      transition: background 0.15s ease, border-color 0.15s ease;
     }
     .tl-event-rect:hover {
-      background: rgba(19, 30, 52, 0.98);
-      border-color: rgba(255, 255, 255, 0.28);
-      border-left-color: var(--ev-color, #38bdf8);
-      box-shadow: none;
+      border-color: var(--line-focus);
+      background: var(--bg-input);
       z-index: 18;
     }
     .tl-event-rect.is-now {
-      background: rgba(12, 42, 64, 0.95);
-      border-color: rgba(56, 189, 248, 0.42);
-      border-left: 3px solid var(--ev-color, #38bdf8);
-      box-shadow: none;
+      border-left: 2px solid var(--dot-ok);
+      background: var(--bg-input);
     }
     .tl-event-rect.is-past {
-      opacity: 0.52;
+      opacity: 0.45;
     }
     .tl-ev-head {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
       gap: 6px;
-      min-width: 0;
     }
     .tl-ev-title {
-      font-size: 11.5px;
-      font-weight: 600;
-      color: #ffffff;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      line-height: 1.15;
     }
     .tl-ev-time {
+      font-family: var(--font-mono);
       font-size: 9.5px;
+      color: var(--text-secondary);
       font-variant-numeric: tabular-nums;
-      color: rgba(248, 250, 252, 0.72);
       white-space: nowrap;
-      flex-shrink: 0;
     }
-    .tl-ev-meta {
+    .tl-ev-meta, .tl-ev-desc {
       font-size: 9.5px;
-      color: rgba(226, 232, 240, 0.75);
+      color: var(--text-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      line-height: 1.15;
-    }
-    .tl-ev-desc {
-      font-size: 9px;
-      color: rgba(148, 163, 184, 0.85);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      line-height: 1.15;
     }
 
-    /* Quick Event Creator Popover */
+    /* Quick Event Modal & Full App Overlay */
     #quick-event-modal {
       position: fixed;
-      bottom: 35vh;
-      right: 28px;
-      z-index: 40;
-      background: rgba(6, 10, 22, 0.78);
-      backdrop-filter: blur(28px);
-      padding: 18px 22px;
-      border-radius: 18px;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      bottom: 200px;
+      right: 24px;
+      z-index: 90;
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-strong);
+      padding: 16px;
+      border-radius: 4px;
       display: none;
-      width: 320px;
+      width: 300px;
     }
 
-    /* Fullscreen Service Overlay Iframe */
     #full-app-overlay {
       position: fixed;
       inset: 0;
       z-index: 100;
-      background: #040711;
+      background: var(--bg-canvas);
       display: none;
       flex-direction: column;
     }
     #full-app-bar {
-      height: 44px;
+      height: 40px;
       padding: 0 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #060914;
+      background: var(--bg-canvas);
+      border-bottom: 1px solid var(--line-hairline);
     }
     #full-app-frame {
       flex: 1;
       width: 100%;
       border: none;
+      background: var(--bg-canvas);
     }
 
-    /* 6. BORDERED HIGHER ROOM STATUSBAR + UPWARD FLYOUTS OVER UPPER CONTENT */
-    #devices-dock {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 38;
-      background: transparent !important;
-      backdrop-filter: none !important;
-      -webkit-backdrop-filter: none !important;
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* Subtle hairline separator between Timeline and StatusBar */
-    #timeline-devices-separator {
-      position: relative;
-      height: 2px;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 0 28px 0 24px;
-      pointer-events: none;
-    }
-    #timeline-devices-separator::before {
-      content: "";
-      position: absolute;
-      left: 24px;
-      right: 28px;
-      top: 50%;
-      height: 1px;
-      background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0.14) 0%,
-        rgba(56, 189, 248, 0.28) 35%,
-        rgba(255, 255, 255, 0.12) 75%,
-        rgba(255, 255, 255, 0.06) 100%
-      );
-      pointer-events: none;
-    }
-    .td-sep-badge {
-      display: none;
-    }
-    .td-sep-unpin-btn {
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      border-radius: 6px;
-      color: #38bdf8;
-      font-size: 9.5px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      cursor: pointer;
-      padding: 5px 9px;
-      white-space: nowrap;
-    }
-    .td-sep-unpin-btn:hover {
-      background: rgba(56, 189, 248, 0.22);
-    }
-
-    /* Pinned Room Groups Tray (Expands upwards OVER upper timeline content) */
-    #pinned-rooms-tray {
-      display: none;
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 24px;
-      right: 28px;
-      padding: 6px 4px 8px 4px;
-      gap: 12px;
-      overflow-x: auto;
-      scrollbar-width: thin;
-      align-items: flex-end;
-      z-index: 65;
-      pointer-events: auto;
-    }
-    #pinned-rooms-tray.has-pinned {
-      display: flex;
-    }
-    .pinned-room-card {
-      min-width: 265px;
-      max-width: 330px;
-      flex: 0 0 auto;
-      background: rgba(8, 13, 26, 0.94);
-      backdrop-filter: blur(24px) saturate(140%);
-      -webkit-backdrop-filter: blur(24px) saturate(140%);
-      border: 1px solid rgba(56, 189, 248, 0.32);
-      border-radius: 12px;
-      padding: 10px 13px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.65);
-      animation: pinCardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    @keyframes pinCardIn {
-      from { opacity: 0; transform: translateY(8px) scale(0.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .prc-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    }
-    .prc-title-wrap {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }
-    .prc-title {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: #ffffff;
-    }
-    .prc-meta {
-      font-size: 10px;
-      color: rgba(248, 250, 252, 0.48);
-      font-variant-numeric: tabular-nums;
-    }
-    .prc-unpin {
-      background: rgba(56, 189, 248, 0.14);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      color: #38bdf8;
-      border-radius: 99px;
-      padding: 2px 8px;
-      font-size: 9px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      transition: all 0.2s ease;
-    }
-    .prc-unpin:hover {
-      background: rgba(248, 113, 113, 0.18);
-      border-color: rgba(248, 113, 113, 0.4);
-      color: #fca5a5;
-    }
-    .prc-dev-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      max-height: 175px;
-      overflow-y: auto;
-      padding-right: 2px;
-    }
-
-    /* Higher & Bordered Room Bar + Right-Aligned 3D Print & Vision Previews */
-    #room-dock-bar {
-      position: relative;
-      height: 50px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 28px 6px 24px;
-      gap: 12px;
-      background: rgba(7, 11, 22, 0.72);
-      border-top: 1px solid rgba(255, 255, 255, 0.16);
-    }
-
-    .room-dock-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      overflow-x: auto;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-      flex: 1;
-      min-width: 0;
-    }
-    .room-dock-group::-webkit-scrollbar { display: none; }
-
-    /* Higher, bordered room button */
-    .room-pill {
-      position: relative;
-      background: rgba(15, 23, 42, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 7px;
-      padding: 7px 12px;
-      color: rgba(248, 250, 252, 0.78);
-      font-family: var(--font-sans);
-      font-size: 11.5px;
-      font-weight: 500;
-      letter-spacing: 0.03em;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.18s ease;
-    }
-    .room-pill:hover {
-      color: #ffffff;
-      background: rgba(30, 41, 59, 0.85);
-      border-color: rgba(255, 255, 255, 0.34);
-    }
-    .room-pill.pinned-tab {
-      color: #ffffff;
-      font-weight: 600;
-      background: rgba(14, 116, 144, 0.32);
-      border-color: #38bdf8;
-    }
-    .room-pill.has-on {
-      color: rgba(248, 250, 252, 0.94);
-      border-color: rgba(251, 191, 36, 0.38);
-    }
-    .room-pin-ico {
-      display: none;
-    }
-    .room-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.28);
-      transition: background 0.25s ease, box-shadow 0.25s ease;
-    }
-    .room-pill.has-on .room-dot {
-      background: #fbbf24;
-      box-shadow: 0 0 8px rgba(251, 191, 36, 0.85);
-    }
-    .room-pill.has-motion .room-dot {
-      background: #4ade80;
-      box-shadow: 0 0 8px rgba(74, 222, 128, 0.85);
-    }
-    .room-meta {
-      font-size: 9.5px;
-      color: rgba(248, 250, 252, 0.48);
-      font-variant-numeric: tabular-nums;
-    }
-    .room-pill.has-on .room-meta {
-      color: rgba(251, 191, 36, 0.88);
-    }
-    .room-lightbulb-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      color: #fbbf24;
-      filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.7));
-      margin-left: 1px;
-    }
-
-    /* Right-Aligned StatusBar Previews (3D Print & Vision — NOT inside tabs, expand upwards) */
-    #statusbar-right-previews {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 20px;
-      flex-shrink: 0;
-      position: relative;
-    }
-    .sb-preview-item {
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
-    .sb-preview-trigger {
-      background: transparent;
-      border: none;
-      padding: 4px 0;
-      color: rgba(248, 250, 252, 0.78);
-      font-family: var(--font-sans);
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: color 0.2s ease, opacity 0.2s ease;
-      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
-    }
-    .sb-preview-trigger:hover,
-    .sb-preview-item.expanded .sb-preview-trigger {
-      color: #ffffff;
-    }
-    .sb-preview-meta {
-      font-size: 10.5px;
-      font-weight: 400;
-      letter-spacing: 0.01em;
-      text-transform: none;
-      color: rgba(248, 250, 252, 0.54);
-      font-variant-numeric: tabular-nums;
-    }
-    .sb-mini-bar {
-      width: 34px;
-      height: 3.5px;
-      border-radius: 99px;
-      background: rgba(255, 255, 255, 0.14);
-      overflow: hidden;
-    }
-
-    /* Upward Flyout Panel for StatusBar Previews (3D Print & Vision) */
-    .sb-upward-flyout {
-      position: absolute;
-      bottom: calc(100% + 14px);
-      right: 0;
-      width: 340px;
-      padding: 16px 18px;
-      border-radius: 18px;
-      background: rgba(6, 10, 22, 0.76);
-      backdrop-filter: blur(28px) saturate(140%);
-      -webkit-backdrop-filter: blur(28px) saturate(140%);
-      border: 1px solid rgba(56, 189, 248, 0.22);
-      box-shadow: 0 20px 55px rgba(0, 0, 0, 0.6);
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(10px) scale(0.98);
-      pointer-events: none;
-      transition: opacity 0.24s ease, transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.24s;
-      z-index: 50;
-      text-align: left;
-    }
-    .sb-preview-item.expanded .sb-upward-flyout {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0) scale(1);
-      pointer-events: auto;
-    }
-
-    /* Device Row Controls inside Pinned Room Cards & Vision Flyout */
-    .rf-dev-row {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      padding: 6px 10px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.035);
-      transition: background 0.2s ease;
-    }
-    .rf-dev-row.is-on {
-      background: rgba(251, 191, 36, 0.09);
-    }
-    .rf-dev-main {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-    }
-    .rf-dev-label {
-      font-size: 11.5px;
-      font-weight: 400;
-      color: rgba(248, 250, 252, 0.88);
-    }
-    .rf-dev-row.is-on .rf-dev-label {
-      color: #ffffff;
-      font-weight: 500;
-    }
-    .rf-dev-right {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .rf-power-badge {
-      font-size: 10px;
-      color: rgba(248, 250, 252, 0.45);
-      font-variant-numeric: tabular-nums;
-    }
-    .rf-toggle-btn {
-      border: none;
-      border-radius: 99px;
-      padding: 3px 10px;
-      font-size: 10px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(248, 250, 252, 0.65);
-    }
-    .rf-toggle-btn.on {
-      background: #fbbf24;
-      color: #040711;
-      box-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
-    }
-    .rf-slider-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding-top: 2px;
-    }
-    .rf-slider {
-      flex: 1;
-      accent-color: #38bdf8;
-      height: 4px;
-      cursor: pointer;
-    }
-    .rf-effect-pills {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-      padding-top: 2px;
-    }
-    .rf-fx-pill {
-      border: none;
-      border-radius: 99px;
-      padding: 2px 7px;
-      font-size: 9.5px;
-      background: rgba(255, 255, 255, 0.06);
-      color: rgba(255, 255, 255, 0.6);
-      cursor: pointer;
-    }
-    .rf-fx-pill.active {
-      background: #a855f7;
-      color: #fff;
-    }
-    .w-3d-row {
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-    .w-3d-info {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      flex: 1;
-      min-width: 0;
-    }
-
-    /* ============================================================================
-       7. RESPONSIVE & MOBILE-COMPATIBLE LAYOUT (TABLET, LANDSCAPE & SMARTPHONE)
-       ============================================================================ */
-    @media (max-width: 1180px) and (min-width: 901px) {
-      :root {
-        --nav-safe-left: 0px;
-      }
-      #hero-time {
-        font-size: clamp(3.5rem, 6.2vw, 5.8rem);
-      }
-      #hero-weather-strip {
-        max-width: min(390px, 44vw);
-      }
-      #top-right-widgets {
-        right: 2.5vw;
-        gap: 12px;
-      }
-      .ambient-widget.expanded {
-        width: 310px;
-      }
-    }
-
-    @media (max-height: 540px) and (orientation: landscape) {
-      :root {
-        --nav-safe-left: 0px;
-      }
+    @media (max-width: 1100px) {
       html, body {
-        width: 100vw;
-        height: 100dvh;
-        overflow: hidden;
-      }
-      #sky-stage {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100dvh;
-      }
-      #hero-clock-region {
-        top: 12px;
-        left: 18px;
-        margin-left: 0;
-      }
-      #hero-time {
-        font-size: clamp(2.4rem, 6vw, 3.6rem);
-      }
-      #timeline-dock {
-        height: 155px;
-        background: transparent !important;
-      }
-      #timeline-viewport {
-        height: 120px;
-      }
-    }
-
-    @media (max-width: 900px) {
-      :root {
-        --nav-safe-left: 0px;
-        --devices-dock-height: 52px;
-      }
-      html, body {
-        width: 100%;
         height: auto;
         min-height: 100dvh;
-        overflow-x: hidden;
         overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: calc(var(--devices-dock-height, 52px) + env(safe-area-inset-bottom, 10px) + 18px);
       }
-      #sky-stage {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100dvh;
-      }
-
-      /* Scale celestial sculptures slightly on mobile screens */
-      #sun-assembly,
-      #moon-assembly {
-        transform: scale(0.82);
-      }
-
-      /* Left-aligned Clock & Simplified Weather at top of mobile view */
-      #hero-clock-region {
-        position: relative;
-        top: auto;
-        left: auto;
-        margin-left: 0;
-        width: 100%;
-        padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 6px 16px;
-        text-align: left;
-        z-index: 15;
-        pointer-events: auto;
-      }
-      #hero-time {
-        font-size: clamp(3.1rem, 13vw, 4.6rem);
-      }
-      #hero-seconds {
-        font-size: clamp(1.1rem, 4vw, 1.5rem);
-      }
-      #hero-date {
-        margin-top: 4px;
-        font-size: clamp(0.95rem, 3.6vw, 1.2rem);
-      }
-      #solar-telemetry {
-        font-size: 10px;
-        line-height: 1.4;
-      }
-      #hero-weather-strip {
-        display: flex;
-        width: 100%;
-        max-width: 100%;
-        margin-top: 8px;
-        padding: 0;
-        background: transparent;
-        border: none;
-      }
-      .mw-current-row {
+      #horizon-header-bar {
+        height: auto;
+        padding: 10px 16px;
         flex-wrap: wrap;
-        gap: 8px 10px;
       }
-      .mw-day-slots {
-        gap: 10px;
-        overflow-x: auto;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-      }
-      .mw-day-slots::-webkit-scrollbar {
-        display: none;
-      }
-
-      /* Responsive Grid for Top-Right Service Preview Widgets on Mobile */
       #top-right-widgets {
-        position: relative;
-        top: auto;
-        right: auto;
-        width: 100%;
-        max-height: none;
-        padding: 8px 16px 10px 16px;
-        display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        align-items: stretch;
-        z-index: 25;
       }
       .ambient-widget {
-        text-align: left;
-        width: 100%;
-        max-width: 100%;
-        padding: 10px 12px;
-        border-radius: 14px;
-        background: rgba(6, 11, 24, 0.28);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+        border-bottom: 1px solid var(--line-hairline);
+        padding: 10px 16px;
       }
-      .ambient-widget:hover:not(.expanded) {
-        transform: none;
-      }
-      .ambient-widget.expanded {
-        grid-column: 1 / -1;
-        width: 100%;
-        max-width: 100%;
-        padding: 15px 16px;
-        background: rgba(6, 10, 22, 0.86);
-        border: 1px solid rgba(56, 189, 248, 0.28);
-        transform: none;
-      }
-      .ambient-widget.expanded .w-expand-body {
-        max-height: 460px;
-      }
-      #widget-finances .w-expand-body {
-        min-width: 0 !important;
-        width: 100%;
-      }
-      .w-header {
-        align-items: flex-start;
-        width: 100%;
-      }
-      .w-label-row {
-        width: 100%;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 4px 6px;
-      }
-      .health-minimal-badges {
-        justify-content: flex-start;
-      }
-      .w-primary {
-        justify-content: flex-start;
-        font-size: 14px;
-        flex-wrap: wrap;
-        gap: 4px 8px;
-        text-align: left;
-      }
-
-      /* Mobile Timeline Section (Transparent to show Horizon background) */
-      #timeline-dock {
-        position: relative;
-        left: auto;
-        right: auto;
-        bottom: auto;
-        width: 100%;
-        height: 205px;
-        min-height: 195px;
-        margin-top: 4px;
-        background: transparent !important;
-      }
-      #timeline-toolbar {
-        padding: 4px 16px 8px 16px;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .tl-controls {
-        opacity: 0.92;
-        gap: 6px;
-      }
-      .tl-pill {
-        padding: 4px 8px;
-        font-size: 10.5px;
-        border-radius: 7px;
-        background: rgba(255, 255, 255, 0.06);
-      }
-      .tl-pill.active {
-        background: rgba(56, 189, 248, 0.2);
-        color: #38bdf8;
-      }
-      #timeline-viewport {
-        width: 100%;
-        height: 165px;
-        min-height: 160px;
-        touch-action: pan-y;
-      }
-
-      /* Mobile Transparent Bottom StatusBar + Pinnable Room Tabs */
       #devices-dock {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 40;
-        padding-bottom: env(safe-area-inset-bottom, 4px);
-        background: transparent !important;
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        box-shadow: none !important;
+        grid-template-columns: 1fr;
+        overflow: visible;
       }
-      #timeline-devices-separator {
-        padding: 0 12px;
-        height: 16px;
+      .sh-matrix-column {
+        border-right: none;
+        border-bottom: 1px solid var(--line-hairline);
       }
-      #timeline-devices-separator::before {
-        left: 12px;
-        right: 12px;
-      }
-      #pinned-rooms-tray {
-        padding: 6px 12px 8px 12px;
-        gap: 10px;
-        max-height: 44vh;
-        overflow-x: auto;
-        overflow-y: hidden;
-        -webkit-overflow-scrolling: touch;
-        scroll-snap-type: x mandatory;
-      }
-      .pinned-room-card {
-        min-width: min(285px, 84vw);
-        max-width: 86vw;
-        scroll-snap-align: center;
-      }
-      .prc-dev-grid {
-        max-height: 26vh;
-        -webkit-overflow-scrolling: touch;
-      }
-      #room-dock-bar {
-        height: 36px;
-        padding: 0 12px;
-        gap: 6px;
-      }
-      .room-pill {
-        padding: 4px 8px;
-        font-size: 10.5px;
-        flex-shrink: 0;
-      }
-      .sb-upward-flyout {
-        right: 0;
-        width: min(330px, 92vw);
-      }
-
-      /* Mobile Modals & Overlays */
-      #quick-event-modal {
-        left: 12px;
-        right: 12px;
-        bottom: calc(var(--devices-dock-height, 52px) + 12px);
-        width: auto;
-        max-width: 420px;
-        margin: 0 auto;
-      }
-      #full-app-overlay {
-        height: 100dvh;
-      }
-      #full-app-bar {
-        padding: calc(env(safe-area-inset-top, 0px)) 14px 0 14px;
-        min-height: 46px;
-      }
-    }
-
-    @media (max-width: 480px) {
-      #hero-clock-region {
-        padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 4px 12px;
-      }
-      #top-right-widgets {
-        padding: 6px 12px 8px 12px;
-        gap: 8px;
-      }
-      .ambient-widget {
-        padding: 9px 11px;
-      }
-      .w-stat-grid {
-        grid-template-columns: 1fr 1fr;
-        gap: 8px 10px;
-      }
-      .mw-temp-now {
-        font-size: 18px;
-      }
-      #quick-import-flyout-modal > div {
-        width: 100vw !important;
-        height: 100dvh !important;
-      }
-    }
-
-    /* HORIZON CENTERED ROUNDED CORTEX PROMPT BAR */
-    #horizon-cortex-center-stage {
-      position: fixed;
-      left: 50%;
-      top: 45%;
-      transform: translate(-50%, -50%);
-      width: min(670px, 90vw);
-      z-index: 55;
-      pointer-events: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .cortex-prompt-pill {
-      position: relative;
-      width: 100%;
-      height: 54px;
-      border-radius: 9999px;
-      background: rgba(11, 17, 32, 0.78);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      display: flex;
-      align-items: center;
-      padding: 0 7px 0 18px;
-      gap: 12px;
-      transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .cortex-prompt-pill:hover {
-      background: rgba(14, 22, 42, 0.88);
-      border-color: rgba(56, 189, 248, 0.38);
-      box-shadow: 0 16px 44px rgba(0, 0, 0, 0.65), 0 0 20px rgba(56, 189, 248, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-      transform: translateY(-2px);
-    }
-
-    .cortex-prompt-pill:focus-within {
-      background: rgba(10, 16, 32, 0.95);
-      border-color: rgba(56, 189, 248, 0.68);
-      box-shadow: 0 20px 54px rgba(0, 0, 0, 0.78), 0 0 32px rgba(56, 189, 248, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-      transform: translateY(-2px);
-    }
-
-    /* Animated shimmering border while waiting for Gemini response */
-    .cortex-prompt-pill.is-waiting {
-      border-color: transparent !important;
-      background: linear-gradient(rgba(10, 16, 32, 0.96), rgba(10, 16, 32, 0.96)) padding-box,
-                  linear-gradient(90deg, #38bdf8, #a855f7, #38bdf8, #10b981, #38bdf8) border-box !important;
-      background-size: 200% 100% !important;
-      animation: geminiBorderFlow 2s linear infinite, geminiPulseGlow 1.6s ease-in-out infinite alternate !important;
-      transform: translateY(-2px);
-    }
-
-    @keyframes geminiBorderFlow {
-      0% { background-position: 0% 0%; }
-      100% { background-position: 200% 0%; }
-    }
-
-    @keyframes geminiPulseGlow {
-      0% { box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 16px rgba(56, 189, 248, 0.2); }
-      100% { box-shadow: 0 20px 52px rgba(0, 0, 0, 0.8), 0 0 36px rgba(168, 85, 247, 0.38); }
-    }
-
-    .cortex-ai-icon-wrap {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #38bdf8;
-      flex-shrink: 0;
-      transition: all 0.3s ease;
-    }
-
-    .cortex-prompt-pill:focus-within .cortex-ai-icon-wrap {
-      transform: scale(1.12);
-      color: #7dd3fc;
-    }
-
-    .cortex-prompt-pill.is-waiting .cortex-ai-icon-wrap {
-      animation: spinSlow 3s linear infinite;
-      color: #c084fc;
-    }
-
-    @keyframes spinSlow {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .cortex-prompt-input {
-      flex: 1;
-      height: 100%;
-      border: none;
-      outline: none;
-      background: transparent;
-      color: #f8fafc;
-      font-family: var(--font-sans);
-      font-size: 14px;
-      font-weight: 450;
-      letter-spacing: -0.01em;
-    }
-
-    .cortex-prompt-input::placeholder {
-      color: rgba(248, 250, 252, 0.40);
-      font-size: 13.5px;
-      font-weight: 400;
-    }
-
-    .cortex-waiting-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 3px 9px;
-      border-radius: 999px;
-      background: rgba(56, 189, 248, 0.15);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      color: #bae6fd;
-      font-size: 11px;
-      font-family: var(--font-sans);
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    .cortex-waiting-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #38bdf8;
-      animation: pulseDot 1s ease-in-out infinite alternate;
-    }
-
-    @keyframes pulseDot {
-      from { opacity: 0.4; transform: scale(0.85); }
-      to { opacity: 1; transform: scale(1.2); }
-    }
-
-    .cortex-send-btn {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #38bdf8, #0284c7);
-      border: none;
-      color: #040711;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      flex-shrink: 0;
-      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .cortex-send-btn:hover:not(:disabled) {
-      transform: scale(1.08);
-      background: linear-gradient(135deg, #7dd3fc, #38bdf8);
-      box-shadow: 0 4px 16px rgba(56, 189, 248, 0.55);
-    }
-
-    .cortex-send-btn:active:not(:disabled) {
-      transform: scale(0.94);
-    }
-
-    .cortex-send-btn:disabled {
-      opacity: 0.45;
-      cursor: default;
-      transform: none;
-    }
-
-    /* DROPDOWN PREVIEW PANEL */
-    #cortex-preview-dropdown {
-      width: 100%;
-      margin-top: 10px;
-      border-radius: 20px;
-      background: rgba(10, 16, 32, 0.94);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-      border: 1px solid rgba(56, 189, 248, 0.24);
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 24px rgba(56, 189, 248, 0.08);
-      max-height: 400px;
-      overflow-y: auto;
-      padding: 10px;
-      display: none;
-      flex-direction: column;
-      gap: 6px;
-      animation: fadeInDown 0.18s ease-out;
-    }
-
-    @keyframes fadeInDown {
-      from { opacity: 0; transform: translateY(-8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .cortex-preview-item {
-      padding: 9px 13px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      transition: all 0.15s ease;
-    }
-
-    .cortex-preview-item:hover {
-      background: rgba(56, 189, 248, 0.14);
-      border-color: rgba(56, 189, 248, 0.38);
-      transform: translateX(3px);
-    }
-
-    .cortex-preview-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-    }
-
-    .cortex-badge-tag {
-      font-size: 10px;
-      font-family: var(--font-mono, monospace);
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 5px;
-      background: rgba(56, 189, 248, 0.18);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      flex-shrink: 0;
-    }
-
-    /* RESPONSE FLYOUT CARD */
-    #cortex-response-card {
-      width: 100%;
-      margin-top: 12px;
-      border-radius: 20px;
-      background: rgba(10, 16, 32, 0.96);
-      backdrop-filter: blur(28px);
-      -webkit-backdrop-filter: blur(28px);
-      border: 1px solid rgba(56, 189, 248, 0.32);
-      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85), 0 0 35px rgba(56, 189, 248, 0.15);
-      max-height: 480px;
-      overflow-y: auto;
-      padding: 18px 22px;
-      display: none;
-      flex-direction: column;
-      gap: 12px;
-      animation: fadeInDown 0.2s ease-out;
-    }
-
-    .cortex-resp-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 10px;
-      gap: 10px;
-    }
-
-    .cortex-resp-body {
-      font-size: 13px;
-      line-height: 1.65;
-      color: rgba(248, 250, 252, 0.88);
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-family: var(--font-sans);
-    }
-    .cortex-resp-body h1, .cortex-resp-body h2, .cortex-resp-body h3 {
-      color: #f8fafc;
-      margin: 12px 0 6px 0;
-      font-size: 14.5px;
-    }
-    .cortex-resp-body pre, .cortex-resp-body code {
-      font-family: var(--font-mono, monospace);
-      background: rgba(0, 0, 0, 0.4);
-      padding: 2px 6px;
-      border-radius: 4px;
-      color: #bae6fd;
-    }
-    .cortex-resp-body pre {
-      padding: 10px;
-      display: block;
-      overflow-x: auto;
     }
   </style>
 </head>
 <body>
-  <!-- TOOLBAR HIDDEN ALTOGETHER PER USER REQUEST (KEPT FOR DOM ID COMPATIBILITY ONLY) -->
+  <!-- Hidden compatibility nodes -->
   <nav id="left-ambient-navbar" aria-hidden="true" style="display:none !important;">
     <button class="lnav-item active" id="lnav-horizon" onclick="closeFullService()"></button>
     <button class="lnav-item" id="lnav-google-calendar" onclick="openFullService('google-calendar', 'Calendar')"></button>
@@ -2103,12 +1341,11 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     <button class="lnav-item" id="lnav-smart-canvas" onclick="openFullService('smart-canvas', 'Smart Home')"></button>
     <button class="lnav-item" id="lnav-camera-vision" onclick="openFullService('camera-vision', 'Camera Vision')"></button>
     <button class="lnav-item" id="lnav-3d-print" onclick="openFullService('3d-print', '3D Druck Studio')"></button>
+    <button class="lnav-item" id="lnav-floorplan" onclick="openFullService('floorplan', '2D Grundriss & Raumplaner')"></button>
     <button class="lnav-item" id="lnav-memo" onclick="openFullService('memo', 'Memo')"></button>
     <button class="lnav-item" id="lnav-cortex" onclick="openFullService('cortex', 'Cortex')"></button>
   </nav>
-
-  <!-- 1. LIVING SKY, SUBTLE WEATHER EFFECTS & ABSTRACT CELESTIAL HORIZON -->
-  <div id="sky-stage">
+  <div id="sky-stage" style="display:none !important;">
     <div id="starfield"></div>
     <div id="weather-fx-layer">
       <div id="weather-cloud-veil-1"></div>
@@ -2116,75 +1353,104 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       <canvas id="weather-fx-canvas"></canvas>
     </div>
     <div id="horizon-glow"></div>
-    <svg id="solar-arc-svg" preserveAspectRatio="none" style="display:none;"></svg>
-    <div id="moon-assembly" style="display:none;"></div>
-    <div id="sun-assembly" style="display:none;"></div>
+    <svg id="solar-arc-svg" preserveAspectRatio="none"></svg>
+    <div id="moon-assembly"></div>
+    <div id="sun-assembly"></div>
   </div>
 
-  <!-- 2. LEFT-ALIGNED DATE, TIME & SIMPLIFIED WEATHER IN UPPER-LEFT -->
-  <div id="hero-clock-region">
-    <div class="clock-row">
-      <div id="hero-time">--:--</div>
-      <div id="hero-seconds">--</div>
-    </div>
-    <div id="hero-date-row">
-      <div id="hero-date"></div>
-      <button class="hero-cal-icon-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Open Calendar">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="16" y1="2" x2="16" y2="6"></line>
-          <line x1="8" y1="2" x2="8" y2="6"></line>
-          <line x1="3" y1="10" x2="21" y2="10"></line>
-        </svg>
-      </button>
-    </div>
-    <div id="solar-telemetry">
-      <span id="solar-phase-text"></span>
-    </div>
-
-    <!-- SIMPLIFIED WEATHER FORECAST FOR ST. VEIT / GÖLSEN (CURRENT WEATHER ONLY) -->
-    <div id="hero-weather-strip" title="St. Veit an der Gölsen">
-      <div class="mw-current-row">
-        <div class="mw-icon-wrap" id="mw-current-icon"></div>
-        <div class="mw-temp-now" id="mw-current-temp">--°</div>
-        <div class="mw-cond-text" id="mw-current-desc">--</div>
-        <div class="mw-hi-lo" id="mw-hi-lo">--° / --°</div>
+  <!-- ZONE A: UNIFORM TOP HEADER BAR -->
+  <header id="horizon-header-bar">
+    <div class="hh-left">
+      <div class="hh-brand">
+        <span class="hh-title">Horizon</span>
+        <span class="hh-code">CMD</span>
+      </div>
+      <div class="hh-vsep"></div>
+      <div id="hero-clock-region">
+        <div class="clock-row">
+          <div id="hero-time">--:--</div>
+          <div id="hero-seconds">--</div>
+        </div>
+        <div id="hero-date-row">
+          <div id="hero-date"></div>
+          <button class="hero-cal-icon-btn" onclick="openFullService('google-calendar', 'Calendar')" title="Kalender öffnen">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+          </button>
+        </div>
+        <div id="solar-telemetry"><span id="solar-phase-text"></span></div>
+      </div>
+      <div class="hh-vsep"></div>
+      <div id="hero-weather-strip" title="St. Veit an der Gölsen">
+        <div class="mw-current-row">
+          <div class="mw-icon-wrap" id="mw-current-icon"></div>
+          <div class="mw-temp-now" id="mw-current-temp">--°</div>
+          <div class="mw-cond-text" id="mw-current-desc">--</div>
+          <div class="mw-hi-lo" id="mw-hi-lo">--° / --°</div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- 5. TOP-RIGHT MINIMAL EXPANDABLE SERVICE WIDGETS: (1) health, (2) meals, (3) finances, (4) notes -->
-  <div id="top-right-widgets">
-    <!-- 1. HEALTH WIDGET (MINIMAL: HEART ICON WITH HR INSIDE + PROGRESS RING WITH STEP COUNT INSIDE) -->
+    <!-- INLINE CORTEX COMMAND & SEARCH BAR -->
+    <div id="horizon-cortex-center-stage">
+      <div class="cortex-prompt-pill" id="cortex-prompt-pill">
+        <div class="cortex-ai-icon-wrap" id="cortex-ai-icon" title="Cortex & Google Gemini">
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">/</span>
+        </div>
+        <input type="text"
+               class="cortex-prompt-input"
+               id="cortex-prompt-input"
+               placeholder="Cortex fragen oder Memo, Termine, Smart Home & Finanzen durchsuchen..."
+               autocomplete="off"
+               spellcheck="false" />
+        <div id="cortex-status-badge" style="display:none;" class="cortex-waiting-pill">
+          <span class="cortex-waiting-dot"></span>
+          <span id="cortex-status-text">Synthese...</span>
+        </div>
+        <button class="cortex-send-btn" id="cortex-send-btn" onclick="submitCortexPrompt()" title="An Gemini API senden (Enter)">
+          Run
+        </button>
+      </div>
+      <div id="cortex-preview-dropdown"></div>
+      <div id="cortex-response-card"></div>
+    </div>
+
+    <!-- EXPLICIT DATA FRESHNESS & ACTION REQUIRED STRIP -->
+    <div class="hh-right">
+      <span id="horizon-freshness-ts">Stand: --:--:-- (vor 0s)</span>
+      <span class="hh-status-pill">
+        <span class="thassi-u-dot" id="horizon-sys-dot" style="background:#10b981;"></span>
+        <span id="horizon-sys-status-text">HA · GOOGLE NOMINAL</span>
+      </span>
+      <button class="w-nav-btn" onclick="openFullService('cortex', 'Cortex', '?tab=vault')" title="Credentials Vault & Konfiguration">
+        Vault ↗
+      </button>
+    </div>
+  </header>
+
+  <!-- ZONE B: 4-COLUMN EXECUTIVE KPI STRIP -->
+  <section id="top-right-widgets">
+    <!-- 1. HEALTH KPI CELL -->
     <div class="ambient-widget" id="widget-health" onclick="toggleWidget('health', event)">
       <div class="w-header">
         <div class="w-label-row">
-          <span>health</span>
-          <span class="w-dot" id="dot-health" style="background:#4ade80; box-shadow:0 0 10px #4ade80;"></span>
-          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('google-health', 'Health')" title="Open Health View">↗</button>
+          <span class="w-label-left">
+            <span class="w-dot" id="dot-health" style="background:#10b981;"></span>
+            <span>HEALTH · BIOMETRICS</span>
+          </span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('google-health', 'Health')" title="Open Health View">Health ↗</button>
         </div>
         <div class="health-minimal-badges">
-          <!-- Heart icon with Heart Rate number inside -->
-          <div class="hm-badge" title="Heart Rate (bpm)">
-            <svg class="hm-heart-svg" viewBox="0 0 24 24">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                    fill="rgba(244, 63, 94, 0.24)"
-                    stroke="#fb7185"
-                    stroke-width="1.35" />
-            </svg>
-            <span class="hm-badge-val" id="health-hr-inside">--</span>
-          </div>
-          <!-- Progress circle with Step Count number inside -->
-          <div class="hm-badge" title="Steps Today">
-            <svg class="hm-ring-svg" viewBox="0 0 44 44">
-              <circle class="hm-ring-bg" cx="22" cy="22" r="18.5"></circle>
-              <circle class="hm-ring-fg" id="health-steps-ring" cx="22" cy="22" r="18.5"></circle>
-            </svg>
-            <span class="hm-badge-val" id="health-steps-inside">--</span>
-          </div>
+          <span id="health-hr-inside">--</span>
+          <svg viewBox="0 0 44 44" width="1" height="1"><circle id="health-steps-ring" cx="22" cy="22" r="18.5"></circle></svg>
+          <span id="health-steps-inside">--</span>
         </div>
-        <div class="w-primary" id="compact-health" style="display:none;">--</div>
-        <div class="w-sub" id="sub-health" style="display:none;">Pixel 10 Health Connect</div>
+        <div class="w-primary" id="compact-health">-- steps</div>
+        <div class="w-sub" id="sub-health">Pixel 10 Health Connect</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
         <div class="w-stat-grid">
@@ -2195,175 +1461,225 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           <div class="w-stat-item"><span class="w-stat-k">Sleep Duration</span><span class="w-stat-v" id="eh-sleep">--</span></div>
           <div class="w-stat-item"><span class="w-stat-k">Burned / Distance</span><span class="w-stat-v" id="eh-burn">--</span></div>
         </div>
-        <button class="w-action-link" onclick="openFullService('google-health', 'Health')">Open Health →</button>
+        <button class="w-action-link" onclick="openFullService('google-health', 'Health')">Health &amp; Biometrics öffnen →</button>
       </div>
     </div>
 
-    <!-- 2. MEALS WIDGET (MOVED DIRECTLY BELOW HEALTH) -->
+    <!-- 2. MEALS KPI CELL -->
     <div class="ambient-widget" id="widget-meals" onclick="toggleWidget('meals', event)">
       <div class="w-header">
         <div class="w-label-row">
-          <span>meals</span>
-          <span class="w-dot" id="dot-meals" style="background:#fb923c; box-shadow:0 0 10px #fb923c;"></span>
-          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('meal-planner', 'Meals')" title="Open Meals View">↗</button>
+          <span class="w-label-left">
+            <span class="w-dot" id="dot-meals" style="background:#10b981;"></span>
+            <span>MEALS · NUTRITION</span>
+          </span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('meal-planner', 'Meals')" title="Open Meals View">Meals ↗</button>
         </div>
         <div class="w-primary" id="compact-meals">Unplanned</div>
         <div class="w-sub" id="sub-meals">Today's nutrition</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
-        <div id="em-slots" style="font-size:12.5px; color:rgba(255,255,255,0.85); line-height:1.7; margin-bottom:10px;"></div>
-        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Open Meals →</button>
+        <div id="em-slots" style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:10px;"></div>
+        <button class="w-action-link" onclick="openFullService('meal-planner', 'Meals')">Meal Planner öffnen →</button>
       </div>
     </div>
 
-    <!-- 3. FINANCES WIDGET (IN HIDDEN MODE: ONLY SHOW EYE TOGGLE NEXT TO PREVIEW TITLE) -->
+    <!-- 3. FINANCES KPI CELL -->
     <div class="ambient-widget finances-is-hidden" id="widget-finances" onclick="toggleWidget('finances', event)">
       <div class="w-header">
-        <div class="w-label-row" style="gap:6px;">
-          <span>finances</span>
-          <button id="finances-eye-btn"
-                  class="finances-eye-icon-btn"
-                  onclick="toggleFinancesVisibility(event)"
-                  title="Finanzdaten ein-/ausblenden">
-            👁️
-          </button>
-          <span class="w-dot" id="dot-finances" style="background:#a855f7; box-shadow:0 0 10px #a855f7; display:none;"></span>
-          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('finance-analytics', 'thassi.finances')" title="Open Finances View">↗</button>
+        <div class="w-label-row">
+          <span class="w-label-left">
+            <span class="w-dot" id="dot-finances" style="background:#10b981;"></span>
+            <span>FINANCES · LEDGER</span>
+            <button id="finances-eye-btn" class="finances-eye-icon-btn" onclick="toggleFinancesVisibility(event)" title="Finanzdaten ein-/ausblenden">SHOW</button>
+          </span>
+          <div style="display:inline-flex; align-items:center; gap:6px;">
+            <div id="finances-reminder-pill"
+                 onclick="event.stopPropagation(); openQuickImportFlyout(event)"
+                 title="Kontoauszug exportieren & synchronisieren"
+                 style="display:none; padding:1px 6px; border-radius:3px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-family:var(--font-mono); font-size:9.5px; cursor:pointer; align-items:center; gap:4px;">
+              <span style="width:5px; height:5px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>
+              <span id="finances-reminder-pill-text">Sync fällig</span>
+            </div>
+            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('finance-analytics', 'thassi.finances')" title="Open Finances View">Finances ↗</button>
+          </div>
         </div>
         <div class="w-primary" id="compact-finances" onclick="handleCompactFinancesClick(event)" title="Klicken zum Ein-/Ausblenden">•••• €</div>
         <div class="w-sub" id="sub-finances">Sparkasse George</div>
       </div>
-      <div class="w-expand-body" onclick="event.stopPropagation()" style="min-width:270px;">
+      <div class="w-expand-body" onclick="event.stopPropagation()">
+        <div id="finances-reminder-expanded-banner"
+             style="display:none; margin-bottom:10px; padding:8px 10px; border-radius:3px; background:var(--bg-canvas); border:1px solid rgba(245,158,11,0.4); flex-direction:column; gap:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+            <span id="finances-reminder-exp-title" style="font-size:11px; font-weight:600; color:#f59e0b;">Bank-Export fällig</span>
+            <button onclick="snoozeFinanceReminderFromDash(event, 3)"
+                    style="background:transparent; border:1px solid var(--line-hairline); color:var(--text-secondary); border-radius:3px; padding:1px 6px; font-size:10px; cursor:pointer;">
+              3T Pause
+            </button>
+          </div>
+          <div id="finances-reminder-exp-detail" style="font-size:10.5px; color:var(--text-secondary); line-height:1.35;"></div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:2px;">
+            <button onclick="launchBankingPopupFromDashboard(event)"
+                    style="flex:1; padding:5px 8px; border-radius:3px; border:none; background:#fafafa; color:#09090b; font-size:11px; font-weight:600; cursor:pointer;">
+              George &amp; Sync ↗
+            </button>
+            <button onclick="openQuickImportFlyout(event)"
+                    style="padding:5px 8px; border-radius:3px; border:1px solid var(--line-hairline); background:var(--bg-input); color:#fafafa; font-size:11px; cursor:pointer;">
+              Datei / Export
+            </button>
+          </div>
+        </div>
         <div id="finances-preview-dynamic"
-              onclick="toggleFinancesVisibility(event)"
-              title="Klicken, um Zahlen ein-/auszublenden"
-              style="display:flex; flex-direction:column; gap:8px; cursor:pointer; margin-bottom:10px;">
+             onclick="toggleFinancesVisibility(event)"
+             style="display:flex; flex-direction:column; gap:8px; cursor:pointer; margin-bottom:10px;">
           <div class="w-stat-grid">
-            <div class="w-stat-item"><span class="w-stat-k">Aktueller Kontostand</span><span class="w-stat-v" id="ef-bal" style="color:#38bdf8;">•••• €</span></div>
-            <div class="w-stat-item"><span class="w-stat-k">Ausgaben (Tag / Woche)</span><span class="w-stat-v" id="ef-exp" style="color:#f87171;">•••• €</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Aktueller Kontostand</span><span class="w-stat-v" id="ef-bal">•••• €</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Ausgaben (Tag / Woche)</span><span class="w-stat-v" id="ef-exp">•••• €</span></div>
           </div>
         </div>
         <div id="finances-quick-import-slot" style="margin-bottom:8px;"></div>
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-top:1px solid rgba(255,255,255,0.07); padding-top:8px;">
-          <button class="w-action-link" style="margin:0; color:#fbbf24;" onclick="toggleFinancesVisibility(event)" id="finances-toggle-link">👁️ Anzeigen</button>
-          <button class="w-action-link" style="margin:0; color:#94a3b8;" onclick="openFullService('finance-analytics', 'thassi.finances', '#preview-config')">🎛️ Preview</button>
-          <button class="w-action-link" style="margin:0;" onclick="openFullService('finance-analytics', 'thassi.finances')">Finances →</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; border-top:1px solid var(--line-hairline); padding-top:8px;">
+          <button class="w-action-link" onclick="toggleFinancesVisibility(event)" id="finances-toggle-link">Zahlen anzeigen</button>
+          <button class="w-action-link" onclick="triggerDirectFinanceExportFromDash(event, 'csv_de')">CSV Export ↓</button>
+          <button class="w-action-link" onclick="openFullService('finance-analytics', 'thassi.finances', '#export')">Ledger →</button>
         </div>
       </div>
     </div>
 
-    <!-- 4. NOTES WIDGET (LAST POSITION AMONG TOP-RIGHT PREVIEWS) -->
+    <!-- 4. NOTES KPI CELL -->
     <div class="ambient-widget" id="widget-notes" onclick="toggleWidget('notes', event)">
       <div class="w-header">
         <div class="w-label-row">
-          <span>notes</span>
-          <span class="w-dot" id="dot-notes" style="background:#fbbf24; box-shadow:0 0 10px #fbbf24;"></span>
+          <span class="w-label-left">
+            <span class="w-dot" id="dot-notes" style="background:#10b981;"></span>
+            <span>NOTES · MEMO SYNC</span>
+          </span>
+          <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('memo', 'Memo')" title="Open Memo View">Memo ↗</button>
         </div>
         <div class="w-primary" id="compact-notes">0 notes</div>
         <div class="w-sub" id="sub-notes">Tap to capture a note</div>
       </div>
       <div class="w-expand-body" onclick="event.stopPropagation()">
-        <form onsubmit="addNote(event)" style="margin-bottom:10px;">
-          <input id="note-input" class="minimal-input" placeholder="Write a note & press Enter..." />
+        <form onsubmit="addNote(event)" style="margin-bottom:8px; display:flex; gap:6px;">
+          <input id="note-input" class="minimal-input" placeholder="Notiz eingeben &amp; Enter..." />
         </form>
-        <div id="notes-list" style="max-height:160px; overflow-y:auto;"></div>
+        <div id="note-sync-feedback" style="display:none; font-size:11px; color:var(--text-primary); margin-bottom:7px; padding:4px 8px; border:1px solid var(--line-hairline); background:var(--bg-canvas);"></div>
+        <div id="notes-list"></div>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- QUICK IMPORT ONLINE-BANKING POPUP FLYOUT -->
-  <div id="quick-import-flyout-modal"
-       onclick="closeQuickImportFlyout()"
-       style="position:fixed; inset:0; z-index:95; background:rgba(4,7,17,0.68); backdrop-filter:blur(8px); display:none; justify-content:flex-end;">
-    <div onclick="event.stopPropagation()"
-         style="width:min(540px, 95vw); height:100vh; background:#0b1120; border-left:1px solid #1e293b; display:flex; flex-direction:column; box-shadow:-20px 0 60px rgba(0,0,0,0.75);">
-      <div style="padding:16px 20px; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
-        <div>
-          <div style="font-size:15px; font-weight:700; color:#f8fafc;">⚡ Quick Import — Online-Banking Flyout</div>
-          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Sparkasse George Auto-Login, Cookie-Tresor &amp; automatischer Datei-Import</div>
+  <!-- ZONE C: PRIMARY HAIRLINE WORKSPACE (SMART HOME MATRIX + HARDWARE/VISION INSPECTOR) -->
+  <main id="devices-dock">
+    <div id="timeline-devices-separator"></div>
+    <div id="pinned-rooms-tray"></div>
+
+    <!-- Left Column: Live Smart Home Room Matrix -->
+    <div class="sh-matrix-column">
+      <div id="room-dock-bar">
+        <div class="sh-bar-left">
+          <span class="sh-section-label">SMART HOME · RAUM-MATRIX</span>
+          <span id="sh-matrix-summary">5 Räume</span>
+          <div class="room-dock-group" id="room-pills-container"></div>
+          <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Alle zeigen</button>
         </div>
-        <button onclick="closeQuickImportFlyout()" style="background:#1e293b; border:1px solid #334155; color:#cbd5e1; border-radius:8px; padding:5px 10px; cursor:pointer; font-size:12px;">✕</button>
+        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+          <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')">Smart Canvas ↗</button>
+          <button class="w-nav-btn" onclick="openFullService('floorplan', '2D Grundriss & Raumplaner')">2D Grundriss ↗</button>
+        </div>
       </div>
-      <div style="padding:14px 18px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #1e293b; background:#0b1120;">
-        <button onclick="launchBankingPopupFromDashboard()"
-                style="padding:8px 13px; border-radius:9px; border:1px solid #38bdf8; background:linear-gradient(135deg,#0284c7,#2563eb); color:#fff; font-size:12px; font-weight:700; cursor:pointer;">
-          🪟 Banking-Popup öffnen
-        </button>
-        <button onclick="triggerDashboardQuickImportSample()"
-                style="padding:8px 13px; border-radius:9px; border:1px solid rgba(16,185,129,0.45); background:rgba(16,185,129,0.15); color:#34d399; font-size:12px; font-weight:700; cursor:pointer;">
-          ⚡ George Export herunterladen &amp; Auto-Import
-        </button>
-        <button onclick="triggerDashboardDownloadsScan()"
-                style="padding:8px 12px; border-radius:9px; border:1px solid #334155; background:#1e293b; color:#e2e8f0; font-size:11.5px; font-weight:600; cursor:pointer;">
-          📂 Downloads scannen
-        </button>
-      </div>
-      <div id="qi-dash-status" style="display:none; margin:10px 18px 0; padding:9px 12px; border-radius:9px; font-size:12px; font-weight:600;"></div>
-      <div style="flex:1; padding:12px 18px; display:flex; flex-direction:column; gap:10px; overflow:hidden;">
-        <iframe id="qi-dash-frame"
-                src="about:blank"
-                style="flex:1; width:100%; border:1px solid #1e293b; border-radius:12px; background:#090d16;"></iframe>
-        <label style="padding:10px 14px; border-radius:10px; border:1px dashed #38bdf8; background:rgba(56,189,248,0.06); text-align:center; font-size:12px; color:#cbd5e1; cursor:pointer;">
-          📥 Bank-Export (.csv, .xml, .sta) hier ablegen oder klicken für sofortigen Auto-Import
-          <input type="file" accept=".csv,.xml,.sta,.mt940,.json,.txt" onchange="handleDashboardQuickFileSelect(event)" style="display:none;" />
-        </label>
-      </div>
-    </div>
-  </div>
-
-  <!-- QUICK EVENT MODAL -->
-  <div id="quick-event-modal">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <span style="font-size:11px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:#38bdf8;">New Event</span>
-      <button onclick="toggleEventModal(false)" style="background:none; border:none; color:rgba(255,255,255,0.5); cursor:pointer;">✕</button>
-    </div>
-    <form onsubmit="createQuickEvent(event)" style="display:flex; flex-direction:column; gap:10px;">
-      <input id="qe-title" class="minimal-input" placeholder="Event title..." required />
-      <input id="qe-start" type="datetime-local" class="minimal-input" required />
-      <div style="display:flex; gap:8px;">
-        <input id="qe-dur" type="number" value="60" min="15" step="15" class="minimal-input" placeholder="Minutes" />
-        <button type="submit" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 16px; font-weight:600; font-size:12px; cursor:pointer; white-space:nowrap;">Add</button>
-      </div>
-    </form>
-  </div>
-
-  <!-- CENTERED ROUNDED CORTEX PROMPT BAR WITH LIVE PREVIEWS & GEMINI INTEGRATION -->
-  <div id="horizon-cortex-center-stage">
-    <div class="cortex-prompt-pill" id="cortex-prompt-pill">
-      <div class="cortex-ai-icon-wrap" id="cortex-ai-icon" title="Cortex & Google Gemini">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
-        </svg>
-      </div>
-      <input type="text"
-             class="cortex-prompt-input"
-             id="cortex-prompt-input"
-             placeholder="Frag Cortex oder durchsuche Memo, Termine, Smart Home & Finanzen..."
-             autocomplete="off"
-             spellcheck="false" />
-      <div id="cortex-status-badge" style="display:none;" class="cortex-waiting-pill">
-        <span class="cortex-waiting-dot"></span>
-        <span id="cortex-status-text">Denke nach...</span>
-      </div>
-      <button class="cortex-send-btn" id="cortex-send-btn" onclick="submitCortexPrompt()" title="An Gemini API senden (Enter)">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
+      <div id="rooms-live-matrix-grid"></div>
     </div>
 
-    <!-- LIVE SEARCH PREVIEWS DROPDOWN -->
-    <div id="cortex-preview-dropdown"></div>
+    <!-- Right Column: Hardware, 3D Print, Vision & Infrastructure Inspector -->
+    <aside id="statusbar-right-previews">
+      <!-- 1. 3D PRINT INSPECTOR -->
+      <div class="sb-preview-item" id="widget-3dprint">
+        <div class="sb-preview-head">
+          <button class="sb-preview-trigger" onclick="openFullService('3d-print', '3D Druck Studio')">
+            <span class="room-dot" id="dot-3dprint" style="background:#10b981;"></span>
+            <span id="print3d-dock-dot" style="display:none;"></span>
+            <span>3D DRUCK · BAMBU P1S</span>
+            <span class="sb-meta" id="print3d-dock-meta">Bereit</span>
+            <span class="sb-caret">▴</span>
+          </button>
+          <button class="w-nav-btn" onclick="openFullService('3d-print', '3D Druck Studio')">Studio ↗</button>
+        </div>
+        <div class="sb-upward-flyout">
+          <div class="w-3d-row">
+            <div style="position:relative; width:76px; height:58px; border-radius:3px; background:var(--bg-elevated); border:1px solid var(--line-hairline); overflow:hidden; flex-shrink:0;"
+                 title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)">
+              <canvas id="mini-3d-canvas" width="152" height="116" style="width:76px; height:58px; display:block; cursor:grab; touch-action:none;"></canvas>
+            </div>
+            <div class="w-3d-info">
+              <div class="w-primary" id="compact-3dprint" style="font-size:14px;">Kein Projekt aktiv</div>
+              <div class="w-sub" id="sub-3dprint">Platzhalter · 0% Leerlauf</div>
+              <div style="width:100%; height:3px; background:var(--line-hairline); overflow:hidden; margin-top:6px;">
+                <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:#10b981; transition:width 0.35s ease;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="w-stat-grid" style="margin-bottom:8px;">
+            <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer">0% (0/0)</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Maße / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Düse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24°C / 24°C</span></div>
+          </div>
+          <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:8px;">
+            <input id="mini-3d-prompt" class="minimal-input" placeholder="AI CAD: 3D-Objekt ändern oder neu erstellen…" />
+            <button type="submit" id="mini-3d-prompt-btn" class="thassi-u-btn-primary" style="padding:0 10px; font-size:11px;">CAD</button>
+          </form>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <button class="w-action-link" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
+            <button class="w-action-link" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">Druck starten</button>
+            <button class="w-action-link" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor →</button>
+          </div>
+        </div>
+      </div>
 
-    <!-- GEMINI EXPANDABLE RESPONSE CARD -->
-    <div id="cortex-response-card"></div>
-  </div>
+      <!-- 2. CAMERA VISION INSPECTOR -->
+      <div class="sb-preview-item" id="widget-vision">
+        <div class="sb-preview-head">
+          <button class="sb-preview-trigger" onclick="openFullService('camera-vision', 'Camera Vision')">
+            <span class="room-dot" id="vision-dock-dot" style="background:#10b981;"></span>
+            <span>CAMERA VISION · 6 STREAMS</span>
+            <span class="sb-meta" id="vision-dock-meta">Zyklisch</span>
+            <span class="sb-caret">▴</span>
+          </button>
+          <button class="w-nav-btn" onclick="openFullService('camera-vision', 'Camera Vision')">Vision ↗</button>
+        </div>
+        <div class="sb-upward-flyout">
+          <div id="vision-flyout-summary" style="font-size:11px; color:var(--text-secondary); margin-bottom:8px; font-family:var(--font-mono);">
+            Zyklischer Snapshot-Scan aktiv
+          </div>
+          <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:4px; max-height:175px; overflow-y:auto;"></div>
+        </div>
+      </div>
 
-  <!-- 3 & 4. BOTTOM-ALIGNED MOVING TIMELINE WITH FIXED "NOW" MARKER & GCAL EVENT RECTANGLES -->
-  <div id="timeline-dock">
+      <!-- 3. INFRASTRUCTURE & SYSTEM QUICK LINKS -->
+      <div class="sb-preview-item" id="widget-sysmon">
+        <div class="sb-preview-head">
+          <span class="sh-section-label">INFRASTRUKTUR &amp; SYSTEM</span>
+          <div style="display:flex; gap:6px;" id="widget-googleusage">
+            <span id="sysmon-dock-dot" style="display:none;"></span>
+            <span id="sysmon-dock-meta" style="display:none;"></span>
+            <span id="gusage-dock-dot" style="display:none;"></span>
+            <span id="gusage-dock-meta" style="display:none;"></span>
+            <button class="w-nav-btn" onclick="openFullService('system-monitor', 'HASS OS Performance & Prozesse')">HASS OS ↗</button>
+            <button class="w-nav-btn" onclick="openFullService('network-monitor', 'Netzwerk & Router')">Netzwerk ↗</button>
+            <button class="w-nav-btn" onclick="openFullService('google-usage', 'Google Usage & AI Credits')">AI Usage ↗</button>
+            <button class="w-nav-btn" onclick="openFullService('workflows', 'Workflows')">Axons ↗</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ZONE D: BOTTOM 24H CHRONOLOGICAL HORIZON & GOOGLE CALENDAR TIMELINE -->
+  <section id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
+        <span class="sh-section-label">CHRONOLOGIE &amp; KALENDER (24H HORIZON)</span>
         <button class="tl-pill return-now" id="btn-live-now" onclick="snapToLiveNow()">↺ Return to Now</button>
       </div>
       <div class="tl-controls">
@@ -2371,137 +1687,101 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         <button class="tl-pill active" id="zoom-24" onclick="setTimelineSpan(24)">24h</button>
         <button class="tl-pill" id="zoom-72" onclick="setTimelineSpan(72)">3d</button>
         <button class="tl-pill" id="zoom-168" onclick="setTimelineSpan(168)">7d</button>
-        <button class="tl-pill" onclick="toggleEventModal(true)" title="New Calendar Event">+</button>
+        <button class="w-nav-btn" onclick="toggleEventModal(true)" title="Neuer Kalendereintrag">+ Termin</button>
+        <button class="w-nav-btn" onclick="openFullService('google-calendar', 'Calendar')">Kalender ↗</button>
       </div>
     </div>
 
     <div id="timeline-viewport">
-      <!-- Fixed NOW vertical marker -->
       <div id="fixed-now-marker">
         <div id="fixed-now-badge">NOW</div>
         <div id="fixed-now-orb"></div>
       </div>
-
-      <!-- Continuously moving timeline track (0° Horizon Line + Altitude Curves + Events) -->
       <div id="timeline-world">
         <div id="timeline-celestial-layer">
           <svg id="tl-celestial-svg" overflow="visible">
-            <path id="tl-moon-below-path" fill="none" stroke="rgba(186, 230, 253, 0.20)" stroke-width="1.0" stroke-dasharray="3 5" />
-            <path id="tl-moon-above-path" fill="none" stroke="rgba(224, 242, 254, 0.48)" stroke-width="1.25" />
-            <path id="tl-sun-below-path" fill="none" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.05" stroke-dasharray="3 5" />
-            <path id="tl-sun-above-path" fill="none" stroke="rgba(255, 255, 255, 0.62)" stroke-width="1.4" />
+            <path id="tl-moon-below-path" fill="none" stroke="rgba(255, 255, 255, 0.10)" stroke-width="1" stroke-dasharray="3 5" />
+            <path id="tl-moon-above-path" fill="none" stroke="rgba(255, 255, 255, 0.18)" stroke-width="1" />
+            <path id="tl-sun-below-path" fill="none" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" stroke-dasharray="3 5" />
+            <path id="tl-sun-above-path" fill="none" stroke="rgba(255, 255, 255, 0.32)" stroke-width="1.2" />
           </svg>
           <div id="tl-horizon-crossings"></div>
-          <div id="tl-moon-node" class="tl-celestial-body" title="Mond"></div>
-          <div id="tl-sun-node" class="tl-celestial-body" title="Sonne &amp; Wetter"></div>
+          <div id="tl-moon-node" class="tl-celestial-body"></div>
+          <div id="tl-sun-node" class="tl-celestial-body"></div>
         </div>
         <div id="timeline-axis-line"></div>
         <div id="timeline-ticks-layer"></div>
         <div id="timeline-events-layer"></div>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- 6. BORDERED HIGHER ROOM STATUSBAR + UPWARD FLYOUTS OVER UPPER CONTENT -->
-  <div id="devices-dock">
-    <div id="timeline-devices-separator"></div>
-
-    <!-- Pinned Room Groups Tray (floats over upper timeline content when rooms are pinned) -->
-    <div id="pinned-rooms-tray"></div>
-
-    <!-- Higher, bordered Room StatusBar: Left = Smart Home Icon Button + Room Buttons, Right = 3D Print & Vision Previews -->
-    <div id="room-dock-bar">
-      <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Smart Home öffnen" aria-label="Smart Home" style="border-color:rgba(56,189,248,0.42); color:#e0f2fe; flex-shrink:0; padding:7px 9px;">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 10.5L12 3l9 7.5"></path>
-          <path d="M5 9.5V19a1 1 0 0 0 1 1h4.5v-5.5h3V20H18a1 1 0 0 0 1-1V9.5"></path>
-        </svg>
-      </button>
-      <div class="room-dock-group" id="room-pills-container"></div>
-      <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none; flex-shrink:0;">Alle minimieren</button>
-
-      <!-- Right-aligned StatusBar Previews (3D Print & Vision only; Projekte & n8n removed per screenshot) -->
-      <div id="statusbar-right-previews">
-        <!-- 3D PRINT STATUSBAR PREVIEW (UPWARD FLYOUT) -->
-        <div class="sb-preview-item" id="widget-3dprint">
-          <div style="display:inline-flex; align-items:center; gap:2px;">
-            <button class="sb-preview-trigger" onclick="toggleWidget('3dprint', event)" title="3D Druck Vorschau ein-/ausklappen">
-              <span class="room-dot" id="dot-3dprint" style="background:#00AE42; box-shadow:0 0 8px #00AE42;"></span>
-              <span id="print3d-dock-dot" style="display:none;"></span>
-              <span>3D Druck</span>
-              <span class="sb-meta" id="print3d-dock-meta">Bambu P1S</span>
-              <span class="sb-caret">▴</span>
-            </button>
-            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('3d-print', '3D Druck Studio')" title="Open 3D Druck Studio">↗</button>
-          </div>
-          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
-            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
-              <span>3d druck · bambulab</span>
-              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('3d-print', '3D Druck Studio')">Studio ↗</button>
-            </div>
-            <div class="w-3d-row">
-              <div style="position:relative; width:82px; height:64px; border-radius:12px; background:rgba(4,7,17,0.72); border:1px solid rgba(56,189,248,0.22); overflow:hidden; flex-shrink:0;"
-                   title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)">
-                <canvas id="mini-3d-canvas" width="164" height="128" style="width:82px; height:64px; display:block; cursor:grab; touch-action:none;"></canvas>
-              </div>
-              <div class="w-3d-info">
-                <div class="w-primary" id="compact-3dprint" style="font-size:14.5px; justify-content:flex-start;">Kein Projekt aktiv</div>
-                <div class="w-sub" id="sub-3dprint" style="display:block; text-align:left;">Platzhalter · 0% Leerlauf</div>
-                <div style="width:100%; height:5px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-top:6px;">
-                  <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00AE42, #38bdf8); transition:width 0.35s ease;"></div>
-                </div>
-              </div>
-            </div>
-            <div class="w-stat-grid" style="margin-bottom:10px;">
-              <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
-              <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer" style="color:#00AE42;">0% (0/0)</span></div>
-              <div class="w-stat-item"><span class="w-stat-k">Maße / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
-              <div class="w-stat-item"><span class="w-stat-k">Düse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24°C / 24°C</span></div>
-            </div>
-            <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:10px;">
-              <input id="mini-3d-prompt" class="minimal-input" placeholder="Prompt: 3D-Objekt ändern oder neu erstellen…" />
-              <button type="submit" id="mini-3d-prompt-btn" style="background:#38bdf8; color:#040711; border:none; border-radius:10px; padding:0 12px; font-weight:700; font-size:11.5px; cursor:pointer; white-space:nowrap;">KI</button>
-            </form>
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-              <button class="w-action-link" style="color:#fbbf24; margin:0;" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
-              <button class="w-action-link" style="color:#4ade80; margin:0;" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">🖨️ Druck starten</button>
-              <button class="w-action-link" style="margin:0;" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor →</button>
-            </div>
-          </div>
+  <!-- QUICK IMPORT & FILE EXPORT FLYOUT -->
+  <div id="quick-import-flyout-modal"
+       onclick="closeQuickImportFlyout()"
+       style="position:fixed; inset:0; z-index:95; background:rgba(0,0,0,0.72); display:none; justify-content:flex-end;">
+    <div onclick="event.stopPropagation()"
+         style="width:min(540px, 95vw); height:100vh; background:#09090b; border-left:1px solid rgba(255,255,255,0.12); display:flex; flex-direction:column;">
+      <div style="padding:14px 20px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center; background:#111113;">
+        <div>
+          <div style="font-size:14px; font-weight:500; color:#fafafa;">Finanzen — Bank-Export &amp; Datei-Sync</div>
+          <div style="font-size:11px; color:#a1a1aa; margin-top:2px;">Sparkasse George Auto-Sync, Lokaler Downloads-Scanner &amp; 1-Klick CSV/JSON Export</div>
         </div>
-
-        <!-- VISION STATUSBAR PREVIEW (UPWARD FLYOUT) -->
-        <div class="sb-preview-item" id="widget-vision">
-          <div style="display:inline-flex; align-items:center; gap:2px;">
-            <button class="sb-preview-trigger" onclick="toggleWidget('vision', event)" title="Camera Vision Vorschau ein-/ausklappen">
-              <span class="room-dot" id="vision-dock-dot" style="background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
-              <span>Vision</span>
-              <span class="sb-meta" id="vision-dock-meta">Zyklisch</span>
-              <span class="sb-caret">▴</span>
-            </button>
-            <button class="w-nav-btn" onclick="event.stopPropagation(); openFullService('camera-vision', 'Camera Vision')" title="Open Camera Vision">↗</button>
-          </div>
-          <div class="sb-upward-flyout" onclick="event.stopPropagation()">
-            <div class="w-label-row" style="justify-content:space-between; margin-bottom:8px;">
-              <span>camera vision · objekterkennung</span>
-              <button class="w-action-link" style="margin:0; font-size:10.5px;" onclick="openFullService('camera-vision', 'Camera Vision')">Streams ↗</button>
-            </div>
-            <div id="vision-flyout-summary" style="font-size:11.5px; color:rgba(248,250,252,0.82); margin-bottom:8px; line-height:1.45;">
-              Zyklischer Snapshot-Scan aktiv
-            </div>
-            <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; max-height:180px; overflow-y:auto;"></div>
-            <button class="w-action-link" style="margin:0;" onclick="openFullService('camera-vision', 'Camera Vision')">Open Camera Vision →</button>
-          </div>
+        <button onclick="closeQuickImportFlyout()" class="w-nav-btn">Schließen</button>
+      </div>
+      <div style="padding:12px 18px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid rgba(255,255,255,0.06); background:#09090b;">
+        <button onclick="launchBankingPopupFromDashboard(event)" class="thassi-u-btn-primary">
+          1. George öffnen (Verfüger kopiert) ↗
+        </button>
+        <button onclick="triggerDashboardLocalFolderScan()" class="thassi-u-btn-ghost">
+          2. Neuesten Export aus Downloads lesen
+        </button>
+      </div>
+      <div style="padding:10px 18px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; border-bottom:1px solid rgba(255,255,255,0.06); background:#111113;">
+        <span style="font-size:10.5px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:#a1a1aa;">1-Klick Thassi Export:</span>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button onclick="triggerDirectFinanceExportFromDash(event, 'csv_de')" class="w-nav-btn">Excel-CSV ↓</button>
+          <button onclick="triggerDirectFinanceExportFromDash(event, 'tax_report')" class="w-nav-btn">Steuerbericht ↓</button>
+          <button onclick="triggerDirectFinanceExportFromDash(event, 'json')" class="w-nav-btn">JSON-Backup ↓</button>
         </div>
+      </div>
+      <div id="qi-dash-status" style="display:none; margin:10px 18px 0; padding:8px 12px; border-radius:3px; font-size:12px;"></div>
+      <div style="flex:1; padding:12px 18px; display:flex; flex-direction:column; gap:10px; overflow:hidden;">
+        <label ondragover="event.preventDefault()"
+               ondrop="handleDashboardQuickFileDrop(event)"
+               style="padding:14px; border-radius:3px; border:1px dashed rgba(255,255,255,0.22); background:#111113; text-align:center; font-size:12px; color:#fafafa; cursor:pointer;">
+          Bank-Export (.CSV, .XML, .STA) hier ablegen oder klicken für sofortigen Auto-Import
+          <div style="font-size:11px; color:#a1a1aa; margin-top:3px;">Erste Bank / Sparkasse George · Raiffeisen · BAWAG · CAMT.053 · MT940</div>
+          <input type="file" accept=".csv,.xml,.sta,.mt940,.json,.txt" onchange="handleDashboardQuickFileSelect(event)" style="display:none;" />
+        </label>
+        <iframe id="qi-dash-frame"
+                src="about:blank"
+                style="flex:1; width:100%; border:1px solid rgba(255,255,255,0.06); border-radius:3px; background:#09090b;"></iframe>
       </div>
     </div>
   </div>
 
-  <!-- FULL SERVICE OVERLAY (WHEN LAUNCHING FULL VIEW) -->
+  <!-- QUICK EVENT MODAL -->
+  <div id="quick-event-modal">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <span class="sh-section-label">NEUER TERMIN</span>
+      <button onclick="toggleEventModal(false)" class="w-nav-btn">✕</button>
+    </div>
+    <form onsubmit="createQuickEvent(event)" style="display:flex; flex-direction:column; gap:8px;">
+      <input id="qe-title" class="minimal-input" placeholder="Termin-Titel..." required />
+      <input id="qe-start" type="datetime-local" class="minimal-input" required />
+      <div style="display:flex; gap:8px;">
+        <input id="qe-dur" type="number" value="60" min="15" step="15" class="minimal-input" placeholder="Minuten" />
+        <button type="submit" class="thassi-u-btn-primary">Speichern</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- FULL SERVICE OVERLAY -->
   <div id="full-app-overlay">
     <div id="full-app-bar">
-      <button onclick="closeFullService()" style="background:none; border:none; color:#38bdf8; font-size:12.5px; font-weight:500; cursor:pointer;">← Back to Horizon</button>
-      <span id="full-app-title" style="font-size:12.5px; font-weight:500; color:rgba(255,255,255,0.65);"></span>
+      <button onclick="closeFullService()" class="w-nav-btn">← Horizon</button>
+      <span id="full-app-title" style="font-size:12px; font-weight:500; color:var(--text-secondary);"></span>
       <span></span>
     </div>
     <iframe id="full-app-frame" src="about:blank"></iframe>
@@ -2764,17 +2044,23 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const effectiveHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
       const palette = getSkyPalette(effectiveHour);
 
-      document.getElementById('sky-stage').style.background = palette.sky;
-      document.getElementById('horizon-glow').style.background = palette.glow;
-      document.getElementById('starfield').style.opacity = String(palette.stars);
+      const skyEl = document.getElementById('sky-stage');
+      if (skyEl) skyEl.style.background = '#09090b';
+      const glowEl = document.getElementById('horizon-glow');
+      if (glowEl) glowEl.style.background = 'transparent';
+      const sfEl = document.getElementById('starfield');
+      if (sfEl) sfEl.style.opacity = '0';
 
       if (window.syncThassiSidebarSky) {
-        window.syncThassiSidebarSky(palette.sidebarBg);
+        window.syncThassiSidebarSky('#09090b');
       }
 
       const lunarInfo = computeLunarPhaseInfo(now);
-      document.getElementById('solar-phase-text').textContent =
-        \`\${palette.phase}  ·  Sunrise 06:45  ·  Sunset 18:30  ·  \${lunarInfo.phaseLabel}\`;
+      const phaseEl = document.getElementById('solar-phase-text');
+      if (phaseEl) {
+        phaseEl.textContent =
+          palette.phase + ' · 06:45–18:30 · ' + lunarInfo.phaseLabel;
+      }
 
       // Update live smart Sun & Moon positions along their respective curves at NOW on the timeline
       const nowEpochMs = now.getTime();
@@ -3070,23 +2356,36 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const mm = String(now.getMinutes()).padStart(2, '0');
       const ss = String(now.getSeconds()).padStart(2, '0');
 
-      document.getElementById('hero-time').textContent = \`\${hh}:\${mm}\`;
+      document.getElementById('hero-time').textContent = hh + ':' + mm;
       document.getElementById('hero-seconds').textContent = ss;
-      document.getElementById('hero-date').textContent = now.toLocaleDateString(undefined, {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
+      document.getElementById('hero-date').textContent = now.toLocaleDateString('de-AT', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
         year: 'numeric'
       });
-      document.getElementById('fixed-now-badge').textContent = \`NOW · \${hh}:\${mm}\`;
+      document.getElementById('fixed-now-badge').textContent = 'NOW · ' + hh + ':' + mm;
+
+      const freshEl = document.getElementById('horizon-freshness-ts');
+      if (freshEl) {
+        const lastMs = window.__horizonLastFetchMs || now.getTime();
+        const ageSec = Math.max(0, Math.floor((now.getTime() - lastMs) / 1000));
+        const dSync = new Date(lastMs);
+        const sh = String(dSync.getHours()).padStart(2, '0');
+        const sm = String(dSync.getMinutes()).padStart(2, '0');
+        const ssec = String(dSync.getSeconds()).padStart(2, '0');
+        freshEl.textContent = 'Stand: ' + sh + ':' + sm + ':' + ssec + ' (vor ' + ageSec + 's)';
+      }
 
       updateSkyAndSun(now);
 
       const pxPerMs = getPxPerMs();
       const nowOffsetFromBasePx = (now.getTime() + panOffsetMs - timelineBaseEpochMs) * pxPerMs;
-      const fixedNowX = window.innerWidth * NOW_ANCHOR_RATIO;
+      const vpEl = document.getElementById('timeline-viewport');
+      const vpW = (vpEl && vpEl.clientWidth) ? vpEl.clientWidth : window.innerWidth;
+      const fixedNowX = vpW * NOW_ANCHOR_RATIO;
       const worldTranslateX = fixedNowX - nowOffsetFromBasePx;
-      document.getElementById('timeline-world').style.transform = \`translate3d(\${worldTranslateX.toFixed(2)}px, 0, 0)\`;
+      document.getElementById('timeline-world').style.transform = 'translate3d(' + worldTranslateX.toFixed(2) + 'px, 0, 0)';
     }
 
     // 3 & 4. RENDER TIMELINE TICKS, CELESTIAL ALTITUDE CURVES & GOOGLE CALENDAR EVENT RECTANGLES
@@ -3472,8 +2771,55 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         if (visionRoom && Array.isArray(visionRoom.devices) && visionRoom.devices.length > 0) {
           vCamsEl.innerHTML = visionRoom.devices.map(buildRoomDeviceRowHtml).join('');
         } else {
-          vCamsEl.innerHTML = '<div style="font-size:11px; color:rgba(255,255,255,0.45);">Keine Kameras verbunden</div>';
+          vCamsEl.innerHTML = '<div style="font-size:11px; color:#52525b;">Keine Kameras verbunden</div>';
         }
+      }
+
+      // Render Live Swiss Hairline Room Matrix in primary workspace
+      const matrixEl = document.getElementById('rooms-live-matrix-grid');
+      const matrixSumEl = document.getElementById('sh-matrix-summary');
+      if (matrixEl) {
+        let totalActiveDevs = 0;
+        let totalHouseWatts = 0;
+        for (const r of roomTabs) {
+          totalActiveDevs += Number(r.activeCount || 0);
+          totalHouseWatts += Number(r.totalPowerW || 0);
+        }
+        if (matrixSumEl) {
+          matrixSumEl.textContent = roomTabs.length + ' Räume · ' + totalActiveDevs + ' aktiv · ' + totalHouseWatts.toFixed(1) + ' W';
+        }
+        const visibleRooms = pinnedRoomIds.size > 0
+          ? roomTabs.filter((r) => pinnedRoomIds.has(r.id))
+          : roomTabs;
+        matrixEl.innerHTML = visibleRooms
+          .map((room) => {
+            const subParts = [];
+            if (room.tempC != null) subParts.push(room.tempC.toFixed(1) + '°C');
+            if (room.humidityPct != null) subParts.push(Math.round(room.humidityPct) + '% rF');
+            if (room.totalPowerW > 0) subParts.push(room.totalPowerW.toFixed(1) + ' W');
+            const isRoomActive = Number(room.activeCount || 0) > 0;
+            const dotColor = isRoomActive ? '#10b981' : (room.motionActive ? '#f59e0b' : '#52525b');
+            const rowsHtml = (room.devices || []).map(buildRoomDeviceRowHtml).join('');
+            const offBtn = isRoomActive
+              ? '<button class="sh-room-off-btn" onclick="turnOffAllInRoom(\'' + room.id + '\')">Alle aus</button>'
+              : '';
+            return [
+              '<div class="sh-room-cell">',
+              '  <div class="sh-room-head">',
+              '    <div class="sh-room-title-group">',
+              '      <span class="thassi-u-dot" style="background:' + dotColor + ';"></span>',
+              '      <span class="sh-room-name">' + room.name + '</span>',
+              '    </div>',
+              '    <div class="sh-room-meta-group">',
+              '      <span class="sh-room-telemetry">' + (subParts.join(' · ') || (room.activeCount + ' aktiv')) + '</span>',
+              '      ' + offBtn,
+              '    </div>',
+              '  </div>',
+              '  <div class="sh-room-devices">' + rowsHtml + '</div>',
+              '</div>'
+            ].join('');
+          })
+          .join('');
       }
     }
 
@@ -3528,11 +2874,14 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         return \`
           <div class="rf-dev-row \${camLive ? 'is-on' : ''}">
             <div class="rf-dev-main">
-              <span class="rf-dev-label">\${d.label}</span>
+              <span class="rf-dev-label" style="cursor:pointer;" title="Klicken für Vollbild-Live-Stream mit Objekterkennung" onclick="openFullService('camera-vision', 'Kameras & Live-Vision', '?camera=\${d.entityId}')">\${d.label} ↗</span>
               <div class="rf-dev-right">
                 <span class="rf-power-badge" style="color:\${camLive ? '#4ade80' : '#fbbf24'};">
                   \${camLive ? 'Aktiv' : 'QR-Auth'}
                 </span>
+                <button class="rf-toggle-btn" onclick="openFullService('camera-vision', 'Kameras & Live-Vision', '?camera=\${d.entityId}')">
+                  Live + KI
+                </button>
                 <button class="rf-toggle-btn" onclick="triggerQuickVisionSample('\${d.entityId}', this)">
                   Abtasten
                 </button>
@@ -3725,17 +3074,53 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       });
     }
 
-    function openFullService(appId, title, hash) {
+    function openFullService(appId, title, hash, fromSidebar) {
       setLeftNavActive(appId);
-      document.getElementById('full-app-title').textContent = title;
-      document.getElementById('full-app-frame').src = base + '/apps/' + appId + '/' + (hash || '');
+      const inHass = Boolean(
+        document.body.classList.contains('in-hass-frame') ||
+        (window.top && window.top !== window)
+      );
+      const barEl = document.getElementById('full-app-bar');
+      if (barEl) {
+        barEl.style.display = (fromSidebar || inHass) ? 'none' : 'flex';
+      }
+      try {
+        if (window.top && window.top !== window) {
+          window.top.__thassiActiveSidebarApp = appId;
+          if (typeof window.top.__thassiSyncSidebarNow === 'function') {
+            window.top.__thassiSyncSidebarNow();
+          }
+        }
+      } catch (_e) {}
+      document.getElementById('full-app-title').textContent = title || appId;
+      const targetSrc = base + '/apps/' + appId + '/' + (hash || '');
+      const frameEl = document.getElementById('full-app-frame');
+      if (frameEl.getAttribute('data-current-app') !== appId || frameEl.src === 'about:blank') {
+        frameEl.setAttribute('data-current-app', appId);
+        frameEl.src = targetSrc;
+      }
       document.getElementById('full-app-overlay').style.display = 'flex';
     }
 
     function closeFullService() {
       setLeftNavActive('horizon');
+      try {
+        if (window.top) {
+          window.top.__thassiActiveSidebarApp = null;
+          if (window.top.location.hash && window.top.location.hash.length > 1) {
+            window.top.history.replaceState(null, '', window.top.location.pathname + window.top.location.search);
+          }
+          if (typeof window.top.__thassiSyncSidebarNow === 'function') {
+            window.top.__thassiSyncSidebarNow();
+          }
+        }
+      } catch (_e) {}
+      const frameEl = document.getElementById('full-app-frame');
+      if (frameEl) {
+        frameEl.removeAttribute('data-current-app');
+        frameEl.src = 'about:blank';
+      }
       document.getElementById('full-app-overlay').style.display = 'none';
-      document.getElementById('full-app-frame').src = 'about:blank';
       loadAllLiveData();
     }
 
@@ -3797,6 +3182,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           currentBalance: fb.currentBalance ?? 4850,
           accountName: 'Sparkasse George Girokonto',
         },
+        exportReminder: fb.exportReminder || null,
         previewGroupBudgets: [],
         previewConfig: {
           hiddenByDefault: true,
@@ -3813,6 +3199,12 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const compactEl = document.getElementById('compact-finances');
       const subEl = document.getElementById('sub-finances');
       const eyeBtn = document.getElementById('finances-eye-btn');
+      const dotEl = document.getElementById('dot-finances');
+      const remPill = document.getElementById('finances-reminder-pill');
+      const remPillText = document.getElementById('finances-reminder-pill-text');
+      const remExpBanner = document.getElementById('finances-reminder-expanded-banner');
+      const remExpTitle = document.getElementById('finances-reminder-exp-title');
+      const remExpDetail = document.getElementById('finances-reminder-exp-detail');
       const toggleLink = document.getElementById('finances-toggle-link');
       const dynEl = document.getElementById('finances-preview-dynamic');
       const qiSlot = document.getElementById('finances-quick-import-slot');
@@ -3825,6 +3217,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
       const k = d.kpis || {};
       const bal = d.balanceConfig || {};
+      const rem = d.exportReminder || null;
       const currentBalance = bal.currentBalance !== undefined ? bal.currentBalance : (k.currentBalance || 0);
       const accountName = bal.accountName || k.accountName || 'Sparkasse George';
       const expensesDay = k.expensesDay !== undefined ? k.expensesDay : (d.expensesToday || 0);
@@ -3832,6 +3225,43 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const netCashflow = k.net !== undefined ? k.net : (d.netCashflowMonth || 0);
       const activeMonth = k.activeMonth || d.activeMonth || '';
       const groupBudgets = d.previewGroupBudgets || d.groupBudgets || [];
+
+      // Render Horizon Export Reminder Pill & Expanded Banner (visible even in privacy-masked mode)
+      const isDue = Boolean(rem && rem.due);
+      const isOverdue = Boolean(rem && rem.urgency === 'overdue');
+      const remColor = isOverdue ? '#ef4444' : '#f59e0b';
+      if (dotEl) {
+        if (isDue) {
+          dotEl.style.display = 'inline-block';
+          dotEl.style.background = remColor;
+          dotEl.style.boxShadow = '0 0 10px ' + remColor;
+        } else {
+          dotEl.style.display = 'none';
+        }
+      }
+      if (remPill && remPillText) {
+        if (isDue) {
+          const daysAge = rem.daysSinceLatestTx != null ? rem.daysSinceLatestTx : rem.daysSinceLastSync;
+          remPillText.textContent = daysAge != null
+            ? ('Export fällig · vor ' + daysAge + 'T')
+            : 'Bank-Export fällig';
+          remPill.style.display = 'inline-flex';
+          remPill.style.borderColor = isOverdue ? 'rgba(239,68,68,0.55)' : 'rgba(245,158,11,0.45)';
+          remPill.style.background = isOverdue ? 'rgba(239,68,68,0.16)' : 'rgba(245,158,11,0.16)';
+          remPill.style.color = isOverdue ? '#fca5a5' : '#fcd34d';
+        } else {
+          remPill.style.display = 'none';
+        }
+      }
+      if (remExpBanner) {
+        if (isDue) {
+          remExpBanner.style.display = 'flex';
+          if (remExpTitle) remExpTitle.textContent = rem.headlineDe || 'Bank-Export & Sync fällig';
+          if (remExpDetail) remExpDetail.textContent = rem.detailDe || 'Jetzt Kontoauszug in George exportieren und abgleichen.';
+        } else {
+          remExpBanner.style.display = 'none';
+        }
+      }
 
       const cfg = d.previewConfig || {
         hiddenByDefault: true,
@@ -3841,14 +3271,14 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const enabled = cfg.enabledElements || [];
 
       if (eyeBtn) {
-        eyeBtn.innerHTML = financesHidden ? '👁️' : '🔒';
+        eyeBtn.textContent = financesHidden ? 'SHOW' : 'HIDE';
         eyeBtn.title = financesHidden ? 'Finanzdaten anzeigen' : 'Finanzdaten verbergen';
       }
       if (toggleLink) {
-        toggleLink.innerHTML = financesHidden ? '👁️ Zahlen anzeigen' : '🔒 Zahlen verbergen';
+        toggleLink.textContent = financesHidden ? 'Zahlen anzeigen' : 'Zahlen verbergen';
       }
 
-      // Primary headline (hidden via CSS when financesHidden is true and widget is collapsed)
+      // Primary headline
       if (financesHidden) {
         compactEl.innerHTML = '<strong>•••• €</strong>';
         if (subEl) subEl.textContent = accountName;
@@ -3873,68 +3303,61 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       // Build configurable dynamic body
       const statCards = [];
       if (enabled.includes('current_balance')) {
-        statCards.push(\`
-          <div class="w-stat-item">
-            <span class="w-stat-k">🏦 Aktueller Kontostand</span>
-            <span class="w-stat-v" style="color:#38bdf8;">\${fmtEurDash(currentBalance, financesHidden)}</span>
-          </div>
-        \`);
+        statCards.push(
+          '<div class="w-stat-item"><span class="w-stat-k">Aktueller Kontostand</span><span class="w-stat-v" style="color:#fafafa;">' +
+            fmtEurDash(currentBalance, financesHidden) +
+            '</span></div>'
+        );
       }
       if (enabled.includes('expenses_day')) {
-        statCards.push(\`
-          <div class="w-stat-item">
-            <span class="w-stat-k">📅 Ausgaben (Tag)</span>
-            <span class="w-stat-v" style="color:#f8fafc;">-\${fmtEurDash(expensesDay, financesHidden)}</span>
-          </div>
-        \`);
+        statCards.push(
+          '<div class="w-stat-item"><span class="w-stat-k">Ausgaben (Tag)</span><span class="w-stat-v" style="color:#a1a1aa;">-' +
+            fmtEurDash(expensesDay, financesHidden) +
+            '</span></div>'
+        );
       }
       if (enabled.includes('expenses_week')) {
-        statCards.push(\`
-          <div class="w-stat-item">
-            <span class="w-stat-k">📆 Ausgaben (Woche)</span>
-            <span class="w-stat-v" style="color:#fbbf24;">-\${fmtEurDash(expensesWeek, financesHidden)}</span>
-          </div>
-        \`);
+        statCards.push(
+          '<div class="w-stat-item"><span class="w-stat-k">Ausgaben (Woche)</span><span class="w-stat-v" style="color:#a1a1aa;">-' +
+            fmtEurDash(expensesWeek, financesHidden) +
+            '</span></div>'
+        );
       }
 
       let html = '';
       if (statCards.length > 0) {
-        html += \`<div class="w-stat-grid">\${statCards.join('')}</div>\`;
+        html += '<div class="w-stat-grid">' + statCards.join('') + '</div>';
       }
 
       if (enabled.includes('group_budgets') && Array.isArray(groupBudgets) && groupBudgets.length > 0) {
         const budgetRows = groupBudgets.slice(0, 4).map((b) => {
           const pct = Math.min(100, Math.round(b.pctUsed !== undefined ? b.pctUsed : (b.pct || 0)));
           const limit = b.budgetLimit !== undefined ? b.budgetLimit : (b.limit || 0);
-          const barColor = b.overBudget ? '#ef4444' : (b.color || '#38bdf8');
+          const barColor = b.overBudget ? '#ef4444' : '#fafafa';
           const valText = financesHidden
             ? '•••• / •••• €'
-            : \`\${Math.round(b.spent || 0)} / \${Math.round(limit)} €\`;
-          return \`
-            <div style="display:flex; flex-direction:column; gap:3px;">
-              <div style="display:flex; justify-content:space-between; font-size:11px; color:rgba(248,250,252,0.88);">
-                <span>\${b.icon || '📦'} \${b.labelDe || b.category}</span>
-                <span style="font-variant-numeric:tabular-nums; color:rgba(248,250,252,0.68);">\${valText}</span>
-              </div>
-              <div style="height:4px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden;">
-                <div style="width:\${financesHidden ? 35 : pct}%; height:100%; background:\${barColor};"></div>
-              </div>
-            </div>
-          \`;
+            : (Math.round(b.spent || 0) + ' / ' + Math.round(limit) + ' €');
+          return [
+            '<div style="display:flex; flex-direction:column; gap:3px;">',
+            '  <div style="display:flex; justify-content:space-between; font-size:11px; color:#fafafa;">',
+            '    <span>' + (b.labelDe || b.category) + '</span>',
+            '    <span style="font-family:var(--font-mono); font-variant-numeric:tabular-nums; color:#a1a1aa;">' + valText + '</span>',
+            '  </div>',
+            '  <div style="height:3px; background:rgba(255,255,255,0.08); border-radius:1px; overflow:hidden;">',
+            '    <div style="width:' + (financesHidden ? 35 : pct) + '%; height:100%; background:' + barColor + ';"></div>',
+            '  </div>',
+            '</div>'
+          ].join('');
         }).join('');
-        html += \`<div style="display:flex; flex-direction:column; gap:6px; padding-top:4px;">\${budgetRows}</div>\`;
+        html += '<div style="display:flex; flex-direction:column; gap:6px; padding-top:4px;">' + budgetRows + '</div>';
       }
 
-      dynEl.innerHTML = html || '<div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Keine Preview-Felder ausgewählt</div>';
+      dynEl.innerHTML = html || '<div style="font-size:11.5px; color:#52525b;">Keine Preview-Felder ausgewählt</div>';
 
       if (qiSlot) {
         if (enabled.includes('quick_import')) {
-          qiSlot.innerHTML = \`
-            <button onclick="openQuickImportFlyout(event)"
-                    style="width:100%; padding:7px 12px; border-radius:9px; border:1px solid rgba(56,189,248,0.4); background:linear-gradient(135deg, rgba(2,132,199,0.28), rgba(37,99,235,0.28)); color:#38bdf8; font-size:11.5px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
-              ⚡ Quick Import (Online-Banking Flyout)
-            </button>
-          \`;
+          qiSlot.innerHTML =
+            '<button onclick="openQuickImportFlyout(event)" style="width:100%; padding:6px 12px; border-radius:4px; border:1px solid rgba(255,255,255,0.14); background:#141417; color:#fafafa; font-size:11.5px; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">Bank-Export &amp; Datei-Sync Flyout</button>';
         } else {
           qiSlot.innerHTML = '';
         }
@@ -3971,14 +3394,119 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       el.textContent = msg;
     }
 
-    function launchBankingPopupFromDashboard() {
-      const url = (financesDashData && financesDashData.quickImportConfig && financesDashData.quickImportConfig.loginUrl)
-        || 'https://george.sparkasse.at/index.html#/login';
+    function launchBankingPopupFromDashboard(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      const qiCfg = (financesDashData && financesDashData.quickImportConfig) || {};
+      const url = qiCfg.loginUrl || 'https://george.sparkasse.at/index.html#/login';
+      if (qiCfg.verfuegernummer && navigator.clipboard) {
+        navigator.clipboard.writeText(qiCfg.verfuegernummer).catch(() => {});
+      }
       const w = 1040, h = 760;
       const left = Math.max(0, Math.round((window.screen.width - w) / 2));
       const top = Math.max(0, Math.round((window.screen.height - h) / 2));
       window.open(url, 'ThassiOnlineBankingPopup', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',resizable=yes,scrollbars=yes');
-      showQiDashStatus('🪟 Online-Banking Popup geöffnet. Nach Download wird der Export automatisch importiert.', true);
+      openQuickImportFlyout();
+      showQiDashStatus(
+        qiCfg.verfuegernummer
+          ? ('George geöffnet (Verfügernummer ' + qiCfg.verfuegernummer + ' kopiert). Nach CSV-Download auf "Neuesten Export aus Downloads lesen" klicken oder Datei hierher ziehen.')
+          : 'Online-Banking geöffnet. Nach CSV-Download Datei einfach hier ablegen oder aus Downloads einlesen.',
+        true
+      );
+    }
+
+    async function snoozeFinanceReminderFromDash(ev, days) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      try {
+        await fetch(base + '/api/apps/finance-analytics/reminder/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ snoozeDays: days || 3 })
+        });
+        await refreshFinancesWidget();
+      } catch (_e) {}
+    }
+
+    function triggerDirectFinanceExportFromDash(ev, format) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      const fmt = format || 'csv_de';
+      const a = document.createElement('a');
+      a.href = base + '/api/apps/finance-analytics/export?format=' + encodeURIComponent(fmt) + '&month=all';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      showQiDashStatus('Export gestartet (' + fmt.toUpperCase() + ').', true);
+      setTimeout(() => void refreshFinancesWidget(), 900);
+    }
+
+    async function importFinanceFileObjectFromDash(file) {
+      if (!file) return false;
+      try {
+        showQiDashStatus('Importiere ' + file.name + '...', true);
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = window.btoa(binary);
+        const res = await fetch(base + '/api/apps/finance-analytics/import-bank-csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, base64Content: b64 })
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Import fehlgeschlagen');
+        showQiDashStatus(file.name + ': ' + (json.importedCount || 0) + ' neue Buchungen importiert (' + (json.skippedDuplicates || 0) + ' Duplikate übersprungen)!', true);
+        await refreshFinancesWidget();
+        return true;
+      } catch (e) {
+        showQiDashStatus('Datei-Import fehlgeschlagen: ' + (e.message || e), false);
+        return false;
+      }
+    }
+
+    async function triggerDashboardLocalFolderScan() {
+      try {
+        if (typeof window.showDirectoryPicker === 'function') {
+          showQiDashStatus('Wähle deinen lokalen Downloads-Ordner zum Lesen der neuesten Bank-CSV...', true);
+          const dirHandle = await window.showDirectoryPicker({
+            id: 'thassi_bank_downloads',
+            startIn: 'downloads',
+            mode: 'read'
+          });
+          if (dirHandle) {
+            const candidates = [];
+            const cutoffMs = Date.now() - 45 * 86400000;
+            for await (const entry of dirHandle.values()) {
+              if (entry.kind !== 'file') continue;
+              const lower = String(entry.name || '').toLowerCase();
+              if (!lower.endsWith('.csv') && !lower.endsWith('.xml') && !lower.endsWith('.sta') && !lower.endsWith('.mt940')) continue;
+              const f = await entry.getFile();
+              if (f.size >= 40 && f.size <= 15 * 1024 * 1024 && f.lastModified >= cutoffMs) {
+                candidates.push({ file: f, mtime: f.lastModified });
+              }
+            }
+            candidates.sort((a, b) => b.mtime - a.mtime);
+            if (candidates.length > 0) {
+              await importFinanceFileObjectFromDash(candidates[0].file);
+              return;
+            }
+          }
+        }
+        await triggerDashboardDownloadsScan();
+      } catch (e) {
+        if (e && e.name !== 'AbortError') {
+          await triggerDashboardDownloadsScan();
+        }
+      }
+    }
+
+    function handleDashboardQuickFileDrop(ev) {
+      if (!ev) return;
+      ev.preventDefault();
+      const file = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+      if (file) {
+        void importFinanceFileObjectFromDash(file);
+      }
     }
 
     async function triggerDashboardQuickImportSample() {
@@ -4018,24 +3546,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     async function handleDashboardQuickFileSelect(ev) {
       const file = ev.target.files && ev.target.files[0];
       if (!file) return;
-      try {
-        showQiDashStatus('⏳ Importiere ' + file.name + '...', true);
-        const buf = await file.arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-        const b64 = window.btoa(binary);
-        const res = await fetch(base + '/api/apps/finance-analytics/import-bank-csv', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file.name, base64Content: b64 })
-        });
-        const json = await res.json();
-        showQiDashStatus('✅ ' + file.name + ': ' + (json.importedCount || 0) + ' Buchungen importiert!', true);
-        await refreshFinancesWidget();
-      } catch (e) {
-        showQiDashStatus('❌ Datei-Import fehlgeschlagen', false);
-      }
+      await importFinanceFileObjectFromDash(file);
     }
 
     window.addEventListener('message', (ev) => {
@@ -4081,12 +3592,108 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       await loadAllLiveData();
     }
 
+    function showNoteFeedback(msg, isError) {
+      const el = document.getElementById('note-sync-feedback');
+      if (!el) return;
+      el.textContent = msg;
+      el.style.display = 'block';
+      el.style.color = isError ? '#f87171' : '#38bdf8';
+      el.style.background = isError ? 'rgba(248,113,113,0.12)' : 'rgba(56,189,248,0.1)';
+      el.style.borderColor = isError ? 'rgba(248,113,113,0.28)' : 'rgba(56,189,248,0.22)';
+      clearTimeout(window.__noteFeedbackTimer);
+      window.__noteFeedbackTimer = setTimeout(() => {
+        el.style.display = 'none';
+      }, 4200);
+    }
+
+    function escapeNoteHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderHorizonNotesList(notes) {
+      const list = Array.isArray(notes) ? notes : [];
+      const compactEl = document.getElementById('compact-notes');
+      const subEl = document.getElementById('sub-notes');
+      const listEl = document.getElementById('notes-list');
+      if (!compactEl || !listEl) return;
+
+      if (list.length > 0) {
+        const latest = String(list[0].content || '');
+        compactEl.innerHTML = '<strong>' + list.length + ' ' + (list.length === 1 ? 'note' : 'notes') + '</strong>';
+        if (subEl) subEl.textContent = latest.length > 28 ? latest.slice(0, 28) + '…' : latest;
+        listEl.innerHTML = list
+          .map((n) => {
+            const fileName = n.fileName || (n.id ? 'note_' + n.id + '.json' : 'note.json');
+            const safeFileAttr = escapeNoteHtml(fileName);
+            const keepSynced = Boolean(n.syncedKeep);
+            const driveSynced = Boolean(n.syncedDrive);
+            return [
+              '<div class="note-row">',
+              '  <div class="note-row-top">',
+              '    <span class="note-content-text">' + escapeNoteHtml(n.content) + '</span>',
+              '    <button class="note-del" title="Notiz löschen (' + safeFileAttr + ')" data-note-file="' + safeFileAttr + '" onclick="deleteNote(this.dataset.noteFile)">✕</button>',
+              '  </div>',
+              '  <div class="note-row-meta">',
+              '    <span class="note-file-badge" title="Lokale Datei: /data/notes/' + safeFileAttr + '">' + safeFileAttr + '</span>',
+              '    <div class="note-actions-group">',
+              '      <button type="button" class="note-action-btn keep ' + (keepSynced ? 'synced' : '') + '" data-note-file="' + safeFileAttr + '" data-note-target="keep" onclick="sendHorizonNote(this.dataset.noteFile, this.dataset.noteTarget, this)" title="An Google Keep / Notes senden">',
+              '        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>',
+              '        <span>' + (keepSynced ? '✓ Keep' : 'Keep') + '</span>',
+              '      </button>',
+              '      <button type="button" class="note-action-btn drive ' + (driveSynced ? 'synced' : '') + '" data-note-file="' + safeFileAttr + '" data-note-target="drive" onclick="sendHorizonNote(this.dataset.noteFile, this.dataset.noteTarget, this)" title="An Google Drive senden">',
+              '        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 19 15 15.5 21 8.5 21 5 15 12 2"/><line x1="5" y1="15" x2="19" y2="15"/></svg>',
+              '        <span>' + (driveSynced ? '✓ Drive' : 'Drive') + '</span>',
+              '      </button>',
+              '    </div>',
+              '  </div>',
+              '</div>'
+            ].join('');
+          })
+          .join('');
+      } else {
+        compactEl.textContent = '0 notes';
+        if (subEl) subEl.textContent = 'Tap to write a quick note';
+        listEl.innerHTML = '<div style="font-size:12px; color:rgba(255,255,255,0.4);">No notes saved yet.</div>';
+      }
+    }
+
+    async function refreshHorizonNotes(fallbackNotes) {
+      try {
+        const res = await fetch(base + '/api/apps/memo/horizon-notes');
+        if (res.ok) {
+          const data = await res.json();
+          renderHorizonNotesList(data.notes || []);
+          return;
+        }
+      } catch {}
+      renderHorizonNotesList(fallbackNotes || []);
+    }
+
     async function addNote(e) {
       e.preventDefault();
       const input = document.getElementById('note-input');
       const content = input.value.trim();
       if (!content) return;
       input.value = '';
+      try {
+        const res = await fetch(base + '/api/apps/memo/horizon-notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.note?.fileName) {
+            showNoteFeedback('Gespeichert: ' + data.note.fileName, false);
+          }
+          renderHorizonNotesList(data.notes || []);
+          return;
+        }
+      } catch {}
       await fetch(base + '/api/system/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4095,9 +3702,50 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       await loadAllLiveData();
     }
 
-    async function deleteNote(id) {
-      await fetch(base + '/api/system/notes?id=' + id, { method: 'DELETE' });
+    async function deleteNote(fileOrId) {
+      try {
+        const res = await fetch(base + '/api/apps/memo/horizon-notes?fileName=' + encodeURIComponent(fileOrId), {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          renderHorizonNotesList(data.notes || []);
+          return;
+        }
+      } catch {}
+      await fetch(base + '/api/system/notes?id=' + encodeURIComponent(fileOrId), { method: 'DELETE' });
       await loadAllLiveData();
+    }
+
+    async function sendHorizonNote(fileName, target, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        const span = btnEl.querySelector('span');
+        if (span) span.textContent = '…';
+      }
+      try {
+        const res = await fetch(base + '/api/apps/memo/horizon-notes/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName, target })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          const targetLabel = target === 'drive' ? 'Google Drive' : 'Google Keep / Notes';
+          showNoteFeedback('✓ ' + fileName + ' → ' + targetLabel, false);
+          if (Array.isArray(data.notes)) {
+            renderHorizonNotesList(data.notes);
+          } else {
+            await refreshHorizonNotes();
+          }
+        } else {
+          showNoteFeedback(data.error || 'Senden fehlgeschlagen', true);
+          await refreshHorizonNotes();
+        }
+      } catch (err) {
+        showNoteFeedback('Netzwerkfehler beim Senden', true);
+        await refreshHorizonNotes();
+      }
     }
 
     function applyHealthWidgetData(h) {
@@ -4199,13 +3847,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     function applyMealsWidgetData(m) {
       if (m && (m.breakfast || m.lunch || m.dinner)) {
         const nextMeal = m.dinner || m.lunch || m.breakfast;
-        document.getElementById('compact-meals').innerHTML = \`<strong>\${nextMeal}</strong>\`;
-        document.getElementById('sub-meals').textContent = \`\${m.totalCalories || 0} kcal planned today\`;
-        document.getElementById('em-slots').innerHTML = \`
-          <div>🌅 <strong>Breakfast:</strong> \${m.breakfast || '—'}</div>
-          <div>☀️ <strong>Lunch:</strong> \${m.lunch || '—'}</div>
-          <div>🌙 <strong>Dinner:</strong> \${m.dinner || '—'}</div>
-        \`;
+        document.getElementById('compact-meals').innerHTML = '<strong>' + nextMeal + '</strong>';
+        document.getElementById('sub-meals').textContent = (m.totalCalories || 0) + ' kcal planned today';
+        document.getElementById('em-slots').innerHTML = [
+          '<div><span style="font-family:var(--font-mono); font-size:10.5px; color:#52525b;">FRÜHSTÜCK:</span> <strong>' + (m.breakfast || '—') + '</strong></div>',
+          '<div><span style="font-family:var(--font-mono); font-size:10.5px; color:#52525b;">MITTAG:</span> <strong>' + (m.lunch || '—') + '</strong></div>',
+          '<div><span style="font-family:var(--font-mono); font-size:10.5px; color:#52525b;">ABEND:</span> <strong>' + (m.dinner || '—') + '</strong></div>'
+        ].join('');
         return true;
       }
       return false;
@@ -4356,6 +4004,24 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         ]);
         const sys = sysRes && sysRes.ok ? await sysRes.json() : {};
         const calData = calRes && calRes.ok ? await calRes.json() : { events: [] };
+        window.__horizonLastFetchMs = Date.now();
+
+        const sysDotEl = document.getElementById('horizon-sys-dot');
+        const sysTxtEl = document.getElementById('horizon-sys-status-text');
+        if (sysDotEl && sysTxtEl) {
+          const haOk = Boolean(sys.ha && sys.ha.connected !== false);
+          const googleOk = Boolean(sys.google && sys.google.authorized);
+          if (haOk && googleOk) {
+            sysDotEl.style.background = '#10b981';
+            sysTxtEl.textContent = 'HA · GOOGLE NOMINAL';
+          } else if (haOk) {
+            sysDotEl.style.background = '#f59e0b';
+            sysTxtEl.textContent = 'HA OK · OAUTH CHECK';
+          } else {
+            sysDotEl.style.background = '#ef4444';
+            sysTxtEl.textContent = 'HA VERBINDUNG PRÜFEN';
+          }
+        }
 
         calendarEvents = calData.events || [];
         allCalendarEvents = calData.allEvents || calData.events || [];
@@ -4373,25 +4039,8 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         // 2. Update FINANCES widget (Configurable preview, hidden by default)
         void refreshFinancesWidget(sys.summaries?.finance);
 
-        // 3. Update NOTES widget
-        const notes = sys.notes || [];
-        if (notes.length > 0) {
-          const latest = notes[0].content;
-          document.getElementById('compact-notes').innerHTML = \`<strong>\${notes.length} \${notes.length === 1 ? 'note' : 'notes'}</strong>\`;
-          document.getElementById('sub-notes').textContent = latest.length > 28 ? latest.slice(0, 28) + '…' : latest;
-          document.getElementById('notes-list').innerHTML = notes
-            .map((n) => \`
-              <div class="note-row">
-                <span>\${n.content}</span>
-                <button class="note-del" onclick="deleteNote(\${n.id})">✕</button>
-              </div>
-            \`)
-            .join('');
-        } else {
-          document.getElementById('compact-notes').textContent = '0 notes';
-          document.getElementById('sub-notes').textContent = 'Tap to write a quick note';
-          document.getElementById('notes-list').innerHTML = '<div style="font-size:12px; color:rgba(255,255,255,0.4);">No notes saved yet.</div>';
-        }
+        // 3. Update NOTES widget (local note_yyyyMMdd-HHmmss.json files + Keep/Drive actions)
+        void refreshHorizonNotes(sys.notes);
 
         // 4. Update MEALS widget
         void refreshMealsWidget(sys.summaries?.meals);
@@ -4927,6 +4576,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
 
     window.openFullService = openFullService;
     window.closeFullService = closeFullService;
+    window.addNote = addNote;
+    window.deleteNote = deleteNote;
+    window.sendHorizonNote = sendHorizonNote;
     window.submitMini3dPrompt = submitMini3dPrompt;
     window.toggleMini3dPlaceholder = toggleMini3dPlaceholder;
     window.triggerMini3dPrint = triggerMini3dPrint;
@@ -5290,15 +4942,58 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     });
     window.addEventListener('focus', () => void refreshHealthWidget());
 
+    const SIDEBAR_APP_TITLES = {
+      'contacts': 'Contacts',
+      'floorplan': 'Grundriss 2D',
+      'camera-vision': 'Kameras & Vision',
+      'system-monitor': 'HASS OS Monitor',
+      'google-usage': 'Google Usage & AI',
+      'network-monitor': 'Netzwerk & Router',
+      'george-sync': 'Erste Bank Sync',
+      '3d-print': '3D Druck Studio'
+    };
+
     function checkHashFor3dPrint() {
       try {
-        const h = (window.top ? window.top.location.hash : window.location.hash) || window.location.hash;
-        if (h === '#3d-print') {
-          openFullService('3d-print', '3D Druck Studio');
+        if (window.top) {
+          window.top.__thassiHorizonWin = window;
+          const pendingRaw = window.top.sessionStorage.getItem('thassi_open_app');
+          if (pendingRaw) {
+            window.top.sessionStorage.removeItem('thassi_open_app');
+            const parsed = JSON.parse(pendingRaw);
+            if (parsed && parsed.id && (!parsed.ts || Date.now() - parsed.ts < 30000)) {
+              window.top.__thassiActiveSidebarApp = parsed.id;
+              openFullService(
+                parsed.id,
+                parsed.title || SIDEBAR_APP_TITLES[parsed.id] || parsed.id,
+                parsed.hash,
+                Boolean(parsed.fromSidebar !== false)
+              );
+              if (typeof window.top.__thassiSyncSidebarNow === 'function') {
+                window.top.__thassiSyncSidebarNow();
+              }
+              return;
+            }
+          }
+        }
+        const hStr = String((window.top ? window.top.location.hash : window.location.hash) || window.location.hash || '');
+        const rawHash = hStr.startsWith('#') ? hStr.slice(1) : hStr;
+        if (rawHash) {
+          let resolvedTitle = SIDEBAR_APP_TITLES[rawHash] || null;
+          if (!resolvedTitle) {
+            const dynList = (window.top && window.top.__thassiDeployedApps) || window.__THASSI_DEPLOYED_APPS__ || [];
+            const match = Array.isArray(dynList) ? dynList.find((a) => a && a.id === rawHash) : null;
+            if (match) resolvedTitle = match.name || match.title || rawHash;
+          }
+          if (resolvedTitle) {
+            if (window.top) window.top.__thassiActiveSidebarApp = rawHash;
+            openFullService(rawHash, resolvedTitle, '', rawHash !== '3d-print');
+          }
         }
       } catch (_e) {}
     }
     checkHashFor3dPrint();
+    setInterval(checkHashFor3dPrint, 250);
     window.addEventListener('hashchange', checkHashFor3dPrint);
   </script>
 </body>

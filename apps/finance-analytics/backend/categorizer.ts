@@ -16,7 +16,7 @@ export function normalizePayeeName(rawPayee: string, rawNotes = ''): string {
   const n = (rawNotes || '').trim();
   const combined = `${p} ${n}`.toLowerCase();
 
-  if (combined.includes('notgroschen zu ')) {
+  if (/notgroschen\s*zu\b/i.test(combined)) {
     return 'Sparkasse Notgroschen (Round-Up)';
   }
   if (
@@ -31,7 +31,33 @@ export function normalizePayeeName(rawPayee: string, rawNotes = ''): string {
   if (!p && (combined.includes('sb-auszahlung') || combined.includes('atm '))) {
     return 'Bankomat / SB-Auszahlung';
   }
-  return p || n.slice(0, 60) || 'Bankbuchung';
+
+  // Extract merchant from Erste Bank CAMT.053 POS / card <Ustrd> strings when rawPayee is empty
+  if (!p && n) {
+    // Format 1: "POS          13,18 AT  K1   30.09. 06:32BP TANKSTELLE ST.POELTEN 3100 040"
+    const posTrailing = n.match(
+      /^POS\s+[\d.,]+\s+[A-Z]{2,3}\s+K\d+\s+\d{2}\.\d{2}\.\s+\d{2}:\d{2}\s*(.+)$/i
+    );
+    if (posTrailing && posTrailing[1]) {
+      const cleaned = posTrailing[1]
+        .replace(/\s+\d{3}$/, '') // strip trailing ISO country numeric code like " 040"
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleaned) return cleaned;
+    }
+
+    // Format 2: "SPAR 4507    2361  K1   02.10. 17:35" or "HOFER DANKT  2361  K1   07.10. 17:04"
+    const posLeading = n.match(/^(.+?)\s+K\d+\s+\d{2}\.\d{2}\.\s+\d{2}:\d{2}/i);
+    if (posLeading && posLeading[1]) {
+      const cleaned = posLeading[1]
+        .replace(/^POS\s+[\d.,]+\s+[A-Z]{2,3}$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleaned) return cleaned;
+    }
+  }
+
+  return p || n.replace(/\s+/g, ' ').slice(0, 60) || 'Bankbuchung';
 }
 
 export function autoCategorizeTransaction(
@@ -56,10 +82,9 @@ export function autoCategorizeTransaction(
 
   // 2. Insurance & Banking Fees (Generali, GRAWE, Kreditkartenrechnung, Kontoführung)
   if (
-    /generali|grazer wechselseitige|grawe|uniqa|allianz|wiener staedtische|lebensversicherung|unfallversich|0119636|5886-2773|kreditkartenrechnung|zuzahlung s kreditkarte|bereitstellung s kreditkarte|kontoführung|kontofuehrung|sollzinsen|bereitstellungsprovision|ablebensprovision|bartransaktionen|ksv-auskunft|klarna/.test(
+    /generali|grazer wechselseitige|grawe|uniqa|allianz|wiener staedtische|lebensversicherung|unfallversich|5574-4113|6010-4061|0119636|5886-2773|kreditkartenrechnung|zuzahlung s kreditkarte|bereitstellung s kreditkarte|kontoführung|kontofuehrung|sollzinsen|bereitstellungsprovision|ablebensprovision|bartransaktionen|ksv-auskunft|klarna/.test(
       text
-    ) &&
-    !/5574-4113|besitz-versi|6010-4061|kraftfahrzeug/.test(text)
+    )
   ) {
     return 'Insurance & Finance';
   }
@@ -125,7 +150,7 @@ export function autoCategorizeTransaction(
 
   // 10. Cash Withdrawals & Private Person-to-Person Transfers
   if (
-    /sb-auszahlung|atm |automat |barauszahlung|überweisung |ueberweisung |george-überweisung|veronika simhofer|patricia leuthner|lisa simhofer|charlotte simhofer|daniela hader|marco eder|andre gundinger|fridtjof bauer|florian karpf|karpf florian|david endrich|nico zadak|charlotte tezky|peter bittermann|david maierhofer/.test(
+    /sb-auszahlung|atm |automat |barauszahlung|überweisung |ueberweisung |george-überweisung|veronika simhofer|patricia leuthner|lisa simhofer|charlotte simhofer|daniela hader|marco eder|rebecca eder|alexander dammerer|stefan grabner|andre gundinger|fridtjof bauer|florian karpf|karpf florian|david endrich|nico zadak|charlotte tezky|peter bittermann|david maierhofer/.test(
       text
     )
   ) {
@@ -143,7 +168,7 @@ export function detectRecurringFlag(
   hasMandate = false
 ): number {
   const text = `${payee} ${notes}`.toLowerCase();
-  if (text.includes('notgroschen zu ')) return 0;
+  if (/notgroschen\s*zu\b/i.test(text) || payee.includes('Notgroschen')) return 0;
   if (
     hasMandate ||
     category === 'Housing & Utilities' ||
@@ -170,7 +195,7 @@ export function buildSunburstHierarchy(
     if (t.amount >= 0) return false;
     if (
       excludeRoundUps &&
-      (t.payee.includes('Notgroschen') || t.notes.toLowerCase().includes('notgroschen zu '))
+      (t.payee.includes('Notgroschen') || /notgroschen\s*zu\b/i.test(t.notes))
     ) {
       return false;
     }

@@ -1,0 +1,8 @@
+{
+  "id": "system-monitor",
+  "name": "HASS OS Monitor",
+  "version": "1.0.0",
+  "description": "Echtzeit-Performance- & Prozessmonitor für Home Assistant OS, Supervisor-Container, Add-ons, Kernel-/proc-Metriken und aktive Hintergrundaufgaben.",
+  "icon": "mdi:pulse",
+  "category": "general"
+}

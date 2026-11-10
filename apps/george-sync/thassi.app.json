@@ -1,0 +1,8 @@
+{
+  "id": "george-sync",
+  "name": "Erste Bank Sync",
+  "version": "1.0.0",
+  "description": "Erste Bank George Fast-Export & Instant Taskbar Sync Bridge für Windows Desktop und Mobile.",
+  "icon": "mdi:bank-transfer",
+  "category": "finance"
+}

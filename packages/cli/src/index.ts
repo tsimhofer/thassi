@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build as esbuild } from 'esbuild';
@@ -429,6 +431,63 @@ const inputStyle: React.CSSProperties = {
   await buildSingleApp(appId);
 }
 
+function findMatchingLanLocalAddress(targetHost: string): string | undefined {
+  const parts = targetHost.split('.');
+  if (parts.length !== 4) return undefined;
+  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}.`;
+  const nets = os.networkInterfaces();
+  for (const entries of Object.values(nets)) {
+    if (!entries) continue;
+    for (const entry of entries) {
+      if (entry.family === 'IPv4' && !entry.internal && entry.address.startsWith(prefix)) {
+        return entry.address;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function postJsonLanAware<T = unknown>(urlStr: string, payload: unknown): Promise<{ status: number; bodyText: string; json: () => T }> {
+  const parsed = new URL(urlStr);
+  const bodyBuf = Buffer.from(JSON.stringify(payload), 'utf-8');
+  const localAddress = findMatchingLanLocalAddress(parsed.hostname);
+
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 80,
+        path: parsed.pathname + parsed.search,
+        method: 'POST',
+        localAddress,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': bodyBuf.byteLength,
+        },
+        timeout: 15000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(Buffer.from(c)));
+        res.on('end', () => {
+          const bodyText = Buffer.concat(chunks).toString('utf-8');
+          resolve({
+            status: res.statusCode || 500,
+            bodyText,
+            json: () => JSON.parse(bodyText) as T,
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy(new Error(`Request timed out: ${urlStr}`));
+    });
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
 async function commandDeploy(appId?: string, hostOverride?: string): Promise<void> {
   if (!appId) {
     console.error('Usage: npm.cmd run deploy -- <app-id> [http://192.168.188.92:8099]');
@@ -450,23 +509,33 @@ async function commandDeploy(appId?: string, hostOverride?: string): Promise<voi
   ).replace(/\/+$/, '');
 
   console.log(`🚀 Hot-deploying "${manifest.name}" (${appId}) to ${hostUrl}/api/system/deploy...`);
-  const res = await fetch(`${hostUrl}/api/system/deploy`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      manifest,
-      backendCode,
-      frontendFiles,
-    }),
+  const res = await postJsonLanAware<{ appId: string; updatedAt: string }>(`${hostUrl}/api/system/deploy`, {
+    manifest,
+    backendCode,
+    frontendFiles,
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Hot-deploy failed (${res.status}): ${errText}`);
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`Hot-deploy failed (${res.status}): ${res.bodyText}`);
   }
 
-  const data = (await res.json()) as { appId: string; updatedAt: string };
+  const data = res.json();
   console.log(`✅ Instant deploy complete! "${manifest.name}" is live at ${hostUrl}/apps/${data.appId}/`);
+
+  // Automatically sync host server.mjs & sidebar registration so new pages always appear in HASS Nav
+  try {
+    await buildHostServer();
+    const serverMjsPath = path.join(HOST_DIST_DIR, 'server.mjs');
+    if (fs.existsSync(serverMjsPath)) {
+      const serverMjsBase64 = fs.readFileSync(serverMjsPath).toString('base64');
+      await postJsonLanAware(`${hostUrl}/api/apps/system-monitor/sync-host-bundle`, {
+        serverMjsBase64,
+      });
+      console.log(`🧭 Synced Home Assistant sidebar & host navigation registry.`);
+    }
+  } catch {
+    // non-fatal if system-monitor route is not yet initialized
+  }
 }
 
 async function commandExportStandaloneAddon(appId?: string): Promise<void> {

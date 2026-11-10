@@ -238,7 +238,73 @@ const CORTEX_STYLES = `
   }
 `;
 
+interface IntegrationVaultSnapshot {
+  updatedAt: string;
+  gemini: {
+    configured: boolean;
+    keyPreview: string | null;
+    appsUsing: string[];
+  };
+  googleOAuth: {
+    configured: boolean;
+    authorized: boolean;
+    clientIdPreview: string | null;
+    redirectUri: string;
+    expiresAt: string | null;
+    appsUsing: string[];
+  };
+  bambu: {
+    configured: boolean;
+    ip: string;
+    serial: string;
+    accessCodeConfigured: boolean;
+    model: string;
+    name: string;
+    lanOnlyMode: boolean;
+    connectionMode: string;
+    printerState: string;
+    appsUsing: string[];
+  };
+  github: {
+    configured: boolean;
+    tokenPreview: string | null;
+    repo: string;
+    appsUsing: string[];
+  };
+  homeAssistant: {
+    connected: boolean;
+    baseUrl: string;
+    appsUsing: string[];
+  };
+}
+
 export default function App() {
+  const [activePageTab, setActivePageTab] = useState<'synthesis' | 'vault' | 'usage'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab === 'vault') return 'vault';
+    if (tab === 'usage') return 'usage';
+    return 'synthesis';
+  });
+  const [vault, setVault] = useState<IntegrationVaultSnapshot | null>(null);
+  const [vaultTestMessage, setVaultTestMessage] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [savingVault, setSavingVault] = useState<boolean>(false);
+
+  // Vault Form Drafts
+  const [vaultGeminiKey, setVaultGeminiKey] = useState<string>('');
+  const [vaultGithubToken, setVaultGithubToken] = useState<string>('');
+  const [vaultOAuthClientId, setVaultOAuthClientId] = useState<string>('');
+  const [vaultOAuthClientSecret, setVaultOAuthClientSecret] = useState<string>('');
+  const [vaultOAuthRedirect, setVaultOAuthRedirect] = useState<string>(
+    () => `${window.location.origin}/api/system/google/callback`
+  );
+  const [vaultIcsName, setVaultIcsName] = useState<string>('Google Kalender (Privat)');
+  const [vaultIcsUrl, setVaultIcsUrl] = useState<string>('');
+  const [vaultBambuIp, setVaultBambuIp] = useState<string>('');
+  const [vaultBambuSerial, setVaultBambuSerial] = useState<string>('');
+  const [vaultBambuAccessCode, setVaultBambuAccessCode] = useState<string>('');
+  const [vaultBambuModel, setVaultBambuModel] = useState<string>('Bambu Lab P1S');
+
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
   const [geminiKeyPreview, setGeminiKeyPreview] = useState<string | null>(null);
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
@@ -333,8 +399,73 @@ export default function App() {
     }
   };
 
+  const loadVault = async () => {
+    try {
+      const data = await api.get<IntegrationVaultSnapshot>('/integrations');
+      setVault(data);
+      if (data.bambu?.ip && !vaultBambuIp) setVaultBambuIp(data.bambu.ip);
+      if (data.bambu?.serial && !vaultBambuSerial) setVaultBambuSerial(data.bambu.serial);
+      if (data.bambu?.model) setVaultBambuModel(data.bambu.model);
+      if (data.googleOAuth?.redirectUri) setVaultOAuthRedirect(data.googleOAuth.redirectUri);
+    } catch (err) {
+      console.error('Failed to load integration vault', err);
+    }
+  };
+
+  const handleSaveVault = async (payload: Record<string, unknown>, label: string) => {
+    setSavingVault(true);
+    try {
+      const res = await api.post<{ ok: boolean; integrations: IntegrationVaultSnapshot }>(
+        '/integrations',
+        payload
+      );
+      if (res.integrations) setVault(res.integrations);
+      await loadBootstrap();
+      notify(`${label} im zentralen Thassi Vault gespeichert`);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingVault(false);
+    }
+  };
+
+  const handleTestIntegration = async (target: 'gemini' | 'github' | 'bambu' | 'google_oauth') => {
+    setVaultTestMessage((prev) => ({
+      ...prev,
+      [target]: { ok: true, msg: 'Prüfe Verbindung...' },
+    }));
+    try {
+      const res = await api.post<{
+        ok: boolean;
+        message: string;
+        latencyMs: number;
+        authUrl?: string;
+      }>('/integrations/test', { target });
+      setVaultTestMessage((prev) => ({
+        ...prev,
+        [target]: {
+          ok: res.ok,
+          msg: `${res.message}${res.latencyMs ? ` (${res.latencyMs} ms)` : ''}`,
+        },
+      }));
+      if (target === 'google_oauth' && res.authUrl) {
+        window.open(res.authUrl, '_blank', 'noopener,noreferrer');
+      }
+      await loadVault();
+    } catch (err) {
+      setVaultTestMessage((prev) => ({
+        ...prev,
+        [target]: {
+          ok: false,
+          msg: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  };
+
   useEffect(() => {
     void loadBootstrap();
+    void loadVault();
   }, []);
 
   const toggleScope = (scopeId: string) => {
@@ -543,6 +674,14 @@ export default function App() {
           <button
             className="tactile-btn"
             onClick={() => {
+              window.location.href = '/apps/google-usage/';
+            }}
+          >
+            Google Usage & Credits ↗
+          </button>
+          <button
+            className="tactile-btn"
+            onClick={() => {
               window.location.href = '/apps/memo/';
             }}
           >
@@ -550,6 +689,99 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* DATA RECENCY & USER INPUT STATUS STRIP */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          padding: '8px 0 12px',
+          marginTop: -12,
+          marginBottom: 20,
+          borderBottom: '1px solid var(--line-hairline)',
+          fontSize: 11.5,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: geminiConfigured ? 'var(--dot-ok)' : 'var(--dot-warn)',
+              display: 'inline-block',
+            }}
+          />
+          <span>
+            LETZTE AUSFÜHRUNG:{' '}
+            {runs[0]?.created_at ? runs[0].created_at.slice(0, 16).replace('T', ' ') : 'KEINE'}
+          </span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span>AKTIVE SCOPES: {contextScopes.join(', ').toUpperCase() || 'KEINE'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span>MODELL: {model.toUpperCase()}</span>
+        </div>
+
+        {!geminiConfigured && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-sans)' }}>
+            <span style={{ color: 'var(--dot-warn)', fontSize: 12 }}>
+              Benutzereingabe erforderlich: GEMINI_API_KEY fehlt für Live-Synthese
+            </span>
+            <button
+              type="button"
+              className="tactile-btn"
+              onClick={() => setActivePageTab('vault')}
+              style={{ padding: '2px 8px', fontSize: 11 }}
+            >
+              Zum API-Vault →
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* TOP-LEVEL TEXT-LINK NAVIGATION TABS */}
+      <nav
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--line-hairline)',
+          marginBottom: 24,
+        }}
+      >
+        <div style={{ display: 'flex', gap: 24 }}>
+          <button
+            type="button"
+            className={`tab-link ${activePageTab === 'synthesis' ? 'active' : ''}`}
+            onClick={() => setActivePageTab('synthesis')}
+          >
+            SYNTHESE & AGENT ({blueprints.length})
+          </button>
+          <button
+            type="button"
+            className={`tab-link ${activePageTab === 'vault' ? 'active' : ''}`}
+            onClick={() => setActivePageTab('vault')}
+          >
+            INTEGRATIONEN & CREDENTIALS VAULT
+          </button>
+          <button
+            type="button"
+            className={`tab-link ${activePageTab === 'usage' ? 'active' : ''}`}
+            onClick={() => setActivePageTab('usage')}
+          >
+            GOOGLE USAGE & AI CREDITS
+          </button>
+        </div>
+
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+          SHARED SQLITE VAULT · ZENTRAL FÜR ALLE 13 APPS
+        </span>
+      </nav>
 
       {showKeyModal && (
         <form
@@ -581,7 +813,644 @@ export default function App() {
         </form>
       )}
 
-      {/* MASTER-DETAIL SPLIT */}
+      {activePageTab === 'vault' ? (
+        <div>
+          {/* 4-COLUMN VAULT KPI STRIP */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              borderTop: '1px solid var(--line-hairline)',
+              borderBottom: '1px solid var(--line-hairline)',
+              marginBottom: 28,
+            }}
+          >
+            {/* 1. Gemini */}
+            <div style={{ padding: '16px 20px 16px 0', borderRight: '1px solid var(--line-hairline)' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: vault?.gemini.configured ? 'var(--dot-ok)' : 'var(--dot-warn)',
+                  }}
+                />
+                <span>GOOGLE GEMINI AI</span>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {vault?.gemini.configured ? 'VERBUNDEN' : 'KEY FEHLT'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                {vault?.gemini.keyPreview || 'Cortex · 3D-Print · Vision · Workflow'}
+              </div>
+            </div>
+
+            {/* 2. Google OAuth2 */}
+            <div style={{ padding: '16px 20px', borderRight: '1px solid var(--line-hairline)' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: vault?.googleOAuth.authorized
+                      ? 'var(--dot-ok)'
+                      : vault?.googleOAuth.configured
+                      ? 'var(--dot-warn)'
+                      : 'var(--dot-err)',
+                  }}
+                />
+                <span>GOOGLE OAUTH2 & ICAL</span>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {vault?.googleOAuth.authorized
+                  ? 'AUTORISIERT'
+                  : vault?.googleOAuth.configured
+                  ? 'BEREIT'
+                  : 'OFFEN'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                Kalender · Google Drive · Memo · Health
+              </div>
+            </div>
+
+            {/* 3. Bambu Lab LAN */}
+            <div style={{ padding: '16px 20px', borderRight: '1px solid var(--line-hairline)' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: vault?.bambu.configured ? 'var(--dot-ok)' : 'var(--dot-warn)',
+                  }}
+                />
+                <span>BAMBU LAB 3D-DRUCK</span>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {vault?.bambu.configured ? 'LAN MQTT BEREIT' : 'SIMULATION'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                {vault?.bambu.ip ? `${vault.bambu.ip} (${vault.bambu.model})` : 'IP & Access Code fehlen'}
+              </div>
+            </div>
+
+            {/* 4. GitHub & HA */}
+            <div style={{ padding: '16px 0 16px 20px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: vault?.github.configured ? 'var(--dot-ok)' : 'var(--dot-warn)',
+                  }}
+                />
+                <span>GITHUB API & HASS BRIDGE</span>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {vault?.github.configured ? 'TOKEN AKTIV' : 'PUBLIC / CACHE'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                HA: {vault?.homeAssistant.connected ? 'Live verbunden' : 'Standby'} · Repo:{' '}
+                {vault?.github.repo || 'tsimhofer/thassi'}
+              </div>
+            </div>
+          </div>
+
+          {/* 2x2 HAIRLINE CONFIGURATION GRID */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))',
+              gap: 32,
+            }}
+          >
+            {/* CARD 1: GOOGLE GEMINI API KEY */}
+            <section
+              style={{
+                paddingBottom: 24,
+                borderBottom: '1px solid var(--line-hairline)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  1. Google Gemini AI (Zentraler LLM- & CAD-Schlüssel)
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                  shared.sqlite :: gemini_api_key
+                </span>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                Wird automatisch geteilt mit <strong>Cortex</strong> (Synthese & Agent),{' '}
+                <strong>3D-Druck</strong> (Prompt-zu-CAD), <strong>Kameras & Vision</strong> und{' '}
+                <strong>Projekte & Workflow</strong>.
+              </p>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="cortex-input"
+                  type="password"
+                  placeholder={vault?.gemini.keyPreview || 'AIzaSy... (Google AI Studio API Key)'}
+                  value={vaultGeminiKey}
+                  onChange={(e) => setVaultGeminiKey(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="tactile-btn primary"
+                  disabled={savingVault || !vaultGeminiKey.trim()}
+                  onClick={() => {
+                    void handleSaveVault({ geminiApiKey: vaultGeminiKey }, 'Gemini API Key');
+                    setVaultGeminiKey('');
+                  }}
+                >
+                  Speichern
+                </button>
+                <button
+                  type="button"
+                  className="tactile-btn"
+                  onClick={() => void handleTestIntegration('gemini')}
+                >
+                  Testen
+                </button>
+              </div>
+              {vaultTestMessage.gemini && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11.5,
+                    color: vaultTestMessage.gemini.ok ? 'var(--dot-ok)' : 'var(--dot-err)',
+                  }}
+                >
+                  {vaultTestMessage.gemini.msg}
+                </div>
+              )}
+            </section>
+
+            {/* CARD 2: BAMBU LAB 3D PRINTER LAN CREDENTIALS */}
+            <section
+              style={{
+                paddingBottom: 24,
+                borderBottom: '1px solid var(--line-hairline)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  2. Bambu Lab 3D-Drucker (LAN MQTT TLS)
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                  shared.sqlite :: bambu_printer_config
+                </span>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                Schaltet <strong>3D-Druck & CAD</strong> vom Digital-Twin-Simulationsmodus auf echte
+                LAN-Telemetrie (Port 8883 TLS) um.
+              </p>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                  marginBottom: 8,
+                }}
+              >
+                <input
+                  className="cortex-input"
+                  placeholder="LAN-IP (z.B. 192.168.188.65)"
+                  value={vaultBambuIp}
+                  onChange={(e) => setVaultBambuIp(e.target.value)}
+                />
+                <input
+                  className="cortex-input"
+                  placeholder="Seriennummer (z.B. 01S00C...)"
+                  value={vaultBambuSerial}
+                  onChange={(e) => setVaultBambuSerial(e.target.value)}
+                />
+                <input
+                  className="cortex-input"
+                  type="password"
+                  placeholder={
+                    vault?.bambu.accessCodeConfigured
+                      ? '•••••••• (Access Code gespeichert)'
+                      : '8-stelliger LAN Access Code'
+                  }
+                  value={vaultBambuAccessCode}
+                  onChange={(e) => setVaultBambuAccessCode(e.target.value)}
+                />
+                <input
+                  className="cortex-input"
+                  placeholder="Modell (z.B. Bambu Lab P1S)"
+                  value={vaultBambuModel}
+                  onChange={(e) => setVaultBambuModel(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="tactile-btn primary"
+                  disabled={savingVault}
+                  onClick={() =>
+                    void handleSaveVault(
+                      {
+                        bambu: {
+                          ip: vaultBambuIp,
+                          serial: vaultBambuSerial,
+                          accessCode: vaultBambuAccessCode,
+                          model: vaultBambuModel,
+                          lanOnlyMode: true,
+                        },
+                      },
+                      'Bambu Lab LAN-Konfiguration'
+                    )
+                  }
+                >
+                  Drucker-Daten speichern
+                </button>
+                <button
+                  type="button"
+                  className="tactile-btn"
+                  onClick={() => void handleTestIntegration('bambu')}
+                >
+                  LAN-Discovery starten
+                </button>
+              </div>
+              {vaultTestMessage.bambu && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11.5,
+                    color: vaultTestMessage.bambu.ok ? 'var(--dot-ok)' : 'var(--dot-err)',
+                  }}
+                >
+                  {vaultTestMessage.bambu.msg}
+                </div>
+              )}
+            </section>
+
+            {/* CARD 3: GOOGLE OAUTH2 & ICAL FEEDS */}
+            <section
+              style={{
+                paddingBottom: 24,
+                borderBottom: '1px solid var(--line-hairline)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  3. Google OAuth2 & Direkter iCal (.ics) Feed
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                  shared.sqlite :: google_oauth_config
+                </span>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                Verbindet <strong>Google Calendar</strong>, <strong>Memo (Google Drive)</strong> und{' '}
+                <strong>Google Health</strong>. Alternativ kann sofort eine geheime iCal-URL (.ics)
+                ohne OAuth hinterlegt werden.
+              </p>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                  marginBottom: 8,
+                }}
+              >
+                <input
+                  className="cortex-input"
+                  placeholder={vault?.googleOAuth.clientIdPreview || 'Google OAuth Client ID'}
+                  value={vaultOAuthClientId}
+                  onChange={(e) => setVaultOAuthClientId(e.target.value)}
+                />
+                <input
+                  className="cortex-input"
+                  type="password"
+                  placeholder="Google OAuth Client Secret"
+                  value={vaultOAuthClientSecret}
+                  onChange={(e) => setVaultOAuthClientSecret(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <button
+                  type="button"
+                  className="tactile-btn primary"
+                  disabled={savingVault || (!vaultOAuthClientId && !vaultOAuthClientSecret)}
+                  onClick={() =>
+                    void handleSaveVault(
+                      {
+                        googleOAuth: {
+                          clientId: vaultOAuthClientId,
+                          clientSecret: vaultOAuthClientSecret,
+                          redirectUri: vaultOAuthRedirect,
+                        },
+                      },
+                      'Google OAuth2 Client'
+                    )
+                  }
+                >
+                  OAuth-Client speichern
+                </button>
+                <button
+                  type="button"
+                  className="tactile-btn"
+                  onClick={() => void handleTestIntegration('google_oauth')}
+                >
+                  Google Login öffnen ↗
+                </button>
+              </div>
+
+              <div
+                style={{
+                  paddingTop: 12,
+                  borderTop: '1px solid var(--line-hairline)',
+                  display: 'flex',
+                  gap: 8,
+                }}
+              >
+                <input
+                  className="cortex-input"
+                  style={{ width: 170 }}
+                  placeholder="Kalender-Name"
+                  value={vaultIcsName}
+                  onChange={(e) => setVaultIcsName(e.target.value)}
+                />
+                <input
+                  className="cortex-input"
+                  placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
+                  value={vaultIcsUrl}
+                  onChange={(e) => setVaultIcsUrl(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="tactile-btn"
+                  disabled={savingVault || !vaultIcsUrl.trim()}
+                  onClick={() => {
+                    void handleSaveVault(
+                      {
+                        icalFeed: {
+                          name: vaultIcsName,
+                          ics_url: vaultIcsUrl,
+                          default_category: 'personal',
+                        },
+                      },
+                      'iCal Kalender-Feed'
+                    );
+                    setVaultIcsUrl('');
+                  }}
+                >
+                  + .ics Feed
+                </button>
+              </div>
+              {vaultTestMessage.google_oauth && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11.5,
+                    color: vaultTestMessage.google_oauth.ok ? 'var(--dot-ok)' : 'var(--dot-err)',
+                  }}
+                >
+                  {vaultTestMessage.google_oauth.msg}
+                </div>
+              )}
+            </section>
+
+            {/* CARD 4: GITHUB PERSONAL ACCESS TOKEN */}
+            <section
+              style={{
+                paddingBottom: 24,
+                borderBottom: '1px solid var(--line-hairline)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  4. GitHub Personal Access Token
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                  shared.sqlite :: github_token
+                </span>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                Aktiviert Live-Synchronisation von GitHub Issues, Meilensteinen und Commits in{' '}
+                <strong>Projekte & Workflow</strong> (`tsimhofer/thassi`).
+              </p>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="cortex-input"
+                  type="password"
+                  placeholder={vault?.github.tokenPreview || 'ghp_... oder github_pat_...'}
+                  value={vaultGithubToken}
+                  onChange={(e) => setVaultGithubToken(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="tactile-btn primary"
+                  disabled={savingVault || !vaultGithubToken.trim()}
+                  onClick={() => {
+                    void handleSaveVault({ githubToken: vaultGithubToken }, 'GitHub Token');
+                    setVaultGithubToken('');
+                  }}
+                >
+                  Speichern
+                </button>
+                <button
+                  type="button"
+                  className="tactile-btn"
+                  onClick={() => void handleTestIntegration('github')}
+                >
+                  Testen
+                </button>
+              </div>
+              {vaultTestMessage.github && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11.5,
+                    color: vaultTestMessage.github.ok ? 'var(--dot-ok)' : 'var(--dot-err)',
+                  }}
+                >
+                  {vaultTestMessage.github.msg}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      ) : activePageTab === 'usage' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingBottom: 12,
+              borderBottom: '1px solid var(--line-hairline)',
+            }}
+          >
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              ZENTRALE GOOGLE API TELEMETRIE, GEMINI TOKENS, QUOTAS & AI CREDITS
+            </span>
+            <button
+              type="button"
+              className="tactile-btn"
+              onClick={() => {
+                window.location.href = '/apps/google-usage/';
+              }}
+            >
+              Als Vollbild-App öffnen (/apps/google-usage/) ↗
+            </button>
+          </div>
+          <iframe
+            src="/apps/google-usage/"
+            title="Google Usage & AI Credits"
+            style={{
+              width: '100%',
+              height: '820px',
+              border: '1px solid var(--line-hairline)',
+              background: '#09090b',
+            }}
+          />
+        </div>
+      ) : (
+      /* MASTER-DETAIL SPLIT */
       <div
         className="cortex-split"
         style={{
@@ -1186,6 +2055,7 @@ export default function App() {
           )}
         </aside>
       </div>
+      )}
     </div>
   );
 }

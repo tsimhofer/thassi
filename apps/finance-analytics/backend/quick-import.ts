@@ -7,6 +7,7 @@ import {
 } from '../shared/finance-types.js';
 import {
   decodeBankFileBuffer,
+  parseBankStatementBuffer,
   parseBankStatementContent,
   type BankStatementParseResult,
 } from './parser.js';
@@ -132,7 +133,7 @@ export function clearCookieVault(db: ThassiAppDatabase): void {
 
 export function ingestStatementIntoDatabase(
   db: ThassiAppDatabase,
-  rawText: string,
+  rawInput: string | Buffer | Uint8Array,
   options: {
     fileName?: string;
     accountName?: string;
@@ -146,7 +147,7 @@ export function ingestStatementIntoDatabase(
 } {
   const cfg = getQuickImportConfig(db);
   const acctName = options.accountName || cfg.defaultAccountName || 'Girokonto';
-  const parseResult = parseBankStatementContent(rawText, acctName);
+  const parseResult = parseBankStatementBuffer(rawInput, acctName);
 
   if (parseResult.transactions.length === 0) {
     return { parseResult, insertedCount: 0, skippedDuplicates: 0 };
@@ -277,10 +278,11 @@ export function scanDownloadsFolderForNewExports(
     for (const entry of entries) {
       if (!entry.isFile()) continue;
       const ext = path.extname(entry.name).toLowerCase();
-      if (!['.csv', '.xml', '.sta', '.mt940'].includes(ext)) continue;
+      if (!['.zip', '.csv', '.xml', '.sta', '.mt940'].includes(ext)) continue;
 
       const isBankExportName =
         /^AT\d{2}/i.test(entry.name) ||
+        /^\d{12,20}\.zip$/i.test(entry.name) ||
         /george|sparkasse|kontoauszug|umsatz|umsaetze|export|camt|mt940|elba|bawag|flatex/i.test(
           entry.name
         );
@@ -302,10 +304,9 @@ export function scanDownloadsFolderForNewExports(
 
       try {
         const rawBuf = fs.readFileSync(fullPath);
-        const decoded = decodeBankFileBuffer(rawBuf);
         const { parseResult, insertedCount, skippedDuplicates } = ingestStatementIntoDatabase(
           db,
-          decoded,
+          rawBuf,
           {
             fileName: entry.name,
             accountName: cfg.defaultAccountName,

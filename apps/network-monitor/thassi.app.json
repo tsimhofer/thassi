@@ -1,0 +1,8 @@
+{
+  "id": "network-monitor",
+  "name": "Netzwerk & Router",
+  "version": "1.0.0",
+  "description": "Echtzeit-Netzwerkmonitor für FRITZ!Box 6890 LTE, FRITZ!Repeater Mesh, FRITZ!Box 6660 Cable Uplink, verbundene Clients, Bandbreite & Latenzen.",
+  "icon": "mdi:router-network",
+  "category": "system"
+}

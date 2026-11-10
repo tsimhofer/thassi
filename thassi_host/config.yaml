@@ -1,5 +1,5 @@
 name: "Thassi Horizon"
-version: "1.2.7"
+version: "1.2.8"
 slug: "thassi_host"
 description: "Fullscreen Calendar-Centric Main Dashboard & Unified Hub for Home Assistant"
 url: "https://github.com/tsimhofer/thassi"
@@ -16,6 +16,7 @@ panel_title: "Horizon"
 panel_admin: false
 homeassistant_api: true
 hassio_api: true
+hassio_role: manager
 map:
   - homeassistant_config:rw
 watchdog: "http://[HOST]:[PORT:8099]/healthz"

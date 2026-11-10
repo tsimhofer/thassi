@@ -1,16 +1,24 @@
 import http from 'node:http';
 import { defineThassiApp } from '@thassi/sdk';
 import { renderUnifiedDashboardHtml } from '../../../thassi_host/src/ambient-dashboard.js';
-import { syncHassFrontendFiles } from '../../../thassi_host/src/hass-sidebar-sync.js';
+import {
+  getHassSidebarStylerScript,
+  syncHassFrontendFiles,
+} from '../../../thassi_host/src/hass-sidebar-sync.js';
 import {
   CATEGORY_DEFINITIONS,
   DEFAULT_BALANCE_CONFIG,
+  DEFAULT_EXPORT_REMINDER_CONFIG,
+  DEFAULT_FIXED_COSTS,
   DEFAULT_PREVIEW_CONFIG,
   getCategoryMeta,
   type AccountBalanceConfig,
   type CategoryBreakdownItem,
   type CategoryBudgetRow,
+  type ExportReminderConfig,
+  type ExportReminderStatus,
   type FinanceKpis,
+  type FixedCostItem,
   type PreviewConfig,
   type TransactionRow,
 } from '../shared/finance-types.js';
@@ -40,31 +48,6 @@ import {
 try {
   syncHassFrontendFiles();
 } catch {}
-
-// Zero-downtime live hot-patch for Thassi Horizon Dashboard so updated #widget-finances & #quick-import-flyout are served on /
-const globalAny = globalThis as unknown as {
-  __thassiOrigEmit?: typeof http.Server.prototype.emit;
-};
-if (!globalAny.__thassiOrigEmit) {
-  globalAny.__thassiOrigEmit = http.Server.prototype.emit;
-}
-http.Server.prototype.emit = function (event: string, ...args: unknown[]): boolean {
-  if (event === 'request') {
-    const req = args[0] as http.IncomingMessage | undefined;
-    const res = args[1] as http.ServerResponse | undefined;
-    if (req && res && (req.method === 'GET' || !req.method)) {
-      const safeUrl = (req.url || '/').split('?')[0].replace(/\/+/g, '/');
-      const standalone = ((req.headers['x-thassi-standalone-app'] as string) || '').trim();
-      if (!standalone && (safeUrl === '/' || safeUrl === '/index.html')) {
-        const ingressPath = ((req.headers['x-ingress-path'] as string) || '').replace(/\/+$/, '');
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderUnifiedDashboardHtml(ingressPath));
-        return true;
-      }
-    }
-  }
-  return globalAny.__thassiOrigEmit!.apply(this, [event, ...args] as never);
-};
 
 const LEGACY_DUMMY_PAYEES = [
   'Monthly Salary Deposit',
@@ -111,6 +94,8 @@ export default defineThassiApp((ctx) => {
   for (const dummyPayee of LEGACY_DUMMY_PAYEES) {
     ctx.db.execute('DELETE FROM transactions WHERE payee = ?', [dummyPayee]);
   }
+  ctx.db.execute('DELETE FROM transactions WHERE tx_ref = ?', ['2026110901:-22.40']);
+  ctx.db.exec('DELETE FROM transactions WHERE id IN (2345, 2346, 2347, 2348);');
 
   // Ensure all default budget categories exist
   for (const b of getDefaultCategoryBudgets()) {
@@ -121,7 +106,7 @@ export default defineThassiApp((ctx) => {
   }
 
   // One-time smart re-categorization migration for legacy rows
-  const migrationDone = ctx.db.kvGet<boolean>('finance_categorizer_v2_migrated');
+  const migrationDone = ctx.db.kvGet<boolean>('finance_categorizer_v4_migrated');
   if (!migrationDone) {
     const allRows = ctx.db.query<TransactionRow>('SELECT * FROM transactions');
     ctx.db.exec('BEGIN TRANSACTION;');
@@ -143,11 +128,72 @@ export default defineThassiApp((ctx) => {
           );
         }
       }
+      // Update fixed-category budgets to match user's explicit Fixkosten
+      ctx.db.execute('UPDATE category_budgets SET monthly_limit = 1760 WHERE category = ?', [
+        'Housing & Utilities',
+      ]);
+      ctx.db.execute('UPDATE category_budgets SET monthly_limit = 285 WHERE category = ?', [
+        'Insurance & Finance',
+      ]);
+      ctx.db.execute('UPDATE category_budgets SET monthly_limit = 90 WHERE category = ?', [
+        'Subscriptions',
+      ]);
       ctx.db.exec('COMMIT;');
-      ctx.db.kvSet('finance_categorizer_v2_migrated', true);
+      ctx.db.kvSet('finance_categorizer_v4_migrated', true);
     } catch {
       ctx.db.exec('ROLLBACK;');
     }
+  }
+
+  function getFixedCostsConfig(): FixedCostItem[] {
+    const saved = ctx.db.kvGet<FixedCostItem[]>('finance_fixed_costs_v1');
+    if (Array.isArray(saved) && saved.length > 0) {
+      return saved;
+    }
+    ctx.db.kvSet('finance_fixed_costs_v1', DEFAULT_FIXED_COSTS);
+    return DEFAULT_FIXED_COSTS;
+  }
+
+  function saveFixedCostsConfig(items: FixedCostItem[]): FixedCostItem[] {
+    const cleaned = items
+      .filter((x) => x && x.name && Number.isFinite(Number(x.amount)))
+      .map((x, idx) => ({
+        id: x.id || `fix-${idx}-${Date.now()}`,
+        name: x.name.trim(),
+        amount: Number(Math.abs(Number(x.amount)).toFixed(2)),
+        category: x.category || 'Housing & Utilities',
+        groupLabel: x.groupLabel || 'Wohnen & Energie',
+        matchPattern: x.matchPattern || x.name.toLowerCase(),
+        isEstimate: Boolean(x.isEstimate),
+      }));
+    ctx.db.kvSet('finance_fixed_costs_v1', cleaned);
+    return cleaned;
+  }
+
+  function evaluateFixedCostsWithTransactions(
+    items: FixedCostItem[],
+    txs: TransactionRow[]
+  ): FixedCostItem[] {
+    const expenseTxs = txs.filter((t) => t.amount < 0);
+    return items.map((item) => {
+      let rx: RegExp | null = null;
+      try {
+        rx = new RegExp(item.matchPattern || item.name, 'i');
+      } catch {
+        rx = null;
+      }
+      const matched = expenseTxs.find((t) => {
+        const hay = `${t.payee} ${t.notes}`.toLowerCase();
+        if (rx && rx.test(hay)) return true;
+        return hay.includes(item.name.toLowerCase());
+      });
+      return {
+        ...item,
+        paidThisMonth: Boolean(matched),
+        actualPaidAmount: matched ? Math.abs(matched.amount) : null,
+        matchedTxDate: matched ? matched.tx_date : null,
+      };
+    });
   }
 
   function getPreviewConfig(): PreviewConfig {
@@ -206,31 +252,154 @@ export default defineThassiApp((ctx) => {
     return updated;
   }
 
+  function getExportReminderConfig(): ExportReminderConfig {
+    const saved = ctx.db.kvGet<Partial<ExportReminderConfig>>('finance_export_reminder_config');
+    return {
+      reminderIntervalDays:
+        typeof saved?.reminderIntervalDays === 'number' && saved.reminderIntervalDays >= 1
+          ? Math.min(90, Math.round(saved.reminderIntervalDays))
+          : DEFAULT_EXPORT_REMINDER_CONFIG.reminderIntervalDays,
+      remindOnNewMonth:
+        typeof saved?.remindOnNewMonth === 'boolean'
+          ? saved.remindOnNewMonth
+          : DEFAULT_EXPORT_REMINDER_CONFIG.remindOnNewMonth,
+      snoozedUntil: saved?.snoozedUntil || null,
+      lastBankSyncAt: saved?.lastBankSyncAt || null,
+      lastDataExportAt: saved?.lastDataExportAt || null,
+    };
+  }
+
+  function saveExportReminderConfig(partial: Partial<ExportReminderConfig>): ExportReminderConfig {
+    const current = getExportReminderConfig();
+    const updated: ExportReminderConfig = {
+      ...current,
+      ...partial,
+      reminderIntervalDays:
+        typeof partial.reminderIntervalDays === 'number' && partial.reminderIntervalDays >= 1
+          ? Math.min(90, Math.round(partial.reminderIntervalDays))
+          : current.reminderIntervalDays,
+    };
+    ctx.db.kvSet('finance_export_reminder_config', updated);
+    return updated;
+  }
+
+  function computeExportReminderStatus(): ExportReminderStatus {
+    const cfg = getExportReminderConfig();
+    const quickCfg = getQuickImportConfig(ctx.db);
+    const latestRow = ctx.db.queryOne<{ latest_date: string | null }>(
+      'SELECT MAX(tx_date) as latest_date FROM transactions'
+    );
+    const latestTxDate = latestRow?.latest_date || null;
+    const nowMs = Date.now();
+
+    const daysSinceLatestTx = latestTxDate
+      ? Math.max(0, Math.floor((nowMs - new Date(`${latestTxDate}T12:00:00Z`).getTime()) / 86400000))
+      : null;
+
+    const effectiveLastSyncIso = cfg.lastBankSyncAt || quickCfg.lastAutoImportAt || null;
+    const daysSinceLastSync = effectiveLastSyncIso
+      ? Math.max(0, Math.floor((nowMs - new Date(effectiveLastSyncIso).getTime()) / 86400000))
+      : daysSinceLatestTx;
+
+    const daysSinceLastExport = cfg.lastDataExportAt
+      ? Math.max(0, Math.floor((nowMs - new Date(cfg.lastDataExportAt).getTime()) / 86400000))
+      : null;
+
+    const isSnoozed = Boolean(
+      cfg.snoozedUntil && new Date(cfg.snoozedUntil).getTime() > nowMs
+    );
+
+    const currentMonthYm = new Date(nowMs).toISOString().slice(0, 7);
+    const isNewMonthMissingBookings = Boolean(
+      cfg.remindOnNewMonth &&
+        latestTxDate &&
+        latestTxDate.slice(0, 7) < currentMonthYm &&
+        new Date(nowMs).getDate() >= 2
+    );
+
+    const intervalDays = cfg.reminderIntervalDays || 7;
+    const isTxStale = daysSinceLatestTx === null || daysSinceLatestTx >= intervalDays;
+    const isSyncStale = daysSinceLastSync !== null && daysSinceLastSync >= intervalDays;
+    const rawDue = isTxStale || isSyncStale || isNewMonthMissingBookings;
+    const due = !isSnoozed && rawDue;
+
+    const effectiveAgeDays =
+      daysSinceLastSync !== null && daysSinceLatestTx !== null
+        ? Math.min(daysSinceLastSync, daysSinceLatestTx)
+        : (daysSinceLatestTx ?? daysSinceLastSync ?? 99);
+
+    let urgency: 'ok' | 'warn' | 'overdue' = 'ok';
+    if (due) {
+      urgency = effectiveAgeDays >= Math.max(14, intervalDays * 2) ? 'overdue' : 'warn';
+    }
+
+    const fmtDateDe = (iso: string | null) => {
+      if (!iso) return 'Keine';
+      const [y, m, d] = iso.slice(0, 10).split('-');
+      return d && m && y ? `${d}.${m}.${y}` : iso;
+    };
+
+    let headlineDe = 'Bank-Export & Finanzdaten aktuell';
+    let detailDe = latestTxDate
+      ? `Letzte Buchung vom ${fmtDateDe(latestTxDate)} (vor ${daysSinceLatestTx}T)`
+      : 'Noch keine Buchungen vorhanden';
+
+    if (due) {
+      if (daysSinceLatestTx === null) {
+        headlineDe = 'Erster Bank-Export fällig';
+        detailDe = 'Noch keine Kontoauszüge importiert — Jetzt aus George exportieren & synchronisieren.';
+      } else if (isNewMonthMissingBookings && effectiveAgeDays < intervalDays) {
+        headlineDe = `Monats-Export für ${currentMonthYm} empfohlen`;
+        detailDe = `Letzte Buchung vom ${fmtDateDe(latestTxDate)} — Neuen Kontoauszug exportieren & abgleichen.`;
+      } else {
+        headlineDe = `Bank-Export fällig (vor ${effectiveAgeDays} Tagen)`;
+        detailDe = `Letzte Buchung: ${fmtDateDe(latestTxDate)} (Intervall: alle ${intervalDays} Tage) — Jetzt Kontoauszug exportieren.`;
+      }
+    } else if (isSnoozed && cfg.snoozedUntil) {
+      headlineDe = `Export-Erinnerung pausiert bis ${fmtDateDe(cfg.snoozedUntil)}`;
+    }
+
+    return {
+      ...cfg,
+      lastBankSyncAt: effectiveLastSyncIso,
+      latestTxDate,
+      daysSinceLatestTx,
+      daysSinceLastSync,
+      daysSinceLastExport,
+      isSnoozed,
+      due,
+      urgency,
+      headlineDe,
+      detailDe,
+    };
+  }
+
   function resolveDefaultTargetMonth(): string {
-    const months = ctx.db.query<{ ym: string; cnt: number; inc: number }>(`
+    const months = ctx.db.query<{ ym: string; cnt: number }>(`
       SELECT
         substr(tx_date, 1, 7) as ym,
-        COUNT(*) as cnt,
-        SUM(CASE WHEN amount > 500 THEN amount ELSE 0 END) as inc
+        COUNT(*) as cnt
       FROM transactions
       GROUP BY ym
       ORDER BY ym DESC
     `);
     if (months.length === 0) return new Date().toISOString().slice(0, 7);
-    const fullMonth = months.find((m) => m.cnt >= 8 || m.inc > 1000);
-    return fullMonth ? fullMonth.ym : months[0].ym;
+    return months[0].ym;
   }
 
   function computeDailyAndWeeklyExpenses(excludeRoundUps: boolean): {
+    expensesToday: number;
     expensesDay: number;
     expensesDayDate: string;
     expensesDayLabel: string;
     expensesWeek: number;
+    expensesWeekVariable: number;
     expensesWeekRangeLabel: string;
   } {
     const roundUpClause = excludeRoundUps
       ? `AND category != 'Investments' AND payee NOT LIKE '%Notgroschen%'`
       : `AND category != 'Investments'`;
+    const variableClause = `${roundUpClause} AND is_recurring = 0 AND category NOT IN ('Housing & Utilities', 'Insurance & Finance', 'Subscriptions')`;
 
     const todayIso = new Date().toISOString().slice(0, 10);
     const todayRow = ctx.db.queryOne<{ spent: number }>(
@@ -240,7 +409,8 @@ export default defineThassiApp((ctx) => {
       [todayIso]
     );
 
-    let expensesDay = todayRow?.spent ?? 0;
+    const expensesToday = todayRow?.spent ?? 0;
+    let expensesDay = expensesToday;
     let expensesDayDate = todayIso;
     let expensesDayLabel = 'Heute';
 
@@ -257,7 +427,7 @@ export default defineThassiApp((ctx) => {
         expensesDay = latestDayRow.spent;
         expensesDayDate = latestDayRow.tx_date;
         const [, mm, dd] = latestDayRow.tx_date.split('-');
-        expensesDayLabel = `Letzter Tag (${dd}.${mm}.)`;
+        expensesDayLabel = `Letzte Buchung (${dd}.${mm}.)`;
       }
     }
 
@@ -269,9 +439,16 @@ export default defineThassiApp((ctx) => {
        WHERE amount < 0 ${roundUpClause} AND tx_date >= ? AND tx_date <= ?`,
       [sevenDaysAgoIso, todayIso]
     );
+    const weekVarRow = ctx.db.queryOne<{ spent: number }>(
+      `SELECT COALESCE(ROUND(SUM(ABS(amount)), 2), 0) as spent
+       FROM transactions
+       WHERE amount < 0 ${variableClause} AND tx_date >= ? AND tx_date <= ?`,
+      [sevenDaysAgoIso, todayIso]
+    );
 
     let expensesWeek = weekRow?.spent ?? 0;
-    let expensesWeekRangeLabel = 'Aktuelle Woche (7T)';
+    let expensesWeekVariable = weekVarRow?.spent ?? 0;
+    let expensesWeekRangeLabel = 'Letzte 7 Tage';
 
     if (expensesWeek === 0 && expensesDayDate) {
       const refEndMs = new Date(`${expensesDayDate}T12:00:00Z`).getTime();
@@ -282,8 +459,15 @@ export default defineThassiApp((ctx) => {
          WHERE amount < 0 ${roundUpClause} AND tx_date >= ? AND tx_date <= ?`,
         [refStartIso, expensesDayDate]
       );
+      const fallbackWeekVar = ctx.db.queryOne<{ spent: number }>(
+        `SELECT COALESCE(ROUND(SUM(ABS(amount)), 2), 0) as spent
+         FROM transactions
+         WHERE amount < 0 ${variableClause} AND tx_date >= ? AND tx_date <= ?`,
+        [refStartIso, expensesDayDate]
+      );
       if (fallbackWeek && fallbackWeek.spent > 0) {
         expensesWeek = fallbackWeek.spent;
+        expensesWeekVariable = fallbackWeekVar?.spent ?? 0;
         const [, m1, d1] = refStartIso.split('-');
         const [, m2, d2] = expensesDayDate.split('-');
         expensesWeekRangeLabel = `7 Tage (${d1}.${m1}.–${d2}.${m2}.)`;
@@ -291,19 +475,61 @@ export default defineThassiApp((ctx) => {
     }
 
     return {
+      expensesToday,
       expensesDay,
       expensesDayDate,
       expensesDayLabel,
       expensesWeek,
+      expensesWeekVariable,
       expensesWeekRangeLabel,
     };
   }
 
-  function computeCategoryBreakdown(whereClause: string, params: unknown[]): {
+  function getMonthCalendarProgress(activeMonth: string): {
+    elapsedDays: number;
+    daysInMonth: number;
+    remainingDays: number;
+  } {
+    if (!activeMonth || activeMonth === 'all' || !/^\d{4}-\d{2}$/.test(activeMonth)) {
+      return { elapsedDays: 30, daysInMonth: 30, remainingDays: 0 };
+    }
+    const [yrStr, moStr] = activeMonth.split('-');
+    const yr = Number(yrStr);
+    const mo = Number(moStr);
+    const daysInMonth = new Date(yr, mo, 0).getDate();
+    const now = new Date();
+    const todayYm = now.toISOString().slice(0, 7);
+
+    if (activeMonth < todayYm) {
+      return { elapsedDays: daysInMonth, daysInMonth, remainingDays: 0 };
+    }
+    if (activeMonth > todayYm) {
+      return { elapsedDays: 1, daysInMonth, remainingDays: daysInMonth - 1 };
+    }
+    const elapsedDays = Math.max(1, Math.min(daysInMonth, now.getDate()));
+    return {
+      elapsedDays,
+      daysInMonth,
+      remainingDays: Math.max(0, daysInMonth - elapsedDays),
+    };
+  }
+
+  function computeCategoryBreakdown(
+    whereClause: string,
+    params: unknown[],
+    activeMonth: string
+  ): {
     categoryBreakdown: CategoryBreakdownItem[];
     allBudgets: CategoryBreakdownItem[];
     totalMonthlyBudget: number;
+    variableBudgetTotal: number;
+    variableSpentTotal: number;
+    variableExtrapolatedTotal: number;
+    elapsedDaysInMonth: number;
+    daysInMonth: number;
+    remainingDaysInMonth: number;
   } {
+    const { elapsedDays, daysInMonth, remainingDays } = getMonthCalendarProgress(activeMonth);
     const budgets = ctx.db.query<CategoryBudgetRow>('SELECT * FROM category_budgets');
     const budgetMap = new Map(budgets.map((b) => [b.category, Number(b.monthly_limit)]));
 
@@ -343,7 +569,21 @@ export default defineThassiApp((ctx) => {
       const budgetLimit = budgetMap.get(catName) ?? meta.defaultBudget;
       const pctUsed =
         budgetLimit > 0 ? Math.min(100, Math.round((spent / budgetLimit) * 100)) : 0;
-      const remaining = Number(Math.max(0, budgetLimit - spent).toFixed(2));
+      const remaining = Number((budgetLimit - spent).toFixed(2));
+
+      const isVariable = meta.group === 'living' || meta.group === 'lifestyle';
+      const extrapolatedSpend =
+        remainingDays > 0 && isVariable
+          ? Number(((spent / elapsedDays) * daysInMonth).toFixed(2))
+          : meta.group === 'fixed'
+            ? Number(Math.max(spent, budgetLimit).toFixed(2))
+            : spent;
+      const extrapolatedRemaining = Number((budgetLimit - extrapolatedSpend).toFixed(2));
+      const extrapolatedPct =
+        budgetLimit > 0 ? Math.round((extrapolatedSpend / budgetLimit) * 100) : 0;
+      const dailyAllowanceRemaining =
+        remainingDays > 0 && remaining > 0 ? Number((remaining / remainingDays).toFixed(2)) : 0;
+
       return {
         category: catName,
         labelDe: meta.labelDe,
@@ -356,6 +596,10 @@ export default defineThassiApp((ctx) => {
         pctUsed,
         remaining,
         overBudget: budgetLimit > 0 && spent > budgetLimit,
+        extrapolatedSpend,
+        extrapolatedRemaining,
+        extrapolatedPct,
+        dailyAllowanceRemaining,
       };
     });
 
@@ -369,7 +613,30 @@ export default defineThassiApp((ctx) => {
         .toFixed(2)
     );
 
-    return { categoryBreakdown, allBudgets, totalMonthlyBudget };
+    const variableItems = allBudgets.filter(
+      (c) => c.group === 'living' || c.group === 'lifestyle'
+    );
+    const variableBudgetTotal = Number(
+      variableItems.reduce((sum, c) => sum + c.budgetLimit, 0).toFixed(2)
+    );
+    const variableSpentTotal = Number(
+      variableItems.reduce((sum, c) => sum + c.spent, 0).toFixed(2)
+    );
+    const variableExtrapolatedTotal = Number(
+      variableItems.reduce((sum, c) => sum + c.extrapolatedSpend, 0).toFixed(2)
+    );
+
+    return {
+      categoryBreakdown,
+      allBudgets,
+      totalMonthlyBudget,
+      variableBudgetTotal,
+      variableSpentTotal,
+      variableExtrapolatedTotal,
+      elapsedDaysInMonth: elapsedDays,
+      daysInMonth,
+      remainingDaysInMonth: remainingDays,
+    };
   }
 
   async function computeSummaryAndPublishSensors(monthFilter?: string): Promise<{
@@ -379,10 +646,13 @@ export default defineThassiApp((ctx) => {
     previewGroupBudgets: CategoryBreakdownItem[];
     previewConfig: PreviewConfig;
     balanceConfig: AccountBalanceConfig;
+    exportReminder: ExportReminderStatus;
+    fixedCosts: FixedCostItem[];
   }> {
     const previewConfig = getPreviewConfig();
     const balanceConfig = getBalanceConfig();
     const quickImportConfig = getQuickImportConfig(ctx.db);
+    const exportReminder = computeExportReminderStatus();
 
     const activeMonth =
       monthFilter && monthFilter !== 'all' ? monthFilter : resolveDefaultTargetMonth();
@@ -422,16 +692,36 @@ export default defineThassiApp((ctx) => {
       totals.income > 0 ? Number(((totalSavedOrInvested / totals.income) * 100).toFixed(1)) : 0;
 
     const dayWeek = computeDailyAndWeeklyExpenses(previewConfig.excludeRoundUpsInExpenses);
-    const { categoryBreakdown, allBudgets, totalMonthlyBudget } = computeCategoryBreakdown(
-      whereClause,
+    const {
+      categoryBreakdown,
+      allBudgets,
+      totalMonthlyBudget,
+      variableBudgetTotal,
+      variableSpentTotal,
+      variableExtrapolatedTotal,
+      elapsedDaysInMonth,
+      daysInMonth,
+      remainingDaysInMonth,
+    } = computeCategoryBreakdown(whereClause, params, activeMonth);
+
+    const periodTxsForFixed = ctx.db.query<TransactionRow>(
+      `SELECT * FROM transactions WHERE amount < 0 AND ${whereClause}`,
       params
+    );
+    const fixedCosts = evaluateFixedCostsWithTransactions(getFixedCostsConfig(), periodTxsForFixed);
+    const fixedCostsTotal = Number(
+      fixedCosts.reduce((sum, f) => sum + f.amount, 0).toFixed(2)
+    );
+    const fixedCostsPaidThisMonth = Number(
+      fixedCosts
+        .filter((f) => f.paidThisMonth)
+        .reduce((sum, f) => sum + (f.actualPaidAmount ?? f.amount), 0)
+        .toFixed(2)
     );
 
     const previewGroupBudgets = previewConfig.previewBudgetCategories
       .map((cat) => allBudgets.find((b) => b.category === cat))
       .filter((b): b is CategoryBreakdownItem => Boolean(b));
-
-    const haStatus = await ctx.ha.getStatus();
 
     const kpis: FinanceKpis = {
       activeMonth,
@@ -444,13 +734,27 @@ export default defineThassiApp((ctx) => {
       net: totals.net,
       grocerySpend,
       savingsRatePct,
+      expensesToday: dayWeek.expensesToday,
       expensesDay: dayWeek.expensesDay,
       expensesDayDate: dayWeek.expensesDayDate,
       expensesDayLabel: dayWeek.expensesDayLabel,
       expensesWeek: dayWeek.expensesWeek,
+      expensesWeekVariable: dayWeek.expensesWeekVariable,
       expensesWeekRangeLabel: dayWeek.expensesWeekRangeLabel,
-      totalMonthlyBudget,
-      haConnected: haStatus.connected,
+      expensesMonthVariable: variableSpentTotal,
+      fixedCostsTotal,
+      fixedCostsPaidThisMonth,
+      variableBudgetTotal,
+      variableBudgetRemaining: Number((variableBudgetTotal - variableSpentTotal).toFixed(2)),
+      variableExtrapolatedSpend: variableExtrapolatedTotal,
+      variableExtrapolatedRemaining: Number(
+        (variableBudgetTotal - variableExtrapolatedTotal).toFixed(2)
+      ),
+      elapsedDaysInMonth,
+      daysInMonth,
+      remainingDaysInMonth,
+      totalMonthlyBudget: Number((variableBudgetTotal + fixedCostsTotal).toFixed(2)),
+      haConnected: true,
     };
 
     // Store rich summary in /data/shared.db for Horizon Dashboard & cross-app use
@@ -473,9 +777,11 @@ export default defineThassiApp((ctx) => {
       totalMonthlyBudget,
       previewConfig,
       previewGroupBudgets,
+      exportReminder,
       quickImportConfig: {
         bankId: quickImportConfig.bankId,
         loginUrl: quickImportConfig.loginUrl,
+        verfuegernummer: quickImportConfig.verfuegernummer,
         autoLoginEnabled: quickImportConfig.autoLoginEnabled,
         saveCookiesEnabled: quickImportConfig.saveCookiesEnabled,
         savedCookieCount: quickImportConfig.savedCookieCount,
@@ -485,59 +791,72 @@ export default defineThassiApp((ctx) => {
       updatedAt: new Date().toISOString(),
     });
 
-    if (haStatus.connected) {
-      await ctx.ha.publishSensor('current_balance', balanceConfig.currentBalance, {
-        friendly_name: `Kontostand (${balanceConfig.accountName})`,
-        unit_of_measurement: 'EUR',
-        icon: 'mdi:bank',
-        iban: balanceConfig.iban,
-      });
-
-      await ctx.ha.publishSensor('daily_expenses', dayWeek.expensesDay, {
-        friendly_name: `Tagesausgaben (${dayWeek.expensesDayLabel})`,
-        unit_of_measurement: 'EUR',
-        icon: 'mdi:cash-minus',
-        date: dayWeek.expensesDayDate,
-      });
-
-      await ctx.ha.publishSensor('weekly_expenses', dayWeek.expensesWeek, {
-        friendly_name: `Wochenausgaben (${dayWeek.expensesWeekRangeLabel})`,
-        unit_of_measurement: 'EUR',
-        icon: 'mdi:calendar-week',
-      });
-
-      await ctx.ha.publishSensor('net_cashflow', totals.net, {
-        friendly_name: `Net Cashflow (${activeMonth})`,
-        unit_of_measurement: 'EUR',
-        icon: 'mdi:cash-multiple',
-        period_month: activeMonth,
-        income_eur: totals.income,
-        expenses_eur: totals.expenses,
-        investments_eur: totals.investments,
-        savings_rate_pct: savingsRatePct,
-      });
-
-      await ctx.ha.publishSensor('monthly_expenses', totals.expenses, {
-        friendly_name: `Living Expenses (${activeMonth})`,
-        unit_of_measurement: 'EUR',
-        icon: 'mdi:credit-card-outline',
-        period_month: activeMonth,
-      });
-
-      await ctx.ha.publishSensor('grocery_spend', grocerySpend, {
-        friendly_name: `Grocery Spend (${activeMonth})`,
-        unit_of_measurement: 'EUR',
-        icon: 'mdi:cart-check',
-        period_month: activeMonth,
-      });
-
-      await ctx.ha.publishSensor('savings_rate', savingsRatePct, {
-        friendly_name: `Savings & Investment Rate (${activeMonth})`,
-        unit_of_measurement: '%',
-        icon: 'mdi:piggy-bank-outline',
-        period_month: activeMonth,
-      });
-    }
+    // Publish Home Assistant sensors asynchronously so HTTP API responses never block
+    void (async () => {
+      try {
+        const haStatus = await ctx.ha.getStatus();
+        if (!haStatus.connected) return;
+        await Promise.allSettled([
+          ctx.ha.publishSensor('current_balance', balanceConfig.currentBalance, {
+            friendly_name: `Kontostand (${balanceConfig.accountName})`,
+            unit_of_measurement: 'EUR',
+            icon: 'mdi:bank',
+            iban: balanceConfig.iban,
+          }),
+          ctx.ha.publishSensor('daily_expenses', dayWeek.expensesDay, {
+            friendly_name: `Tagesausgaben (${dayWeek.expensesDayLabel})`,
+            unit_of_measurement: 'EUR',
+            icon: 'mdi:cash-minus',
+            date: dayWeek.expensesDayDate,
+          }),
+          ctx.ha.publishSensor('weekly_expenses', dayWeek.expensesWeek, {
+            friendly_name: `Wochenausgaben (${dayWeek.expensesWeekRangeLabel})`,
+            unit_of_measurement: 'EUR',
+            icon: 'mdi:calendar-week',
+          }),
+          ctx.ha.publishSensor('net_cashflow', totals.net, {
+            friendly_name: `Net Cashflow (${activeMonth})`,
+            unit_of_measurement: 'EUR',
+            icon: 'mdi:cash-multiple',
+            period_month: activeMonth,
+            income_eur: totals.income,
+            expenses_eur: totals.expenses,
+            investments_eur: totals.investments,
+            savings_rate_pct: savingsRatePct,
+          }),
+          ctx.ha.publishSensor('monthly_expenses', totals.expenses, {
+            friendly_name: `Living Expenses (${activeMonth})`,
+            unit_of_measurement: 'EUR',
+            icon: 'mdi:credit-card-outline',
+            period_month: activeMonth,
+          }),
+          ctx.ha.publishSensor('grocery_spend', grocerySpend, {
+            friendly_name: `Grocery Spend (${activeMonth})`,
+            unit_of_measurement: 'EUR',
+            icon: 'mdi:cart-check',
+            period_month: activeMonth,
+          }),
+          ctx.ha.publishSensor('savings_rate', savingsRatePct, {
+            friendly_name: `Savings & Investment Rate (${activeMonth})`,
+            unit_of_measurement: '%',
+            icon: 'mdi:piggy-bank-outline',
+            period_month: activeMonth,
+          }),
+          ctx.ha.publishSensor('export_reminder', exportReminder.due ? 'fällig' : 'aktuell', {
+            friendly_name: 'Finanz Bank-Export Erinnerung',
+            icon: exportReminder.due ? 'mdi:bell-alert-outline' : 'mdi:check-circle-outline',
+            due: exportReminder.due,
+            urgency: exportReminder.urgency,
+            latest_tx_date: exportReminder.latestTxDate,
+            days_since_latest_tx: exportReminder.daysSinceLatestTx,
+            headline: exportReminder.headlineDe,
+            detail: exportReminder.detailDe,
+          }),
+        ]);
+      } catch {
+        // Ignore background HA publish error
+      }
+    })();
 
     return {
       kpis,
@@ -546,6 +865,8 @@ export default defineThassiApp((ctx) => {
       previewGroupBudgets,
       previewConfig,
       balanceConfig,
+      exportReminder,
+      fixedCosts,
     };
   }
 
@@ -559,6 +880,8 @@ export default defineThassiApp((ctx) => {
       previewGroupBudgets: summary.previewGroupBudgets,
       allBudgets: summary.allBudgets,
       balanceConfig: summary.balanceConfig,
+      exportReminder: summary.exportReminder,
+      fixedCosts: summary.fixedCosts,
       quickImportConfig: getQuickImportConfig(ctx.db),
     };
   });
@@ -615,11 +938,31 @@ export default defineThassiApp((ctx) => {
       previewGroupBudgets: summary.previewGroupBudgets,
       previewConfig: summary.previewConfig,
       balanceConfig: summary.balanceConfig,
+      exportReminder: summary.exportReminder,
       quickImportConfig: getQuickImportConfig(db),
+      fixedCosts: summary.fixedCosts,
       recurringFixed,
       sunburstGroups,
       sunburstMerchants,
       mealPlannerToday: mealPlannerToday || null,
+    };
+  });
+
+  ctx.route('POST', '/fixed-costs', async (req) => {
+    const body = (req.body || {}) as {
+      items?: FixedCostItem[];
+      resetDefaults?: boolean;
+    };
+    const next = body.resetDefaults
+      ? saveFixedCostsConfig(DEFAULT_FIXED_COSTS)
+      : Array.isArray(body.items)
+        ? saveFixedCostsConfig(body.items)
+        : getFixedCostsConfig();
+    const summary = await computeSummaryAndPublishSensors();
+    return {
+      fixedCosts: summary.fixedCosts,
+      configuredItems: next,
+      kpis: summary.kpis,
     };
   });
 
@@ -776,7 +1119,7 @@ export default defineThassiApp((ctx) => {
     return { deleted: id, kpis: summary.kpis };
   });
 
-  // Universal Bank Statement Importer (CSV UTF-16LE/UTF-8, SEPA CAMT.053 XML, SWIFT MT940, JSON)
+  // Universal Bank Statement Importer (ZIP Bundle, CSV UTF-16LE/UTF-8, SEPA CAMT.053 XML, SWIFT MT940, JSON)
   ctx.route('POST', '/import-bank-csv', async (req, { db }) => {
     const body = (req.body || {}) as {
       csvText?: string;
@@ -786,19 +1129,23 @@ export default defineThassiApp((ctx) => {
       replaceAll?: boolean;
     };
 
-    let rawText = body.csvText || '';
-    if (!rawText && body.base64Content) {
-      const buf = Buffer.from(body.base64Content, 'base64');
-      rawText = decodeBankFileBuffer(buf);
+    let rawInput: string | Buffer = '';
+    if (body.base64Content) {
+      rawInput = Buffer.from(body.base64Content, 'base64');
+    } else if (body.csvText) {
+      rawInput = body.csvText;
     }
 
-    if (!rawText.trim()) {
+    if (
+      (typeof rawInput === 'string' && !rawInput.trim()) ||
+      (Buffer.isBuffer(rawInput) && rawInput.length === 0)
+    ) {
       return { status: 400, body: { error: 'csvText or base64Content is required' } };
     }
 
     const { parseResult, insertedCount, skippedDuplicates } = ingestStatementIntoDatabase(
       db,
-      rawText,
+      rawInput,
       {
         fileName: body.fileName || 'Manual-Import.csv',
         accountName: body.accountName,
@@ -817,6 +1164,11 @@ export default defineThassiApp((ctx) => {
       return { status: 400, body: { error: 'Keine gültigen Buchungszeilen in der Datei erkannt.' } };
     }
 
+    saveExportReminderConfig({
+      lastBankSyncAt: new Date().toISOString(),
+      snoozedUntil: null,
+    });
+
     const summary = await computeSummaryAndPublishSensors();
     return {
       importedCount: insertedCount,
@@ -824,6 +1176,236 @@ export default defineThassiApp((ctx) => {
       totalParsed: parseResult.transactions.length,
       format: parseResult.format,
       kpis: summary.kpis,
+      exportReminder: summary.exportReminder,
+    };
+  });
+
+  // 2b. 1-Click File Export (CSV DE Excel UTF-8 BOM, CSV EN, Steuer-/Fixkosten-Report, JSON Backup) & Reminder Config
+  ctx.route('POST', '/reminder/config', async (req) => {
+    const body = (req.body || {}) as {
+      reminderIntervalDays?: number;
+      remindOnNewMonth?: boolean;
+      snoozeDays?: number;
+      markSyncedNow?: boolean;
+    };
+
+    const patch: Partial<ExportReminderConfig> = {};
+    if (typeof body.reminderIntervalDays === 'number') {
+      patch.reminderIntervalDays = body.reminderIntervalDays;
+    }
+    if (typeof body.remindOnNewMonth === 'boolean') {
+      patch.remindOnNewMonth = body.remindOnNewMonth;
+    }
+    if (typeof body.snoozeDays === 'number') {
+      patch.snoozedUntil =
+        body.snoozeDays > 0
+          ? new Date(Date.now() + body.snoozeDays * 86400000).toISOString()
+          : null;
+    }
+    if (body.markSyncedNow) {
+      patch.lastBankSyncAt = new Date().toISOString();
+      patch.snoozedUntil = null;
+    }
+
+    saveExportReminderConfig(patch);
+    const summary = await computeSummaryAndPublishSensors();
+    return {
+      exportReminder: summary.exportReminder,
+    };
+  });
+
+  ctx.route('GET', '/export', async (req, { db }) => {
+    const format = (req.query.format || 'csv_de') as
+      | 'csv_de'
+      | 'csv_en'
+      | 'tax_report'
+      | 'json';
+    const monthFilter = req.query.month || 'all';
+    const categoryFilter = req.query.category || 'ALL';
+
+    const clauses: string[] = ['1=1'];
+    const params: unknown[] = [];
+
+    if (monthFilter && monthFilter !== 'all') {
+      if (monthFilter.length === 4) {
+        clauses.push('substr(tx_date, 1, 4) = ?');
+        params.push(monthFilter);
+      } else {
+        clauses.push('substr(tx_date, 1, 7) = ?');
+        params.push(monthFilter);
+      }
+    }
+    if (categoryFilter && categoryFilter !== 'ALL') {
+      clauses.push('category = ?');
+      params.push(categoryFilter);
+    }
+
+    const rows = db.query<TransactionRow>(
+      `SELECT * FROM transactions WHERE ${clauses.join(' AND ')} ORDER BY tx_date DESC, id DESC`,
+      params
+    );
+
+    saveExportReminderConfig({
+      lastDataExportAt: new Date().toISOString(),
+    });
+    const summary = await computeSummaryAndPublishSensors(
+      monthFilter !== 'all' && monthFilter.length === 7 ? monthFilter : undefined
+    );
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const scopeLabel = monthFilter === 'all' ? 'Gesamt' : monthFilter;
+
+    if (format === 'json') {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        scope: scopeLabel,
+        account: summary.balanceConfig,
+        kpis: summary.kpis,
+        categoryBreakdown: summary.categoryBreakdown,
+        transactionCount: rows.length,
+        transactions: rows,
+      };
+      const fileName = `Thassi_Finanzen_Backup_${scopeLabel}_${dateStamp}.json`;
+      return {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+        },
+        body: JSON.stringify(payload, null, 2),
+      };
+    }
+
+    if (format === 'tax_report') {
+      const escDe = (val: string | number | null | undefined) => {
+        const s = String(val ?? '').replace(/"/g, '""');
+        return `"${s}"`;
+      };
+      const fmtNumDe = (n: number) => n.toFixed(2).replace('.', ',');
+      const lines: string[] = [];
+      lines.push(
+        `# THASSI FINANZ- & STEUERBERICHT (${scopeLabel}) — Exportiert am ${dateStamp}`
+      );
+      lines.push(
+        `Konto;${escDe(summary.balanceConfig.accountName)};IBAN;${escDe(summary.balanceConfig.iban)};Aktueller Kontostand;${fmtNumDe(summary.balanceConfig.currentBalance)} EUR`
+      );
+      lines.push('');
+      lines.push('ABSCHNITT 1: KATEGORIE-ZUSAMMENFASSUNG');
+      lines.push('Kategorie (DE);Kategorie-ID;Gruppe;Buchungen;Ausgaben (EUR);Monatsbudget (EUR);Auslastung (%)');
+      for (const cat of summary.categoryBreakdown) {
+        lines.push(
+          [
+            escDe(cat.labelDe),
+            escDe(cat.category),
+            escDe(cat.group),
+            cat.tx_count,
+            fmtNumDe(cat.spent),
+            fmtNumDe(cat.budgetLimit),
+            `${cat.pctUsed}%`,
+          ].join(';')
+        );
+      }
+      lines.push('');
+      lines.push('ABSCHNITT 2: EINZELBUCHUNGEN');
+      lines.push('Buchungsdatum;Empfänger / Zahlungspflichtiger;Kategorie (DE);Kategorie-ID;Typ;Betrag (EUR);Konto;Notiz;Referenz');
+      for (const r of rows) {
+        const meta = getCategoryMeta(r.category);
+        lines.push(
+          [
+            r.tx_date,
+            escDe(r.payee),
+            escDe(meta.labelDe),
+            escDe(r.category),
+            r.is_recurring ? 'Fixkosten' : 'Variabel',
+            fmtNumDe(r.amount),
+            escDe(r.account),
+            escDe(r.notes),
+            escDe(r.tx_ref || ''),
+          ].join(';')
+        );
+      }
+      const csvWithBom = '\uFEFF' + lines.join('\r\n');
+      const fileName = `Thassi_Finanzbericht_${scopeLabel}_${dateStamp}.csv`;
+      return {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+        },
+        body: csvWithBom,
+      };
+    }
+
+    if (format === 'csv_en') {
+      const escEn = (val: string | number | null | undefined) => {
+        const s = String(val ?? '').replace(/"/g, '""');
+        return `"${s}"`;
+      };
+      const lines: string[] = [
+        'Date,Payee,Category_DE,Category_ID,Type,Amount_EUR,Account,Notes,Reference',
+      ];
+      for (const r of rows) {
+        const meta = getCategoryMeta(r.category);
+        lines.push(
+          [
+            r.tx_date,
+            escEn(r.payee),
+            escEn(meta.labelDe),
+            escEn(r.category),
+            r.is_recurring ? 'FIXED' : 'VARIABLE',
+            r.amount.toFixed(2),
+            escEn(r.account),
+            escEn(r.notes),
+            escEn(r.tx_ref || ''),
+          ].join(',')
+        );
+      }
+      const fileName = `Thassi_Transactions_${scopeLabel}_${dateStamp}.csv`;
+      return {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+        },
+        body: lines.join('\r\n'),
+      };
+    }
+
+    // Default: csv_de (German Excel/Sparkasse compatible `;`-delimited UTF-8 with BOM and comma decimals)
+    const escDe = (val: string | number | null | undefined) => {
+      const s = String(val ?? '').replace(/"/g, '""');
+      return `"${s}"`;
+    };
+    const fmtNumDe = (n: number) => n.toFixed(2).replace('.', ',');
+    const lines: string[] = [
+      'Buchungsdatum;Empfänger;Kategorie;Kategorie_ID;Fixkosten;Betrag;Währung;Konto;Verwendungszweck;Buchungsreferenz',
+    ];
+    for (const r of rows) {
+      const meta = getCategoryMeta(r.category);
+      lines.push(
+        [
+          r.tx_date,
+          escDe(r.payee),
+          escDe(meta.labelDe),
+          escDe(r.category),
+          r.is_recurring ? 'Ja' : 'Nein',
+          fmtNumDe(r.amount),
+          'EUR',
+          escDe(r.account),
+          escDe(r.notes),
+          escDe(r.tx_ref || ''),
+        ].join(';')
+      );
+    }
+    const csvWithBom = '\uFEFF' + lines.join('\r\n');
+    const fileName = `Thassi_Buchungen_${scopeLabel}_${dateStamp}.csv`;
+    return {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${fileName}"`,
+      },
+      body: csvWithBom,
     };
   });
 
@@ -945,12 +1527,19 @@ export default defineThassiApp((ctx) => {
         ...(acct ? { accountName: acct } : {}),
       });
     });
+    if (events.length > 0) {
+      saveExportReminderConfig({
+        lastBankSyncAt: new Date().toISOString(),
+        snoozedUntil: null,
+      });
+    }
     const summary = await computeSummaryAndPublishSensors();
     return {
       scanned: true,
       events,
       config: getQuickImportConfig(db),
       kpis: summary.kpis,
+      exportReminder: summary.exportReminder,
     };
   });
 
@@ -966,6 +1555,11 @@ export default defineThassiApp((ctx) => {
       }
     );
 
+    saveExportReminderConfig({
+      lastBankSyncAt: new Date().toISOString(),
+      snoozedUntil: null,
+    });
+
     const summary = await computeSummaryAndPublishSensors();
     return {
       imported: true,
@@ -975,6 +1569,7 @@ export default defineThassiApp((ctx) => {
       insertedCount,
       skippedDuplicates,
       kpis: summary.kpis,
+      exportReminder: summary.exportReminder,
       config: getQuickImportConfig(db),
     };
   });

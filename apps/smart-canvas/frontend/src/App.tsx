@@ -19,6 +19,14 @@ interface CanvasTile {
   icon: string;
 }
 
+interface AntigravityChatSummary {
+  cascadeId: string;
+  summary: string;
+  status: string;
+  lastModifiedTime: string;
+  stepCount: number;
+}
+
 interface PcBridgeState {
   ok: boolean;
   lastSeenAt: number;
@@ -43,6 +51,15 @@ interface PcBridgeState {
       appName?: string;
       volumePercent?: number;
       muted?: boolean;
+    };
+    antigravity?: {
+      running?: boolean;
+      languageServerPid?: number;
+      httpPort?: number;
+      httpsPort?: number;
+      thassiProjectId?: string;
+      activeCascadeId?: string;
+      conversations?: AntigravityChatSummary[];
     };
   } | null;
 }
@@ -278,6 +295,8 @@ export default function App() {
   const [tiles, setTiles] = useState<CanvasTile[]>([]);
   const [stateMap, setStateMap] = useState<Record<string, HaEntityState>>({});
   const [haConnected, setHaConnected] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
+  const [activeCanvasTab, setActiveCanvasTab] = useState<'zones' | 'spatial' | 'workstation' | 'catalog'>('zones');
   const [layoutMode, setLayoutMode] = useState<'flex' | 'freeform'>('flex');
   const [editMode, setEditMode] = useState<boolean>(false);
   const [showAddDrawer, setShowAddDrawer] = useState<boolean>(false);
@@ -299,6 +318,17 @@ export default function App() {
   const [pcBusyAction, setPcBusyAction] = useState<string | null>(null);
   const [kvmKeyText, setKvmKeyText] = useState<string>('');
   const pcOptimisticUntil = useRef<number>(0);
+
+  // Antigravity Direct Prompt Bridge (thassi project)
+  const [agyPrompt, setAgyPrompt] = useState<string>('');
+  const [agyTargetChat, setAgyTargetChat] = useState<string>('new'); // 'new' | 'active' | cascadeId
+  const [agySending, setAgySending] = useState<boolean>(false);
+  const [agyLastResult, setAgyLastResult] = useState<{
+    cascadeId: string;
+    isNewChat: boolean;
+    message: string;
+    prompt: string;
+  } | null>(null);
 
   // Freeform 2D Canvas drag tracking
   const freeformRef = useRef<HTMLDivElement | null>(null);
@@ -336,6 +366,7 @@ export default function App() {
       }
       setStateMap(incoming);
       setHaConnected(Boolean(data.haConnected));
+      setLastSyncTime(new Date().toLocaleTimeString('de-AT'));
     } catch (err) {
       console.error(err);
     }
@@ -499,6 +530,64 @@ export default function App() {
         text,
       }),
     }).catch(() => {});
+  };
+
+  const handleSendAntigravityPrompt = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const text = agyPrompt.trim();
+    if (!text || agySending) return;
+
+    const isNewChat = agyTargetChat === 'new';
+    const explicitCascadeId =
+      agyTargetChat === 'new'
+        ? undefined
+        : agyTargetChat === 'active'
+          ? pcBridge?.status?.antigravity?.activeCascadeId
+          : agyTargetChat;
+
+    setAgySending(true);
+    try {
+      const res = await fetch(`${WORKFLOWS_API}/pc-bridge/antigravity`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: text,
+          newChat: isNewChat,
+          cascadeId: explicitCascadeId,
+          projectName: 'thassi',
+          focusWindow: true,
+        }),
+      });
+      const data = await res.json();
+      const result = data?.result || data;
+      if (!res.ok || data?.ok === false || result?.ok === false) {
+        throw new Error(result?.error || data?.error || 'Antigravity Dispatch fehlgeschlagen');
+      }
+
+      setAgyPrompt('');
+      const createdId = String(result.cascadeId || '');
+      setAgyLastResult({
+        cascadeId: createdId,
+        isNewChat: Boolean(result.isNewChat),
+        message:
+          result.message ||
+          (result.isNewChat
+            ? `Neuer Chat in 'thassi' gestartet (${createdId.slice(0, 8)})`
+            : `An Chat ${createdId.slice(0, 8)} gesendet`),
+        prompt: text,
+      });
+      // Switch selector to the newly created conversation so follow-up prompts can continue in it if desired, or keep 'new'
+      notify(
+        result.isNewChat
+          ? `Antigravity: Neuer Chat in 'thassi' erstellt (${createdId.slice(0, 8)})`
+          : `Antigravity: Prompt an Chat (${createdId.slice(0, 8)}) gesendet`
+      );
+      setTimeout(() => void loadPcBridge(), 450);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAgySending(false);
+    }
   };
 
   // Debounced + Optimistic-Locked Actuator Toggle
@@ -784,28 +873,110 @@ export default function App() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
-            className={`tactile-btn ${layoutMode === 'flex' ? 'active' : ''}`}
-            onClick={() => setLayoutMode('flex')}
-          >
-            Flexbox Zones
-          </button>
-          <button
-            className={`tactile-btn ${layoutMode === 'freeform' ? 'active' : ''}`}
-            onClick={() => setLayoutMode('freeform')}
-          >
-            2D Spatial
-          </button>
-          <button
             className={`tactile-btn ${editMode ? 'active' : ''}`}
             onClick={() => setEditMode(!editMode)}
           >
-            {editMode ? '✓ Layout speichern' : 'Layout bearbeiten'}
+            {editMode ? 'Layout speichern' : 'Layout bearbeiten'}
           </button>
-          <button className="tactile-btn" onClick={() => setShowAddDrawer(!showAddDrawer)}>
-            + Entity
+          <button
+            className={`tactile-btn ${showAddDrawer ? 'active' : ''}`}
+            onClick={() => setShowAddDrawer(!showAddDrawer)}
+          >
+            + Entität hinzufügen
           </button>
         </div>
       </header>
+
+      {/* SENSOR & DATA RECENCY STATUS STRIP */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          padding: '8px 0',
+          borderBottom: '1px solid var(--line-hairline)',
+          fontSize: 11.5,
+        }}
+      >
+        <div
+          className="mono tabular"
+          style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: 'var(--text-secondary)' }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: haConnected ? 'var(--dot-ok)' : 'var(--dot-warn)',
+              display: 'inline-block',
+            }}
+          />
+          <span>HA STATUS: {haConnected ? 'LIVE VERBUNDEN' : 'STANDBY / OFFLINE'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span>STAND: {lastSyncTime || 'WIRD SYNCHRONISIERT'} (1.5s Intervall)</span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span>
+            PC BRIDGE:{' '}
+            {pcOnline
+              ? `LIVE (vor ${Math.max(0, Math.round((Date.now() - (pcBridge?.lastSeenAt || Date.now())) / 1000))}s)`
+              : 'OFFLINE / WOL BEREIT'}
+          </span>
+        </div>
+
+        {!haConnected && (
+          <span style={{ color: 'var(--dot-warn)', fontSize: 12 }}>
+            Hinweis: Home Assistant WebSocket/API aktuell im Standby — Sensorwerte aus letztem Cache
+          </span>
+        )}
+      </div>
+
+      {/* PURE TEXT-LINK NAVIGATION TABS */}
+      <nav
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 24,
+          borderBottom: '1px solid var(--line-hairline)',
+          marginBottom: 8,
+        }}
+      >
+        {(
+          [
+            { id: 'zones', label: `Zonen-Steuerung (${zones.length} Zonen)` },
+            { id: 'spatial', label: '2D Raum-Canvas' },
+            { id: 'workstation', label: `Workstation & KVM (${pcStatus?.hostname || 'PC'})` },
+            { id: 'catalog', label: `Entitäten-Katalog (${allEntities.length})` },
+          ] as const
+        ).map((tab) => {
+          const isActive = activeCanvasTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setActiveCanvasTab(tab.id);
+                if (tab.id === 'zones') setLayoutMode('flex');
+                if (tab.id === 'spatial') setLayoutMode('freeform');
+                if (tab.id === 'catalog') setShowAddDrawer(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderBottom: isActive ? '1px solid var(--text-primary)' : '1px solid transparent',
+                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                padding: '12px 0',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
 
       {toast && (
         <div
@@ -1065,6 +1236,157 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* Antigravity Direct Prompt Bar (thassi Project) */}
+        <form
+          onSubmit={handleSendAntigravityPrompt}
+          style={{
+            borderTop: '1px solid var(--line-hairline)',
+            padding: '10px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            background: 'rgba(255, 255, 255, 0.015)',
+          }}
+        >
+          {/* Left: Antigravity Brand + Running Status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: agySending
+                  ? 'var(--dot-warn)'
+                  : pcStatus?.antigravity?.running
+                    ? 'var(--dot-ok)'
+                    : 'var(--dot-idle)',
+                boxShadow: pcStatus?.antigravity?.running
+                  ? '0 0 6px rgba(16, 185, 129, 0.45)'
+                  : 'none',
+              }}
+            />
+            <span
+              className="mono"
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Antigravity · thassi
+            </span>
+          </div>
+
+          {/* Chat Target Selector: New Chat in thassi vs Active/Recent Chats */}
+          <select
+            className="field-input mono"
+            value={agyTargetChat}
+            onChange={(e) => setAgyTargetChat(e.target.value)}
+            title="Ziel-Chat im Projekt 'thassi' auswählen"
+            style={{
+              width: 'auto',
+              minWidth: 195,
+              maxWidth: 270,
+              height: 31,
+              padding: '0 10px',
+              fontSize: 11.5,
+              borderRadius: 6,
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            <option value="new">+ Neuer Chat (thassi)</option>
+            {pcStatus?.antigravity?.activeCascadeId && (
+              <option value="active">
+                Aktiver Chat ({pcStatus.antigravity.activeCascadeId.slice(0, 8)})
+              </option>
+            )}
+            {(pcStatus?.antigravity?.conversations || []).map((c) => (
+              <option key={c.cascadeId} value={c.cascadeId}>
+                {c.summary.slice(0, 28)} ({c.cascadeId.slice(0, 6)} · {c.status})
+              </option>
+            ))}
+          </select>
+
+          {/* Direct Prompt Input */}
+          <div style={{ flex: '1 1 280px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 220 }}>
+            <input
+              type="text"
+              className="field-input"
+              value={agyPrompt}
+              onChange={(e) => setAgyPrompt(e.target.value)}
+              disabled={agySending}
+              placeholder={
+                agyTargetChat === 'new'
+                  ? 'Prompt eingeben → Erstellt eigenen Chat im Projekt thassi & startet Agent...'
+                  : 'Prompt direkt an ausgewählten Antigravity-Chat senden...'
+              }
+              style={{
+                height: 31,
+                padding: '0 12px',
+                fontSize: 12.5,
+                fontFamily: 'var(--font-sans)',
+                borderRadius: 6,
+                background: 'var(--bg-canvas)',
+              }}
+            />
+
+            <button
+              type="submit"
+              className={`tactile-btn ${agyPrompt.trim() ? 'active' : ''}`}
+              disabled={!agyPrompt.trim() || agySending}
+              style={{ height: 31, padding: '0 14px', flexShrink: 0, fontSize: 12 }}
+              title="Prompt direkt an Antigravity (Projekt thassi) senden"
+            >
+              {agySending
+                ? 'Starte Chat…'
+                : agyTargetChat === 'new'
+                  ? 'Neuer Chat & Senden ↵'
+                  : 'An Chat senden ↵'}
+            </button>
+          </div>
+
+          {/* Last Dispatched Chat Confirmation Badge */}
+          {agyLastResult && (
+            <div
+              className="sensor-badge mono"
+              style={{
+                height: 27,
+                fontSize: 11,
+                maxWidth: 320,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={`${agyLastResult.message} — "${agyLastResult.prompt}"`}
+            >
+              <span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: '50%',
+                  background: 'var(--dot-ok)',
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {agyLastResult.isNewChat ? 'Neuer Chat' : 'Gesendet'}: #{agyLastResult.cascadeId.slice(0, 8)}
+              </span>
+              <button
+                type="button"
+                className="mini-ctrl-btn"
+                onClick={() => setAgyTargetChat(agyLastResult.cascadeId)}
+                title="Diesen Chat für weitere Nachrichten auswählen"
+                style={{ padding: '1px 5px', fontSize: 10 }}
+              >
+                Weiterführen
+              </button>
+            </div>
+          )}
+        </form>
 
         {/* Collapsible Live Screen Mirror Drawer */}
         {showPcMirror && (

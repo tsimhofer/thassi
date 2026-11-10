@@ -1,3 +1,4 @@
+import zlib from 'node:zlib';
 import { parseCsv } from '@thassi/sdk';
 import {
   autoCategorizeTransaction,
@@ -11,11 +12,83 @@ export type ParsedTransactionInput = Omit<TransactionRow, 'id'> & {
 };
 
 export interface BankStatementParseResult {
-  format: 'CSV' | 'CAMT.053' | 'MT940' | 'JSON';
+  format: 'CSV' | 'CAMT.053' | 'MT940' | 'JSON' | 'ZIP';
   transactions: ParsedTransactionInput[];
   detectedAccountName?: string;
   detectedIban?: string;
   detectedClosingBalance?: number | null;
+}
+
+export function isZipBuffer(buf: Buffer | Uint8Array): boolean {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04
+  );
+}
+
+export function extractZipEntries(
+  buf: Buffer | Uint8Array
+): Array<{ name: string; data: Buffer }> {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  let eocdOffset = -1;
+  for (let i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) {
+    if (b.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset === -1) return [];
+
+  const totalEntries = b.readUInt16LE(eocdOffset + 10);
+  const cdOffset = b.readUInt32LE(eocdOffset + 16);
+  const entries: Array<{ name: string; data: Buffer }> = [];
+
+  let ptr = cdOffset;
+  for (let i = 0; i < totalEntries && ptr + 46 <= b.length; i++) {
+    if (b.readUInt32LE(ptr) !== 0x02014b50) break;
+    const compMethod = b.readUInt16LE(ptr + 10);
+    const compSize = b.readUInt32LE(ptr + 20);
+    const nameLen = b.readUInt16LE(ptr + 28);
+    const extraLen = b.readUInt16LE(ptr + 30);
+    const commentLen = b.readUInt16LE(ptr + 32);
+    const localHeaderOffset = b.readUInt32LE(ptr + 42);
+    const name = b.subarray(ptr + 46, ptr + 46 + nameLen).toString('utf8');
+
+    if (localHeaderOffset + 30 <= b.length && !name.endsWith('/')) {
+      const lNameLen = b.readUInt16LE(localHeaderOffset + 26);
+      const lExtraLen = b.readUInt16LE(localHeaderOffset + 28);
+      const dataStart = localHeaderOffset + 30 + lNameLen + lExtraLen;
+      if (dataStart + compSize <= b.length) {
+        const compData = b.subarray(dataStart, dataStart + compSize);
+        try {
+          const data =
+            compMethod === 0
+              ? compData
+              : compMethod === 8
+                ? zlib.inflateRawSync(compData)
+                : Buffer.alloc(0);
+          if (data.length > 0) {
+            entries.push({ name, data });
+          }
+        } catch {
+          // Ignore corrupted entry
+        }
+      }
+    }
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+
+  return entries;
+}
+
+export function formatIbanPretty(rawIban?: string): string | undefined {
+  const clean = (rawIban || '').replace(/\s+/g, '').toUpperCase();
+  if (!clean) return undefined;
+  return clean.replace(/(.{4})/g, '$1 ').trim();
 }
 
 export function decodeBankFileBuffer(buf: Buffer | Uint8Array): string {
@@ -124,19 +197,34 @@ function parseCamtXml(xmlText: string, defaultAccountName: string): BankStatemen
   const transactions: ParsedTransactionInput[] = [];
   let detectedClosingBalance: number | null = null;
 
-  // Extract Closing Balance (<Bal>...<ClsgBkBal> or <PRCD>/<CLBD>)
+  // Extract Statement Account IBAN & Owner Name
+  const stmtAcctBlock = xmlText.match(/<Acct>[\s\S]*?<\/Acct>/i)?.[0] || '';
+  const rawStmtIban = stmtAcctBlock.match(/<IBAN>([^<]+)<\/IBAN>/i)?.[1]?.trim();
+  const detectedIban = formatIbanPretty(rawStmtIban);
+  const ownerName = stmtAcctBlock
+    .match(/<Ownr>[\s\S]*?<Nm>([^<]+)<\/Nm>/i)?.[1]
+    ?.trim()
+    .toLowerCase();
+
+  // Extract Closing Balance: strictly prefer CLBD (Closing Booked), fallback to ITBD (Interim Booked), never let PRCD overwrite CLBD
   const balBlocks = xmlText.match(/<Bal[\s\S]*?<\/Bal>/gi) || [];
+  let clbdBalance: number | null = null;
+  let itbdBalance: number | null = null;
   for (const blk of balBlocks) {
-    if (/CLBD|ITBD|PRCD/i.test(blk)) {
-      const amtMatch = blk.match(/<Amt[^>]*>([^<]+)<\/Amt>/i);
-      const indMatch = blk.match(/<CdtDbtInd>([^<]+)<\/CdtDbtInd>/i);
-      if (amtMatch) {
-        const val = parseEuroAmount(amtMatch[1]);
-        const isDbt = indMatch && /DBIT/i.test(indMatch[1]);
-        detectedClosingBalance = isDbt ? -Math.abs(val) : Math.abs(val);
-      }
+    const amtMatch = blk.match(/<Amt[^>]*>([^<]+)<\/Amt>/i);
+    const indMatch = blk.match(/<CdtDbtInd>([^<]+)<\/CdtDbtInd>/i);
+    if (!amtMatch) continue;
+    const val = parseEuroAmount(amtMatch[1]);
+    const isDbt = indMatch && /DBIT/i.test(indMatch[1]);
+    const signedVal = isDbt ? -Math.abs(val) : Math.abs(val);
+
+    if (/<Cd>\s*CLBD\s*<\/Cd>/i.test(blk) || /<Prtry>\s*CLBD\s*<\/Prtry>/i.test(blk)) {
+      clbdBalance = signedVal;
+    } else if (/<Cd>\s*ITBD\s*<\/Cd>/i.test(blk)) {
+      itbdBalance = signedVal;
     }
   }
+  detectedClosingBalance = clbdBalance !== null ? clbdBalance : itbdBalance;
 
   const ntryBlocks = xmlText.match(/<Ntry[\s\S]*?<\/Ntry>/gi) || [];
   ntryBlocks.forEach((ntry, idx) => {
@@ -146,21 +234,51 @@ function parseCamtXml(xmlText: string, defaultAccountName: string): BankStatemen
       ntry.match(/<BookgDt>[\s\S]*?<Dt>([^<]+)<\/Dt>/i) ||
       ntry.match(/<ValDt>[\s\S]*?<Dt>([^<]+)<\/Dt>/i);
     const ustrdMatch = ntry.match(/<Ustrd>([^<]+)<\/Ustrd>/i);
-    const nmMatches = Array.from(ntry.matchAll(/<Nm>([^<]+)<\/Nm>/gi)).map((m) => m[1].trim());
     const refMatch = ntry.match(/<AcctSvcrRef>([^<]+)<\/AcctSvcrRef>/i);
+    const mndtMatch = ntry.match(/<MndtId>([^<]+)<\/MndtId>/i);
 
     if (!amtMatch) return;
     const rawAmt = parseEuroAmount(amtMatch[1]);
-    const isDebit = indMatch && /DBIT/i.test(indMatch[1]);
+    const isDebit = Boolean(indMatch && /DBIT/i.test(indMatch[1]));
     const signedAmt = isDebit ? -Math.abs(rawAmt) : Math.abs(rawAmt);
     if (Math.abs(signedAmt) < 0.005) return;
 
     const txDate = dtMatch ? normalizeDateString(dtMatch[1]) : new Date().toISOString().slice(0, 10);
     const rawNotes = (ustrdMatch ? ustrdMatch[1] : '').trim();
-    const rawPayee = nmMatches[0] || '';
+
+    // Extract accurate counterparty name:
+    // For DBIT (outflow), counterparty is <Cdtr><Nm> (or <UltmtCdtr><Nm>).
+    // For CRDT (inflow), counterparty is <Dbtr><Nm> (or <UltmtDbtr><Nm>).
+    const cdtrNm =
+      ntry.match(/<Cdtr>[\s\S]*?<Nm>([^<]+)<\/Nm>/i)?.[1]?.trim() ||
+      ntry.match(/<UltmtCdtr>[\s\S]*?<Nm>([^<]+)<\/Nm>/i)?.[1]?.trim() ||
+      '';
+    const dbtrNm =
+      ntry.match(/<Dbtr>[\s\S]*?<Nm>([^<]+)<\/Nm>/i)?.[1]?.trim() ||
+      ntry.match(/<UltmtDbtr>[\s\S]*?<Nm>([^<]+)<\/Nm>/i)?.[1]?.trim() ||
+      '';
+    const dbtrIban = ntry.match(/<DbtrAcct>[\s\S]*?<IBAN>([^<]+)<\/IBAN>/i)?.[1]?.trim() || '';
+    const cdtrIban = ntry.match(/<CdtrAcct>[\s\S]*?<IBAN>([^<]+)<\/IBAN>/i)?.[1]?.trim() || '';
+
+    let rawPayee = isDebit ? cdtrNm : dbtrNm;
+    if (!rawPayee) {
+      const candidate = isDebit ? dbtrNm : cdtrNm;
+      if (candidate && (!ownerName || candidate.toLowerCase() !== ownerName)) {
+        rawPayee = candidate;
+      }
+    }
+
+    // Handle internal savings transfer from/to Sparkasse Notgroschen account (AT512025601003922331)
+    if (
+      (dbtrIban === 'AT512025601003922331' || cdtrIban === 'AT512025601003922331') &&
+      (!rawPayee || (ownerName && rawPayee.toLowerCase() === ownerName))
+    ) {
+      rawPayee = 'Sparkasse Notgroschen (Übertrag)';
+    }
+
     const payee = normalizePayeeName(rawPayee, rawNotes);
     const category = autoCategorizeTransaction(payee, rawNotes, signedAmt);
-    const isRecurring = detectRecurringFlag(payee, rawNotes, category);
+    const isRecurring = detectRecurringFlag(payee, rawNotes, category, Boolean(mndtMatch));
     const txRef = computeTransactionRef(
       txDate,
       signedAmt,
@@ -185,6 +303,7 @@ function parseCamtXml(xmlText: string, defaultAccountName: string): BankStatemen
     format: 'CAMT.053',
     transactions,
     detectedAccountName: defaultAccountName,
+    detectedIban,
     detectedClosingBalance,
   };
 }
@@ -406,7 +525,105 @@ export function parseBankStatementContent(
     format: 'CSV',
     transactions,
     detectedAccountName,
-    detectedIban,
+    detectedIban: formatIbanPretty(detectedIban),
     detectedClosingBalance,
   };
+}
+
+export function parseBankStatementBuffer(
+  input: string | Buffer | Uint8Array,
+  defaultAccountName = 'Girokonto'
+): BankStatementParseResult {
+  if (typeof input === 'string') {
+    return parseBankStatementContent(input, defaultAccountName);
+  }
+
+  if (isZipBuffer(input)) {
+    const rawEntries = extractZipEntries(input);
+    if (rawEntries.length === 0) {
+      return { format: 'ZIP', transactions: [] };
+    }
+
+    // If CAMT.053 XML files are present, skip duplicate MT940 .txt/.sta files for the same statements
+    const hasXml = rawEntries.some((e) => /\.xml$/i.test(e.name));
+    const filteredEntries = rawEntries
+      .filter((e) => {
+        if (hasXml && /(_M940\.txt|\.sta|\.mt940)$/i.test(e.name)) {
+          return false;
+        }
+        return /\.(xml|csv|sta|mt940|txt|json)$/i.test(e.name);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const parsedStatements: Array<{
+      name: string;
+      cleanIban: string;
+      result: BankStatementParseResult;
+    }> = [];
+
+    for (const entry of filteredEntries) {
+      const text = decodeBankFileBuffer(entry.data);
+      const res = parseBankStatementContent(text, defaultAccountName);
+      const cleanIban = (res.detectedIban || '').replace(/\s+/g, '').toUpperCase();
+      parsedStatements.push({ name: entry.name, cleanIban, result: res });
+    }
+
+    // Check if multiple accounts are inside the ZIP (e.g. Girokonto AT22..., Sparkonto AT51..., Kreditkonto AT90...)
+    const ibansInZip = new Set(parsedStatements.map((s) => s.cleanIban).filter(Boolean));
+    let activeStatements = parsedStatements;
+
+    if (ibansInZip.size > 1) {
+      // Secondary mirror accounts (Notgroschen Round-Up savings AT512025601003922331 & Loan AT902025600007656648)
+      const SECONDARY_MIRROR_IBANS = new Set([
+        'AT512025601003922331',
+        'AT902025600007656648',
+      ]);
+      const primaryStatements = parsedStatements.filter(
+        (s) =>
+          !SECONDARY_MIRROR_IBANS.has(s.cleanIban) &&
+          (s.result.detectedClosingBalance === null ||
+            s.result.detectedClosingBalance === undefined ||
+            s.result.detectedClosingBalance > -5000)
+      );
+      if (primaryStatements.length > 0) {
+        activeStatements = primaryStatements;
+      }
+    }
+
+    const combinedTransactions: ParsedTransactionInput[] = [];
+    let latestClosingBalance: number | null = null;
+    let detectedIban: string | undefined;
+    let detectedAccountName = defaultAccountName;
+    let detectedFormat: BankStatementParseResult['format'] = hasXml ? 'CAMT.053' : 'ZIP';
+
+    for (const stmt of activeStatements) {
+      combinedTransactions.push(...stmt.result.transactions);
+      if (
+        stmt.result.detectedClosingBalance !== null &&
+        stmt.result.detectedClosingBalance !== undefined
+      ) {
+        latestClosingBalance = stmt.result.detectedClosingBalance;
+      }
+      if (stmt.result.detectedIban) {
+        detectedIban = stmt.result.detectedIban;
+      }
+      if (stmt.result.detectedAccountName) {
+        detectedAccountName = stmt.result.detectedAccountName;
+      }
+      if (stmt.result.format) {
+        detectedFormat = stmt.result.format;
+      }
+    }
+
+    return {
+      format: detectedFormat,
+      transactions: combinedTransactions,
+      detectedAccountName,
+      detectedIban,
+      detectedClosingBalance: latestClosingBalance,
+    };
+  }
+
+  const decodedText = decodeBankFileBuffer(input);
+  return parseBankStatementContent(decodedText, defaultAccountName);
 }

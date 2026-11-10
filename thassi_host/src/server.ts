@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../packages/sdk/src/index.js';
 import { renderUnifiedDashboardHtml } from './ambient-dashboard.js';
 import { getHassSidebarStylerScript, syncHassFrontendFiles } from './hass-sidebar-sync.js';
+import { getUniformAppStylesheetTag } from './thassi-uniform-ui.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,19 +49,47 @@ function loadDotEnv() {
 loadDotEnv();
 
 const PORT = Number(process.env.PORT || 8099);
-const DATA_DIR = path.resolve(
-  process.env.THASSI_DATA_DIR || (fs.existsSync('/data') ? '/data' : './data')
-);
+
+function resolveHealthyDataDir(): string {
+  let hasDataMount = false;
+  try {
+    hasDataMount = fs.existsSync('/data');
+  } catch {}
+  const preferred = path.resolve(
+    process.env.THASSI_DATA_DIR || (hasDataMount ? '/data' : './data')
+  );
+  try {
+    fs.mkdirSync(preferred, { recursive: true });
+    const probeFile = path.join(preferred, `.thassi_probe_${process.pid}`);
+    fs.writeFileSync(probeFile, 'ok');
+    fs.rmSync(probeFile, { force: true });
+    return preferred;
+  } catch (err) {
+    const fallback = path.join(os.tmpdir(), 'thassi_data');
+    console.warn(
+      `[Thassi] Primary data dir "${preferred}" is not writable (${err instanceof Error ? err.message : err}); using tmpfs fallback "${fallback}"`
+    );
+    fs.mkdirSync(fallback, { recursive: true });
+    process.env.THASSI_DATA_DIR = fallback;
+    return fallback;
+  }
+}
+
+const DATA_DIR = resolveHealthyDataDir();
 const STANDALONE_APP_ID = process.env.THASSI_STANDALONE_APP || '';
 
-fs.mkdirSync(path.join(DATA_DIR, 'apps'), { recursive: true });
-fs.mkdirSync(path.join(DATA_DIR, 'deployed_apps'), { recursive: true });
+try {
+  fs.mkdirSync(path.join(DATA_DIR, 'apps'), { recursive: true });
+  fs.mkdirSync(path.join(DATA_DIR, 'deployed_apps'), { recursive: true });
+} catch {}
 
 // Remove legacy starter 'data-workbench' if it was previously deployed to /data/deployed_apps
-const legacyStarterDir = path.join(DATA_DIR, 'deployed_apps', 'data-workbench');
-if (fs.existsSync(legacyStarterDir)) {
-  fs.rmSync(legacyStarterDir, { recursive: true, force: true });
-}
+try {
+  const legacyStarterDir = path.join(DATA_DIR, 'deployed_apps', 'data-workbench');
+  if (fs.existsSync(legacyStarterDir)) {
+    fs.rmSync(legacyStarterDir, { recursive: true, force: true });
+  }
+} catch {}
 
 const sharedDb = new ThassiAppDatabase(path.join(DATA_DIR, 'shared.db'));
 sharedDb.exec(`
@@ -539,7 +569,17 @@ async function discoverAllApps(): Promise<void> {
     for (const entry of fs.readdirSync(deployedBase, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== 'data-workbench') {
         try {
-          await loadAppFromDirectory(path.join(deployedBase, entry.name), 'hot-deployed');
+          const hotDir = path.join(deployedBase, entry.name);
+          const hotBackend = path.join(hotDir, 'backend.mjs');
+          const builtInBackend = path.join(__dirname, 'apps', entry.name, 'backend.mjs');
+          if (fs.existsSync(builtInBackend) && fs.existsSync(hotBackend)) {
+            const builtInMtime = fs.statSync(builtInBackend).mtimeMs;
+            const hotMtime = fs.statSync(hotBackend).mtimeMs;
+            if (builtInMtime > hotMtime) {
+              continue;
+            }
+          }
+          await loadAppFromDirectory(hotDir, 'hot-deployed');
         } catch (err) {
           console.error(`[Thassi] Error loading hot-deployed app ${entry.name}:`, err);
         }
@@ -614,7 +654,8 @@ function serveAppStaticFile(
     html = html
       .replace(/(src|href)="\.\/assets\//g, `$1="${assetBase}/assets/`)
       .replace(/(src|href)="\/assets\//g, `$1="${assetBase}/assets/`);
-    const injection = `<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)};${getHassSidebarStylerScript()}</script>`;
+    const allManifests = Array.from(loadedApps.values()).map((a) => a.manifest);
+    const injection = `${getUniformAppStylesheetTag()}<script>window.__THASSI_INGRESS_PATH__ = ${JSON.stringify(ingressPath)}; window.__THASSI_APP_ID__ = ${JSON.stringify(app.manifest.id)}; window.__THASSI_DEPLOYED_APPS__ = ${JSON.stringify(allManifests)};${getHassSidebarStylerScript()}</script>`;
     html = html.includes('</head>')
       ? html.replace('</head>', `${injection}</head>`)
       : `${injection}${html}`;
@@ -781,6 +822,16 @@ async function handleAppApiRequest(
     ('status' in result || 'headers' in result)
   ) {
     const typed = result as { status?: number; headers?: Record<string, string>; body: unknown };
+    if (Buffer.isBuffer(typed.body) || typed.body instanceof Uint8Array) {
+      res.writeHead(typed.status || 200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Thassi-Secret',
+        ...(typed.headers || {}),
+      });
+      res.end(typed.body);
+      return;
+    }
     return sendJson(res, typed.status || 200, typed.body, typed.headers || {});
   }
 
@@ -812,8 +863,15 @@ async function startServer() {
         });
       }
 
-      if (pathname === '/' || pathname === '/index.html') {
-        const dashboardHtml = renderUnifiedDashboardHtml(ingressPath);
+      const effectiveStandaloneAppId =
+        ((req.headers['x-thassi-standalone-app'] as string) || '').trim() || STANDALONE_APP_ID;
+
+      if (!effectiveStandaloneAppId && (pathname === '/' || pathname === '/index.html')) {
+        const allManifests = Array.from(loadedApps.values()).map((a) => a.manifest);
+        const dashboardHtml = renderUnifiedDashboardHtml(ingressPath).replace(
+          '<head>',
+          `<head><script>window.__THASSI_DEPLOYED_APPS__ = ${JSON.stringify(allManifests)};</script>`
+        );
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(dashboardHtml);
         return;
@@ -1129,11 +1187,33 @@ async function startServer() {
         if (!body.content?.trim()) {
           return sendJson(res, 400, { error: 'Note content is required' });
         }
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const fileName = `note_${ts}.json`;
+        const notesDir = path.join(DATA_DIR, 'notes');
+        fs.mkdirSync(notesDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(notesDir, fileName),
+          JSON.stringify(
+            {
+              fileName,
+              id: `note_${ts}`,
+              content: body.content.trim(),
+              createdAt: now.toISOString(),
+              timestampFormatted: ts,
+              localPath: `/data/notes/${fileName}`,
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        );
         const info = sharedDb.execute(
           'INSERT INTO system_notes (content, pinned, created_at) VALUES (?, 0, ?)',
-          [body.content.trim(), new Date().toISOString()]
+          [body.content.trim(), now.toISOString()]
         );
-        return sendJson(res, 200, { id: info.lastInsertRowid });
+        return sendJson(res, 200, { id: info.lastInsertRowid, fileName });
       }
 
       if (pathname === '/api/system/notes' && req.method === 'DELETE') {
@@ -1190,30 +1270,42 @@ async function startServer() {
         }
 
         const appId = payload.manifest.id.replace(/[^a-z0-9-_]/gi, '');
-        const targetDir = path.join(DATA_DIR, 'deployed_apps', appId);
-        fs.mkdirSync(targetDir, { recursive: true });
+        const writeBundleToDir = (baseDir: string): string => {
+          const dir = path.join(baseDir, appId);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(
+            path.join(dir, 'thassi.app.json'),
+            JSON.stringify(payload.manifest, null, 2)
+          );
+          if (payload.backendCode) {
+            fs.writeFileSync(path.join(dir, 'backend.mjs'), payload.backendCode, 'utf-8');
+          }
+          const frontendDir = path.join(dir, 'frontend');
+          fs.rmSync(frontendDir, { recursive: true, force: true });
+          fs.mkdirSync(frontendDir, { recursive: true });
+          for (const [relFile, b64] of Object.entries(payload.frontendFiles || {})) {
+            const safeRel = relFile.replace(/\\/g, '/').replace(/^(\.\.[/\\])+/, '');
+            const destFile = path.join(frontendDir, safeRel);
+            fs.mkdirSync(path.dirname(destFile), { recursive: true });
+            fs.writeFileSync(destFile, Buffer.from(b64, 'base64'));
+          }
+          return dir;
+        };
 
-        fs.writeFileSync(
-          path.join(targetDir, 'thassi.app.json'),
-          JSON.stringify(payload.manifest, null, 2)
-        );
-
-        if (payload.backendCode) {
-          fs.writeFileSync(path.join(targetDir, 'backend.mjs'), payload.backendCode, 'utf-8');
-        }
-
-        const frontendDir = path.join(targetDir, 'frontend');
-        fs.rmSync(frontendDir, { recursive: true, force: true });
-        fs.mkdirSync(frontendDir, { recursive: true });
-
-        for (const [relFile, b64] of Object.entries(payload.frontendFiles || {})) {
-          const safeRel = relFile.replace(/^(\.\.[/\\])+/, '');
-          const destFile = path.join(frontendDir, safeRel);
-          fs.mkdirSync(path.dirname(destFile), { recursive: true });
-          fs.writeFileSync(destFile, Buffer.from(b64, 'base64'));
+        let targetDir: string;
+        try {
+          targetDir = writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
+        } catch (err) {
+          console.warn(`[Thassi] Primary deploy dir I/O error (${err instanceof Error ? err.message : err}), falling back to tmpfs`);
+          targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
         }
 
         await loadAppFromDirectory(targetDir, 'hot-deployed');
+        try {
+          syncHassFrontendFiles();
+        } catch {
+          // ignore
+        }
         return sendJson(res, 200, {
           deployed: true,
           appId,
@@ -1248,8 +1340,6 @@ async function startServer() {
         return;
       }
 
-      const effectiveStandaloneAppId =
-        ((req.headers['x-thassi-standalone-app'] as string) || '').trim() || STANDALONE_APP_ID;
       if (effectiveStandaloneAppId && loadedApps.has(effectiveStandaloneAppId)) {
         const standaloneApp = loadedApps.get(effectiveStandaloneAppId)!;
         serveAppStaticFile(req, res, standaloneApp, pathname, '');

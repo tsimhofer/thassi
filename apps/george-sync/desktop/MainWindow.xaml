@@ -1,0 +1,147 @@
+<Window x:Class="GeorgeExporter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Erste Bank Exporter — Thassi"
+        Height="620" Width="480"
+        MinHeight="560" MinWidth="440"
+        WindowStartupLocation="CenterScreen"
+        Background="#09090b"
+        Foreground="#fafafa"
+        FontFamily="Inter, Segoe UI, sans-serif"
+        AllowDrop="True"
+        DragEnter="Window_DragEnter"
+        DragOver="Window_DragOver"
+        DragLeave="Window_DragLeave"
+        Drop="Window_Drop">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#fafafa"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Header -->
+            <RowDefinition Height="Auto"/> <!-- Browser Launch -->
+            <RowDefinition Height="*"/>    <!-- Drag & Drop Zone -->
+            <RowDefinition Height="Auto"/> <!-- Status Strip / KPI -->
+            <RowDefinition Height="Auto"/> <!-- Auto-Watch Bar -->
+            <RowDefinition Height="Auto"/> <!-- Log Box -->
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="#10b981" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="ERSTE BANK EXPORTER" FontWeight="Bold" FontSize="13" Foreground="#fafafa"/>
+                    <Border Background="#141417" BorderBrush="#27272a" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="10,0,0,0">
+                        <TextBlock Text="THASSI FINANCE" FontSize="10" Foreground="#a1a1aa" FontFamily="Consolas, monospace"/>
+                    </Border>
+                </StackPanel>
+                <TextBlock x:Name="HeaderSubtitle" Text="George Online-Banking Export Bridge" FontSize="12" Foreground="#a1a1aa" Margin="15,4,0,0"/>
+            </StackPanel>
+
+            <Button Grid.Column="1" Click="BtnPinShortcut_Click"
+                    Background="#141417" Foreground="#a1a1aa" BorderBrush="#27272a" BorderThickness="1"
+                    Padding="10,6" Cursor="Hand" ToolTip="Verknüpfung auf Desktop/Startmenü erstellen für Taskleisten-Pin">
+                <TextBlock Text="Taskleiste pinnen" FontSize="11"/>
+            </Button>
+        </Grid>
+
+        <!-- Browser Launch Card -->
+        <Border Grid.Row="1" Background="#111113" BorderBrush="#27272a" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="George Mini-Browser" FontWeight="SemiBold" FontSize="13" Foreground="#fafafa"/>
+                    <TextBlock Text="Öffnet schlankes Edge-App-Fenster direkt zum George Portal" FontSize="11" Foreground="#71717a" Margin="0,2,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" Click="BtnLaunchBrowser_Click"
+                        Background="#fafafa" Foreground="#09090b" BorderThickness="0"
+                        FontWeight="SemiBold" FontSize="12" Padding="14,8" Cursor="Hand">
+                    <TextBlock Text="Portal öffnen"/>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Drag & Drop Zone -->
+        <Border Grid.Row="2" x:Name="DropZoneBorder"
+                Background="#111113" BorderBrush="#3f3f46" BorderThickness="1.5"
+                CornerRadius="8" Margin="0,0,0,14" Cursor="Hand"
+                MouseLeftButtonUp="DropZone_Click">
+            <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Margin="16">
+                <StackPanel HorizontalAlignment="Center">
+                    <Border Width="40" Height="40" CornerRadius="20" Background="#141417" BorderBrush="#27272a" BorderThickness="1" HorizontalAlignment="Center" Margin="0,0,0,10">
+                        <TextBlock Text="↓" FontSize="18" Foreground="#38bdf8" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
+                    </Border>
+                    <TextBlock x:Name="DropZoneTitle" Text="Kontoauszug hierher ziehen" FontWeight="SemiBold" FontSize="13" Foreground="#fafafa" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="DropZoneDesc" Text="Aus Browser-Downloads oder Ordner (.zip, .csv, .xml, .mt940) direkt auf dieses Fenster oder das Taskleisten-Symbol ziehen"
+                               TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="#71717a" MaxWidth="340" Margin="0,4,0,0"/>
+                    <Button Click="BtnManualFilePicker_Click" Margin="0,10,0,0"
+                            Background="#141417" Foreground="#a1a1aa" BorderBrush="#27272a" BorderThickness="1"
+                            Padding="12,5" HorizontalAlignment="Center" Cursor="Hand">
+                        <TextBlock Text="Datei manuell auswählen..." FontSize="11"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- KPI Strip -->
+        <Border Grid.Row="3" Background="#111113" BorderBrush="#27272a" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="STATUS" FontSize="10" Foreground="#71717a"/>
+                    <TextBlock x:Name="TxtStatus" Text="Bereit" FontSize="12" FontWeight="SemiBold" Foreground="#10b981" Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="LETZTER IMPORT" FontSize="10" Foreground="#71717a"/>
+                    <TextBlock x:Name="TxtLastImport" Text="—" FontSize="12" FontFamily="Consolas, monospace" Foreground="#fafafa" Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="KONTOSTAND" FontSize="10" Foreground="#71717a"/>
+                    <TextBlock x:Name="TxtBalance" Text="—" FontSize="12" FontFamily="Consolas, monospace" Foreground="#fafafa" Margin="0,3,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Auto-Watch Downloads Bar -->
+        <Border Grid.Row="4" Background="#141417" BorderBrush="#27272a" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Downloads-Ordner überwachen" FontSize="11" FontWeight="SemiBold" Foreground="#fafafa"/>
+                    <TextBlock x:Name="TxtWatchPath" Text="C:\Users\thoma\Downloads" FontSize="10" Foreground="#71717a" FontFamily="Consolas, monospace"/>
+                </StackPanel>
+                <CheckBox x:Name="ChkAutoWatch" Grid.Column="1" IsChecked="True" VerticalAlignment="Center" Checked="ChkAutoWatch_Toggled" Unchecked="ChkAutoWatch_Toggled" Cursor="Hand"/>
+            </Grid>
+        </Border>
+
+        <!-- Log / Output Box -->
+        <Border Grid.Row="5" Background="#09090b" BorderBrush="#27272a" BorderThickness="1" CornerRadius="6" Padding="8">
+            <ScrollViewer Height="70" VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="TxtLog" Text="[Start] George Exporter gestartet. Ziehe eine Bank-Export-Datei hierher oder starte den Mini-Browser."
+                           FontFamily="Consolas, monospace" FontSize="10" Foreground="#a1a1aa" TextWrapping="Wrap"/>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Window>

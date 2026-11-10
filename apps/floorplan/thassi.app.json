@@ -1,0 +1,8 @@
+{
+  "id": "floorplan",
+  "name": "Grundriss & Raumplaner",
+  "version": "1.0.0",
+  "description": "2D-CAD Grundriss- & Raumplaner mit Rechteck-Räumen, Türen, Fenstern und Live-Verknüpfung zu Sensoren, Schaltern, Kameras & Thassi-Applikationen.",
+  "icon": "mdi:floor-plan",
+  "category": "automation"
+}

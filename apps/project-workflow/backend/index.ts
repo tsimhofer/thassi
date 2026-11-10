@@ -162,8 +162,8 @@ export default defineThassiApp((ctx) => {
 
   // 1. Dashboard Overview Endpoint (Ecosystem + Presets + Monitored Projects + Latest Runs + N8n Definition)
   ctx.route('GET', '/overview', async (req) => {
-    const customGeminiKey = ctx.db.kvGet<string>('gemini_api_key') || '';
-    const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
+    const customGeminiKey = ctx.db.kvGet<string>('gemini_api_key') || ctx.sharedDb.kvGet<string>('gemini_api_key') || '';
+    const customGithubToken = ctx.db.kvGet<string>('github_token') || ctx.sharedDb.kvGet<string>('github_token') || '';
     const forceRefresh = req.query.refresh === '1';
     const [ecosystem, github] = await Promise.all([
       checkEcosystemCompatibility(customGeminiKey),
@@ -201,6 +201,7 @@ export default defineThassiApp((ctx) => {
       projectId?: string;
       requirementId?: string;
       nextStatus?: ProjectRequirementItem['status'];
+      delete?: boolean;
       title?: string;
       description?: string;
       acceptanceCriteria?: string;
@@ -210,7 +211,7 @@ export default defineThassiApp((ctx) => {
     };
 
     const projectId = String(body.projectId || 'thassi').trim();
-    const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
+    const customGithubToken = ctx.db.kvGet<string>('github_token') || ctx.sharedDb.kvGet<string>('github_token') || '';
     const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
     const runs = listRunRecords(15);
     const custom = getStoredCustomizations();
@@ -223,7 +224,12 @@ export default defineThassiApp((ctx) => {
     const targetProject = currentPortfolio.find((p) => p.id === projectId);
     const existingList = [...(targetProject?.requirements || [])];
 
-    if (body.requirementId && body.nextStatus) {
+    if (body.requirementId && body.delete) {
+      const idx = existingList.findIndex((r) => r.id === body.requirementId);
+      if (idx >= 0) {
+        existingList.splice(idx, 1);
+      }
+    } else if (body.requirementId && body.nextStatus) {
       const idx = existingList.findIndex((r) => r.id === body.requirementId);
       if (idx >= 0) {
         existingList[idx] = { ...existingList[idx], status: body.nextStatus };
@@ -264,6 +270,7 @@ export default defineThassiApp((ctx) => {
       projectId?: string;
       issueNumber?: number;
       nextState?: 'open' | 'closed';
+      delete?: boolean;
       title?: string;
       bodyText?: string;
       labels?: string[];
@@ -289,7 +296,12 @@ export default defineThassiApp((ctx) => {
     const targetProject = currentPortfolio.find((p) => p.id === projectId);
     const existingIssues = [...(targetProject?.issues || [])];
 
-    if (typeof body.issueNumber === 'number' && body.nextState) {
+    if (typeof body.issueNumber === 'number' && body.delete) {
+      const idx = existingIssues.findIndex((i) => i.number === body.issueNumber);
+      if (idx >= 0) {
+        existingIssues.splice(idx, 1);
+      }
+    } else if (typeof body.issueNumber === 'number' && body.nextState) {
       const idx = existingIssues.findIndex((i) => i.number === body.issueNumber);
       if (idx >= 0) {
         existingIssues[idx] = {
@@ -397,7 +409,7 @@ export default defineThassiApp((ctx) => {
     };
 
     const projectId = String(body.projectId || 'thassi').trim();
-    const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
+    const customGithubToken = ctx.db.kvGet<string>('github_token') || ctx.sharedDb.kvGet<string>('github_token') || '';
     const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
     const runs = listRunRecords(15);
     const custom = getStoredCustomizations();
@@ -455,7 +467,7 @@ export default defineThassiApp((ctx) => {
     };
 
     const projectId = String(body.projectId || 'thassi').trim();
-    const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
+    const customGithubToken = ctx.db.kvGet<string>('github_token') || ctx.sharedDb.kvGet<string>('github_token') || '';
     const github = await fetchGitHubRepositorySnapshot({ githubToken: customGithubToken });
     const runs = listRunRecords(15);
     const custom = getStoredCustomizations();
@@ -507,7 +519,7 @@ export default defineThassiApp((ctx) => {
       };
     }
 
-    const customGeminiKey = ctx.db.kvGet<string>('gemini_api_key') || '';
+    const customGeminiKey = ctx.db.kvGet<string>('gemini_api_key') || ctx.sharedDb.kvGet<string>('gemini_api_key') || '';
     const record = await executeN8nModuleWorkflow(validation.normalized, ctx, {
       customGeminiKey,
       simulateError,
@@ -561,7 +573,7 @@ export default defineThassiApp((ctx) => {
 
   // 4. GitHub Repository & Commit Query Endpoint (Phase 4)
   ctx.route('GET', '/github/status', async (req) => {
-    const customGithubToken = ctx.db.kvGet<string>('github_token') || '';
+    const customGithubToken = ctx.db.kvGet<string>('github_token') || ctx.sharedDb.kvGet<string>('github_token') || '';
     const snapshot = await fetchGitHubRepositorySnapshot({
       owner: req.query.owner || 'tsimhofer',
       repo: req.query.repo || 'thassi',

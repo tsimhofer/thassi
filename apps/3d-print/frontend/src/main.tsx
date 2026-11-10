@@ -58,20 +58,60 @@ interface ProjectSummary {
   updatedAt: string;
 }
 
+interface DiscoveredPrinter {
+  ip: string;
+  serial: string;
+  name: string;
+  model: string;
+  firmware: string;
+  discoveryMethod: string;
+}
+
+interface OpenLibraryModelHit {
+  id: string;
+  slotIndex: number; // 1..4
+  repository: 'PRINTABLES';
+  title: string;
+  author: string;
+  summary: string;
+  externalUrl: string;
+  thumbnailUrl: string | null;
+  stlFileName: string | null;
+  stlDownloadUrl: string | null;
+  likes: number;
+  downloads: number;
+  dimensionsLabel: string;
+  parametricScene: SceneSpec | null;
+  parametricStats: MeshStats | null;
+  meshError?: string;
+}
+
+interface GeneratedAiSlotResult {
+  projectId: string;
+  scene: SceneSpec;
+  stats: MeshStats;
+  summary: string;
+  engine: string;
+}
+
+interface SceneVersionSnapshot {
+  id: string;
+  stepNumber: number;
+  prompt: string;
+  summary: string;
+  engine: string;
+  timestamp: string;
+  scene: SceneSpec;
+  stats: MeshStats;
+}
+
 interface DashboardPayload {
   hasActiveProject: boolean;
   activeProject: ProjectSummary | null;
   projects: ProjectSummary[];
   telemetry: BambuLiveTelemetry;
   printerConfig: PrinterConfig;
-  discoveredPrinters: Array<{
-    ip: string;
-    serial: string;
-    name: string;
-    model: string;
-    firmware: string;
-    discoveryMethod: string;
-  }>;
+  discoveredPrinters: DiscoveredPrinter[];
   bambuApiSpec: Record<string, unknown>;
   aiStatus: {
     engine: string;
@@ -80,13 +120,61 @@ interface DashboardPayload {
 }
 
 type ViewRenderMode = 'solid' | 'wireframe' | 'xray' | 'slicer';
+type ActiveDrawer = null | 'printer' | 'projects' | 'inspector';
 
 function hexToRgb(hex: string): [number, number, number] {
-  const clean = (hex || '#00AE42').replace('#', '');
-  const num = parseInt(clean.length === 6 ? clean : '00AE42', 16);
+  const clean = (hex || '#10b981').replace('#', '');
+  const num = parseInt(clean.length === 6 ? clean : '10b981', 16);
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
 
+function formatTelemetryFreshness(isoString: string | undefined, nowMs: number): {
+  formattedTime: string;
+  relativeAge: string;
+} {
+  if (!isoString) {
+    return { formattedTime: '—', relativeAge: 'unbekannt' };
+  }
+  const parsed = Date.parse(isoString);
+  if (Number.isNaN(parsed)) {
+    return { formattedTime: isoString, relativeAge: '—' };
+  }
+  const dt = new Date(parsed);
+  const formattedTime = dt.toLocaleTimeString('de-AT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const diffSec = Math.max(0, Math.floor((nowMs - parsed) / 1000));
+  if (diffSec < 60) {
+    return { formattedTime, relativeAge: `vor ${diffSec}s` };
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  return { formattedTime, relativeAge: `vor ${diffMin}m` };
+}
+
+function exportWavefrontObj(mesh: CompiledMesh, title: string): string {
+  const lines: string[] = [
+    `# Thassi 3D-Print Studio Wavefront OBJ`,
+    `# Model: ${title}`,
+    `# Triangles: ${mesh.triangles.length}`,
+    `o ${title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'thassi_model'}`,
+  ];
+  let vIndex = 1;
+  for (const tri of mesh.triangles) {
+    lines.push(`v ${tri.v0.x.toFixed(4)} ${tri.v0.y.toFixed(4)} ${tri.v0.z.toFixed(4)}`);
+    lines.push(`v ${tri.v1.x.toFixed(4)} ${tri.v1.y.toFixed(4)} ${tri.v1.z.toFixed(4)}`);
+    lines.push(`v ${tri.v2.x.toFixed(4)} ${tri.v2.y.toFixed(4)} ${tri.v2.z.toFixed(4)}`);
+    lines.push(`vn ${tri.normal.x.toFixed(4)} ${tri.normal.y.toFixed(4)} ${tri.normal.z.toFixed(4)}`);
+    lines.push(`f ${vIndex} ${vIndex + 1} ${vIndex + 2}`);
+    vIndex += 3;
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Full-Featured Interactive 3D Viewport for the Refine View
+ */
 function Interactive3dViewport({
   scene,
   renderMode,
@@ -115,16 +203,6 @@ function Interactive3dViewport({
     lastY: 0,
   });
 
-  const meshRef = useRef<CompiledMesh | null>(null);
-
-  useEffect(() => {
-    if (scene) {
-      meshRef.current = compileSceneToMesh(scene);
-    } else {
-      meshRef.current = null;
-    }
-  }, [scene]);
-
   useEffect(() => {
     if (cameraPreset === 'iso') {
       camRef.current.yaw = 0.68;
@@ -152,24 +230,24 @@ function Interactive3dViewport({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const mesh = scene ? compileSceneToMesh(scene) : null;
     let animId = 0;
 
     const projectPoint = (
       p: Vec3,
       w: number,
-      h: number
+      h: number,
+      cz: number
     ): { sx: number; sy: number; depth: number; visible: boolean } => {
       const { yaw, pitch, zoom, panX, panY } = camRef.current;
-      // Convert Z-up (CAD) into camera coordinates
       const cy = Math.cos(yaw);
       const sy = Math.sin(yaw);
       const cp = Math.cos(pitch);
       const sp = Math.sin(pitch);
 
-      // Center object vertically around Z=25mm
       const px = p.x;
       const py = p.y;
-      const pz = p.z - 25;
+      const pz = p.z - cz;
 
       const rx = px * cy - py * sy;
       const ry = px * sy + py * cy;
@@ -190,8 +268,8 @@ function Interactive3dViewport({
     const drawFrame = () => {
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      const w = Math.max(300, Math.floor(rect.width));
-      const h = Math.max(240, Math.floor(rect.height));
+      const w = Math.max(300, Math.floor(rect.width || canvas.clientWidth || 640));
+      const h = Math.max(240, Math.floor(rect.height || canvas.clientHeight || 480));
       if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
         canvas.width = Math.floor(w * dpr);
         canvas.height = Math.floor(h * dpr);
@@ -203,207 +281,136 @@ function Interactive3dViewport({
       ctx.scale(dpr, dpr);
 
       if (autoRotate && !camRef.current.dragging && !camRef.current.panDragging) {
-        camRef.current.yaw += 0.0055;
+        camRef.current.yaw += 0.0045;
       }
 
-      // Studio radial background
-      const bgGrad = ctx.createRadialGradient(w * 0.5, h * 0.45, 20, w * 0.5, h * 0.5, w * 0.75);
-      bgGrad.addColorStop(0, '#0f172a');
-      bgGrad.addColorStop(1, '#040711');
-      ctx.fillStyle = bgGrad;
+      ctx.fillStyle = '#09090b';
       ctx.fillRect(0, 0, w, h);
 
-      // Draw Bambu Lab P1S 256x256mm Textured PEI Build Plate at Z=0
+      const centerZ = mesh ? (mesh.stats.bounds.min.z + mesh.stats.bounds.max.z) / 2 : 25;
+
+      // Bambu 256x256mm build plate grid
       const halfBed = 128;
-      const bedCorners: Vec3[] = [
-        { x: -halfBed, y: -halfBed, z: 0 },
-        { x: halfBed, y: -halfBed, z: 0 },
-        { x: halfBed, y: halfBed, z: 0 },
-        { x: -halfBed, y: halfBed, z: 0 },
-      ];
-      const projCorners = bedCorners.map((c) => projectPoint(c, w, h));
-      if (projCorners.every((c) => c.visible)) {
-        ctx.beginPath();
-        ctx.moveTo(projCorners[0].sx, projCorners[0].sy);
-        for (let i = 1; i < 4; i++) ctx.lineTo(projCorners[i].sx, projCorners[i].sy);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.42)';
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-      }
-
-      // Grid lines every 32mm on the 256x256mm bed
-      ctx.lineWidth = 0.75;
-      for (let g = -128; g <= 128; g += 32) {
+      const gridStep = 32;
+      ctx.lineWidth = 1;
+      for (let g = -halfBed; g <= halfBed; g += gridStep) {
         const isCenter = g === 0;
-        ctx.strokeStyle = isCenter ? 'rgba(56, 189, 248, 0.28)' : 'rgba(148, 163, 184, 0.12)';
-        const p1 = projectPoint({ x: g, y: -128, z: 0 }, w, h);
-        const p2 = projectPoint({ x: g, y: 128, z: 0 }, w, h);
-        if (p1.visible && p2.visible) {
+        const isBorder = Math.abs(g) === halfBed;
+        ctx.strokeStyle = isBorder
+          ? 'rgba(255, 255, 255, 0.16)'
+          : isCenter
+            ? 'rgba(255, 255, 255, 0.10)'
+            : 'rgba(255, 255, 255, 0.04)';
+
+        const a1 = projectPoint({ x: g, y: -halfBed, z: 0 }, w, h, centerZ);
+        const a2 = projectPoint({ x: g, y: halfBed, z: 0 }, w, h, centerZ);
+        if (a1.visible && a2.visible) {
           ctx.beginPath();
-          ctx.moveTo(p1.sx, p1.sy);
-          ctx.lineTo(p2.sx, p2.sy);
+          ctx.moveTo(a1.sx, a1.sy);
+          ctx.lineTo(a2.sx, a2.sy);
           ctx.stroke();
         }
-        const p3 = projectPoint({ x: -128, y: g, z: 0 }, w, h);
-        const p4 = projectPoint({ x: 128, y: g, z: 0 }, w, h);
-        if (p3.visible && p4.visible) {
+
+        const b1 = projectPoint({ x: -halfBed, y: g, z: 0 }, w, h, centerZ);
+        const b2 = projectPoint({ x: halfBed, y: g, z: 0 }, w, h, centerZ);
+        if (b1.visible && b2.visible) {
           ctx.beginPath();
-          ctx.moveTo(p3.sx, p3.sy);
-          ctx.lineTo(p4.sx, p4.sy);
+          ctx.moveTo(b1.sx, b1.sy);
+          ctx.lineTo(b2.sx, b2.sy);
           ctx.stroke();
         }
       }
 
-      // Coordinate Axes at Origin (0,0,0)
-      const o = projectPoint({ x: 0, y: 0, z: 0.2 }, w, h);
-      const axX = projectPoint({ x: 45, y: 0, z: 0.2 }, w, h);
-      const axY = projectPoint({ x: 0, y: 45, z: 0.2 }, w, h);
-      const axZ = projectPoint({ x: 0, y: 0, z: 45 }, w, h);
-      if (o.visible) {
-        const drawAxis = (pt: typeof o, col: string, lbl: string) => {
-          if (!pt.visible) return;
-          ctx.strokeStyle = col;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(o.sx, o.sy);
-          ctx.lineTo(pt.sx, pt.sy);
-          ctx.stroke();
-          ctx.fillStyle = col;
-          ctx.font = '600 10px Inter, sans-serif';
-          ctx.fillText(lbl, pt.sx + 4, pt.sy + 3);
-        };
-        drawAxis(axX, '#ef4444', 'X');
-        drawAxis(axY, '#22c55e', 'Y');
-        drawAxis(axZ, '#38bdf8', 'Z');
-      }
+      if (mesh && mesh.triangles.length > 0) {
+        const maxZ = Math.max(1, mesh.stats.bounds.max.z);
+        const clipZ = sliceRatio * maxZ + 0.05;
+        const lightDir = { x: 0.45, y: -0.6, z: 0.66 };
 
-      const mesh = meshRef.current;
-      if (!mesh || mesh.triangles.length === 0) {
-        // Placeholder wireframe cube when no 3D project is active
-        const s = 26;
-        const cubePts: Vec3[] = [
-          { x: -s, y: -s, z: 0 },
-          { x: s, y: -s, z: 0 },
-          { x: s, y: s, z: 0 },
-          { x: -s, y: s, z: 0 },
-          { x: -s, y: -s, z: s * 2 },
-          { x: s, y: -s, z: s * 2 },
-          { x: s, y: s, z: s * 2 },
-          { x: -s, y: s, z: s * 2 },
-        ];
-        const edges = [
-          [0, 1], [1, 2], [2, 3], [3, 0],
-          [4, 5], [5, 6], [6, 7], [7, 4],
-          [0, 4], [1, 5], [2, 6], [3, 7],
-        ];
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
-        ctx.setLineDash([5, 5]);
-        ctx.lineWidth = 1.5;
-        for (const [i0, i1] of edges) {
-          const p0 = projectPoint(cubePts[i0], w, h);
-          const p1 = projectPoint(cubePts[i1], w, h);
-          if (p0.visible && p1.visible) {
-            ctx.beginPath();
-            ctx.moveTo(p0.sx, p0.sy);
-            ctx.lineTo(p1.sx, p1.sy);
-            ctx.stroke();
+        interface DrawTri {
+          p0: { sx: number; sy: number };
+          p1: { sx: number; sy: number };
+          p2: { sx: number; sy: number };
+          depth: number;
+          fillStyle: string;
+          strokeStyle: string;
+          isTopSliceLayer: boolean;
+        }
+
+        const drawList: DrawTri[] = [];
+        for (const tri of mesh.triangles) {
+          const avgZ = (tri.v0.z + tri.v1.z + tri.v2.z) / 3;
+          if (avgZ > clipZ) continue;
+
+          const p0 = projectPoint(tri.v0, w, h, centerZ);
+          const p1 = projectPoint(tri.v1, w, h, centerZ);
+          const p2 = projectPoint(tri.v2, w, h, centerZ);
+          if (!p0.visible || !p1.visible || !p2.visible) continue;
+
+          const depth = (p0.depth + p1.depth + p2.depth) / 3;
+          const dotKey = Math.max(
+            0,
+            tri.normal.x * lightDir.x + tri.normal.y * lightDir.y + tri.normal.z * lightDir.z
+          );
+          const dotRim = Math.max(
+            0,
+            tri.normal.x * -0.55 + tri.normal.y * 0.48 + tri.normal.z * 0.65
+          );
+          const intensity = Math.max(0.28, Math.min(1.24, 0.34 + dotKey * 0.68 + dotRim * 0.22));
+          const spec = Math.pow(dotKey, 12) * 34;
+
+          const [r, g, b] = hexToRgb(tri.color);
+          const sr = Math.min(255, Math.round(r * intensity + spec));
+          const sg = Math.min(255, Math.round(g * intensity + spec));
+          const sb = Math.min(255, Math.round(b * intensity + spec));
+
+          const isTopSliceLayer =
+            (renderMode === 'slicer' || sliceRatio < 0.995) && Math.abs(avgZ - clipZ) < 1.8;
+
+          let fillStyle = `rgb(${sr}, ${sg}, ${sb})`;
+          let strokeStyle = `rgba(${sr}, ${sg}, ${sb}, 0.92)`;
+
+          if (tri.isSubtract) {
+            fillStyle = `rgba(244, 63, 94, 0.42)`;
+            strokeStyle = `rgba(251, 113, 133, 0.65)`;
+          } else if (renderMode === 'xray') {
+            fillStyle = `rgba(${sr}, ${sg}, ${sb}, 0.25)`;
+            strokeStyle = `rgba(${sr}, ${sg}, ${sb}, 0.62)`;
+          } else if (renderMode === 'wireframe') {
+            fillStyle = 'rgba(0,0,0,0)';
+            strokeStyle = `rgba(${sr}, ${sg}, ${sb}, 0.88)`;
+          } else if (isTopSliceLayer) {
+            fillStyle = '#f97316';
+            strokeStyle = '#fdba74';
           }
+
+          drawList.push({
+            p0,
+            p1,
+            p2,
+            depth,
+            fillStyle,
+            strokeStyle,
+            isTopSliceLayer,
+          });
         }
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(248, 250, 252, 0.55)';
-        ctx.font = '500 13px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Kein 3D-Projekt aktiv — Prompt eingeben oder Vorlage wählen', w / 2, h - 24);
-        ctx.restore();
-        animId = requestAnimationFrame(drawFrame);
-        return;
-      }
 
-      const maxZClip =
-        renderMode === 'slicer'
-          ? mesh.stats.bounds.min.z +
-            (mesh.stats.bounds.max.z - mesh.stats.bounds.min.z) * Math.max(0.02, sliceRatio)
-          : Infinity;
+        drawList.sort((a, b) => b.depth - a.depth);
 
-      const lightDir = { x: 0.45, y: -0.58, z: 0.68 };
-      const drawable: Array<{
-        p0: { sx: number; sy: number };
-        p1: { sx: number; sy: number };
-        p2: { sx: number; sy: number };
-        depth: number;
-        fill: string;
-        stroke: string;
-        isCutPlane: boolean;
-      }> = [];
+        for (const dt of drawList) {
+          ctx.beginPath();
+          ctx.moveTo(dt.p0.sx, dt.p0.sy);
+          ctx.lineTo(dt.p1.sx, dt.p1.sy);
+          ctx.lineTo(dt.p2.sx, dt.p2.sy);
+          ctx.closePath();
 
-      for (const tri of mesh.triangles) {
-        const minTriZ = Math.min(tri.v0.z, tri.v1.z, tri.v2.z);
-        if (minTriZ > maxZClip) continue;
-
-        const p0 = projectPoint(tri.v0, w, h);
-        const p1 = projectPoint(tri.v1, w, h);
-        const p2 = projectPoint(tri.v2, w, h);
-        if (!p0.visible || !p1.visible || !p2.visible) continue;
-
-        const depth = (p0.depth + p1.depth + p2.depth) / 3;
-        const dot =
-          tri.normal.x * lightDir.x + tri.normal.y * lightDir.y + tri.normal.z * lightDir.z;
-        const shade = Math.max(0.26, Math.min(1.12, 0.56 + dot * 0.46));
-        const [r, g, b] = hexToRgb(tri.color);
-        const rr = Math.min(255, Math.round(r * shade));
-        const gg = Math.min(255, Math.round(g * shade));
-        const bb = Math.min(255, Math.round(b * shade));
-
-        const maxTriZ = Math.max(tri.v0.z, tri.v1.z, tri.v2.z);
-        const isCutPlane = renderMode === 'slicer' && maxTriZ >= maxZClip - 1.2;
-
-        const alpha =
-          renderMode === 'xray'
-            ? tri.isSubtract
-              ? 0.65
-              : 0.34
-            : tri.isSubtract
-              ? 0.55
-              : 0.96;
-
-        drawable.push({
-          p0,
-          p1,
-          p2,
-          depth,
-          fill: isCutPlane
-            ? 'rgba(251, 191, 36, 0.92)'
-            : `rgba(${rr}, ${gg}, ${bb}, ${alpha})`,
-          stroke:
-            renderMode === 'wireframe'
-              ? `rgba(56, 189, 248, 0.78)`
-              : isCutPlane
-                ? '#f59e0b'
-                : `rgba(${Math.round(rr * 0.7)}, ${Math.round(gg * 0.7)}, ${Math.round(bb * 0.7)}, 0.35)`,
-          isCutPlane,
-        });
-      }
-
-      // Painter's algorithm sort (back to front)
-      drawable.sort((a, b) => b.depth - a.depth);
-
-      for (const d of drawable) {
-        ctx.beginPath();
-        ctx.moveTo(d.p0.sx, d.p0.sy);
-        ctx.lineTo(d.p1.sx, d.p1.sy);
-        ctx.lineTo(d.p2.sx, d.p2.sy);
-        ctx.closePath();
-
-        if (renderMode !== 'wireframe') {
-          ctx.fillStyle = d.fill;
-          ctx.fill();
+          if (renderMode !== 'wireframe') {
+            ctx.fillStyle = dt.fillStyle;
+            ctx.fill();
+          }
+          ctx.strokeStyle = dt.strokeStyle;
+          ctx.lineWidth = renderMode === 'wireframe' ? 0.9 : dt.isTopSliceLayer ? 1.2 : 0.4;
+          ctx.stroke();
         }
-        ctx.strokeStyle = d.stroke;
-        ctx.lineWidth = renderMode === 'wireframe' ? 0.9 : 0.45;
-        ctx.stroke();
       }
 
       ctx.restore();
@@ -412,21 +419,20 @@ function Interactive3dViewport({
 
     animId = requestAnimationFrame(drawFrame);
     return () => cancelAnimationFrame(animId);
-  }, [autoRotate, renderMode, sliceRatio]);
+  }, [scene, renderMode, sliceRatio, autoRotate]);
 
   return (
     <canvas
       ref={canvasRef}
+      onContextMenu={(e) => e.preventDefault()}
       style={{
         width: '100%',
         height: '100%',
         display: 'block',
         cursor: 'grab',
-        touchAction: 'none',
       }}
-      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
         if (e.button === 2 || e.shiftKey) {
           camRef.current.panDragging = true;
         } else {
@@ -466,65 +472,379 @@ function Interactive3dViewport({
   );
 }
 
+/**
+ * Interactive 3D Card Viewport for the 5 Search Result Cards.
+ * Compiles the SceneSpec synchronously inside the render loop effect and supports drag-to-rotate.
+ */
+function MiniCard3dViewport({
+  scene,
+  autoRotate = true,
+  accentBorder = false,
+}: {
+  scene: SceneSpec;
+  autoRotate?: boolean;
+  accentBorder?: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const camRef = useRef({
+    yaw: 0.65,
+    pitch: 0.44,
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+  });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const mesh = compileSceneToMesh(scene);
+    let animId = 0;
+
+    const draw = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(180, Math.floor(rect.width || canvas.clientWidth || 220));
+      const h = Math.max(180, Math.floor(rect.height || canvas.clientHeight || 200));
+      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+      }
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      if (autoRotate && !camRef.current.dragging) {
+        camRef.current.yaw += 0.008;
+      }
+
+      ctx.fillStyle = accentBorder ? '#0d0d10' : '#09090b';
+      ctx.fillRect(0, 0, w, h);
+
+      if (mesh && mesh.triangles.length > 0) {
+        const bounds = mesh.stats.bounds;
+        const cx = (bounds.min.x + bounds.max.x) / 2;
+        const cy = (bounds.min.y + bounds.max.y) / 2;
+        const cz = (bounds.min.z + bounds.max.z) / 2;
+        const maxSpan = Math.max(
+          20,
+          bounds.max.x - bounds.min.x,
+          bounds.max.y - bounds.min.y,
+          bounds.max.z - bounds.min.z
+        );
+
+        const yaw = camRef.current.yaw;
+        const pitch = camRef.current.pitch;
+        const cyaw = Math.cos(yaw);
+        const syaw = Math.sin(yaw);
+        const cp = Math.cos(pitch);
+        const sp = Math.sin(pitch);
+        const camDist = maxSpan * 2.0;
+        const fov = Math.min(w, h) * 1.28;
+
+        const project = (p: Vec3) => {
+          const px = p.x - cx;
+          const py = p.y - cy;
+          const pz = p.z - cz;
+          const rx = px * cyaw - py * syaw;
+          const ry = px * syaw + py * cyaw;
+          const camX = rx;
+          const camY = pz * cp - ry * sp;
+          const camZ = pz * sp + ry * cp + camDist;
+          return {
+            sx: w / 2 + (camX * fov) / Math.max(8, camZ),
+            sy: h / 2 + 6 - (camY * fov) / Math.max(8, camZ),
+            depth: camZ,
+          };
+        };
+
+        // Build plate reference square under the model
+        const gHalf = maxSpan * 0.62;
+        const gCorners = [
+          project({ x: cx - gHalf, y: cy - gHalf, z: bounds.min.z }),
+          project({ x: cx + gHalf, y: cy - gHalf, z: bounds.min.z }),
+          project({ x: cx + gHalf, y: cy + gHalf, z: bounds.min.z }),
+          project({ x: cx - gHalf, y: cy + gHalf, z: bounds.min.z }),
+        ];
+        ctx.beginPath();
+        ctx.moveTo(gCorners[0].sx, gCorners[0].sy);
+        for (let i = 1; i < 4; i++) ctx.lineTo(gCorners[i].sx, gCorners[i].sy);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        const keyLight = { x: 0.52, y: -0.56, z: 0.64 };
+        const rimLight = { x: -0.58, y: 0.48, z: 0.65 };
+
+        const drawable = mesh.triangles.map((tri) => {
+          const p0 = project(tri.v0);
+          const p1 = project(tri.v1);
+          const p2 = project(tri.v2);
+          const depth = (p0.depth + p1.depth + p2.depth) / 3;
+          const dotKey = Math.max(
+            0,
+            tri.normal.x * keyLight.x + tri.normal.y * keyLight.y + tri.normal.z * keyLight.z
+          );
+          const dotRim = Math.max(
+            0,
+            tri.normal.x * rimLight.x + tri.normal.y * rimLight.y + tri.normal.z * rimLight.z
+          );
+          const shade = Math.max(0.28, Math.min(1.25, 0.34 + dotKey * 0.68 + dotRim * 0.24));
+          const spec = Math.pow(dotKey, 12) * 38;
+          const [r, g, b] = hexToRgb(tri.color);
+          const rr = Math.min(255, Math.round(r * shade + spec));
+          const gg = Math.min(255, Math.round(g * shade + spec));
+          const bb = Math.min(255, Math.round(b * shade + spec));
+          return {
+            p0,
+            p1,
+            p2,
+            depth,
+            fill: `rgba(${rr}, ${gg}, ${bb}, ${tri.isSubtract ? 0.55 : 1.0})`,
+            stroke: `rgba(${rr}, ${gg}, ${bb}, 0.95)`,
+          };
+        });
+
+        drawable.sort((a, b) => b.depth - a.depth);
+        for (const d of drawable) {
+          ctx.beginPath();
+          ctx.moveTo(d.p0.sx, d.p0.sy);
+          ctx.lineTo(d.p1.sx, d.p1.sy);
+          ctx.lineTo(d.p2.sx, d.p2.sy);
+          ctx.closePath();
+          ctx.fillStyle = d.fill;
+          ctx.fill();
+          ctx.strokeStyle = d.stroke;
+          ctx.lineWidth = 0.45;
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+      animId = requestAnimationFrame(draw);
+    };
+
+    animId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animId);
+  }, [scene, autoRotate, accentBorder]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'block',
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        camRef.current.dragging = true;
+        camRef.current.lastX = e.clientX;
+        camRef.current.lastY = e.clientY;
+      }}
+      onPointerMove={(e) => {
+        if (!camRef.current.dragging) return;
+        e.stopPropagation();
+        const dx = e.clientX - camRef.current.lastX;
+        const dy = e.clientY - camRef.current.lastY;
+        camRef.current.lastX = e.clientX;
+        camRef.current.lastY = e.clientY;
+        camRef.current.yaw += dx * 0.01;
+        camRef.current.pitch = Math.max(-0.2, Math.min(1.4, camRef.current.pitch + dy * 0.008));
+      }}
+      onPointerUp={() => {
+        camRef.current.dragging = false;
+      }}
+      onPointerLeave={() => {
+        camRef.current.dragging = false;
+      }}
+    />
+  );
+}
+
 export function App() {
   const [data, setData] = useState<DashboardPayload | null>(null);
-  const [loading, setLoading] = useState(true);
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  // Hyper-simplistic view state: either 'search' (Searchbar + 5 cards) or 'refine' (AI Refine View)
+  const [viewMode, setViewMode] = useState<'search' | 'refine'>('search');
+  const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>(null);
 
   // Prompt state
   const [newPrompt, setNewPrompt] = useState('');
   const [modifyPrompt, setModifyPrompt] = useState('');
 
-  // Viewport controls
+  // 5-Card Discovery & AI Synthesis state
+  const [hasSearchedOnce, setHasSearchedOnce] = useState<boolean>(false);
+  const [librarySearching, setLibrarySearching] = useState<boolean>(false);
+  const [aiGeneratingSlot5, setAiGeneratingSlot5] = useState<boolean>(false);
+  const [libraryHits, setLibraryHits] = useState<OpenLibraryModelHit[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [aiSlot5Result, setAiSlot5Result] = useState<GeneratedAiSlotResult | null>(null);
+  const [aiSlot5Error, setAiSlot5Error] = useState<string | null>(null);
+  const [modifyError, setModifyError] = useState<string | null>(null);
+  const [versionHistory, setVersionHistory] = useState<SceneVersionSnapshot[]>([]);
+
+  // Viewport controls (tucked in Refine toolbar / drawer)
   const [renderMode, setRenderMode] = useState<ViewRenderMode>('solid');
   const [sliceRatio, setSliceRatio] = useState<number>(1.0);
   const [autoRotate, setAutoRotate] = useState<boolean>(true);
   const [cameraPreset, setCameraPreset] = useState<'iso' | 'front' | 'top' | 'side'>('iso');
   const [cameraResetKey, setCameraResetKey] = useState<number>(0);
 
-  // Active tab in right panel: 'ai_editor' | 'nodes' | 'bambu_network'
-  const [activeTab, setActiveTab] = useState<'ai_editor' | 'nodes' | 'bambu_network'>('ai_editor');
-
-  // Printer config form
+  // Printer config form inside Drawer
+  const [configHydrated, setConfigHydrated] = useState(false);
   const [printerIp, setPrinterIp] = useState('');
   const [printerSerial, setPrinterSerial] = useState('');
   const [printerAccessCode, setPrinterAccessCode] = useState('');
   const [printerModel, setPrinterModel] = useState('Bambu Lab P1S');
+  const [printerName, setPrinterName] = useState('Bambu X1C WHG');
+  const [nozzleDiameterMm, setNozzleDiameterMm] = useState<number>(0.4);
+  const [shellyPowerEntityId, setShellyPowerEntityId] = useState('switch.buro_og_plug_90');
+  const [lanOnlyMode, setLanOnlyMode] = useState<boolean>(true);
   const [discoverResult, setDiscoverResult] = useState<string | null>(null);
 
   const loadDashboard = async () => {
     try {
       const res = await api.get<DashboardPayload>('/dashboard');
       setData(res);
-      if (!printerIp && res.printerConfig) {
-        setPrinterIp(res.printerConfig.ip);
-        setPrinterSerial(res.printerConfig.serial);
-        setPrinterModel(res.printerConfig.model);
+      if (!configHydrated && res.printerConfig) {
+        setPrinterIp(res.printerConfig.ip || '');
+        setPrinterSerial(res.printerConfig.serial || '');
+        setPrinterModel(res.printerConfig.model || 'Bambu Lab P1S');
+        setPrinterName(res.printerConfig.name || 'Bambu X1C WHG');
+        setNozzleDiameterMm(res.printerConfig.nozzleDiameterMm || 0.4);
+        setShellyPowerEntityId(res.printerConfig.shellyPowerEntityId || '');
+        setLanOnlyMode(res.printerConfig.lanOnlyMode ?? true);
+        setConfigHydrated(true);
       }
     } catch (err) {
       console.error('Failed loading 3d-print dashboard:', err);
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadDashboard();
-    const timer = setInterval(loadDashboard, 3000);
-    return () => clearInterval(timer);
-  }, []);
+    const pollTimer = setInterval(loadDashboard, 3000);
+    const clockTimer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => {
+      clearInterval(pollTimer);
+      clearInterval(clockTimer);
+    };
+  }, [configHydrated]);
 
-  const handleGenerateNew = async (e?: React.FormEvent, presetKey?: string) => {
+  const handleSearchAndGenerate = async (e?: React.FormEvent, customPromptText?: string) => {
     if (e) e.preventDefault();
-    if (!presetKey && !newPrompt.trim()) return;
-    setBusyMessage('Antigravity KI generiert 3D-Geometrie & druckbares Mesh…');
-    try {
-      await api.post('/projects/generate', {
-        prompt: newPrompt.trim(),
-        presetKey,
+    const promptText = (customPromptText ?? newPrompt).trim();
+    if (!promptText) return;
+
+    setNewPrompt(promptText);
+    setViewMode('search');
+    setHasSearchedOnce(true);
+    setLibrarySearching(true);
+    setAiGeneratingSlot5(true);
+    setLibraryHits([]);
+    setLibraryError(null);
+    setAiSlot5Result(null);
+    setAiSlot5Error(null);
+
+    // Slots 1-4: Open Library Search (Real Printables STL Downloads)
+    const searchTask = api
+      .post<{
+        ok: boolean;
+        error?: string;
+        items: OpenLibraryModelHit[];
+      }>('/library/search', { prompt: promptText })
+      .then((res) => {
+        if (res.error && (!res.items || res.items.length === 0)) {
+          setLibraryError(res.error);
+          setLibraryHits([]);
+        } else {
+          setLibraryHits(res.items || []);
+        }
+      })
+      .catch((err) => {
+        setLibraryError(
+          err instanceof Error ? err.message : 'Open-Library-Suche fehlgeschlagen.'
+        );
+      })
+      .finally(() => {
+        setLibrarySearching(false);
       });
-      setNewPrompt('');
+
+    // Slot 5 (Rightmost): AI 3D Model Generation via Gemini
+    const aiGenTask = api
+      .post<GeneratedAiSlotResult & { error?: string }>('/projects/generate', {
+        prompt: promptText,
+      })
+      .then((res) => {
+        if (res.error || !res.scene) {
+          setAiSlot5Error(res.error || 'KI-3D-Generierung lieferte kein Ergebnis.');
+          return;
+        }
+        setAiSlot5Result(res);
+        setVersionHistory([
+          {
+            id: `ver-1-${Date.now()}`,
+            stepNumber: 1,
+            prompt: promptText,
+            summary: res.summary,
+            engine: res.engine,
+            timestamp: new Date().toISOString(),
+            scene: res.scene,
+            stats: res.stats,
+          },
+        ]);
+      })
+      .catch((err) => {
+        setAiSlot5Error(
+          err instanceof Error ? err.message : 'KI-3D-Generierung fehlgeschlagen.'
+        );
+      })
+      .finally(() => {
+        setAiGeneratingSlot5(false);
+      });
+
+    await Promise.all([searchTask, aiGenTask]);
+    await loadDashboard();
+  };
+
+  const handleSelectAiSlot5ForRefine = async () => {
+    if (!aiSlot5Result) return;
+    setModifyError(null);
+    await api.post('/projects/select', { projectId: aiSlot5Result.projectId });
+    await loadDashboard();
+    setViewMode('refine');
+  };
+
+  const handleImportLibraryHitToRefine = async (hit: OpenLibraryModelHit) => {
+    if (!hit.parametricScene) return;
+    setModifyError(null);
+    setBusyMessage(`Lade STL "${hit.title}"…`);
+    try {
+      const res = await api.post<GeneratedAiSlotResult>('/projects/generate', {
+        importedScene: hit.parametricScene,
+        importedSummary: `Original STL-Mesh "${hit.title}" (@${hit.author}) geladen.`,
+      });
+      setVersionHistory([
+        {
+          id: `ver-lib-${Date.now()}`,
+          stepNumber: 1,
+          prompt: `Import STL: ${hit.title}`,
+          summary: res.summary,
+          engine: res.engine,
+          timestamp: new Date().toISOString(),
+          scene: res.scene,
+          stats: res.stats,
+        },
+      ]);
       await loadDashboard();
+      setViewMode('refine');
     } finally {
       setBusyMessage(null);
     }
@@ -533,10 +853,54 @@ export function App() {
   const handleModifyScene = async (customPrompt?: string) => {
     const p = (customPrompt ?? modifyPrompt).trim();
     if (!p) return;
-    setBusyMessage(`Wende KI-Änderung an: "${p}"…`);
+    setModifyError(null);
+    setBusyMessage(`Verfeinere 3D-Modell: "${p}"…`);
     try {
-      await api.post('/projects/modify', { prompt: p });
+      const res = await api.post<GeneratedAiSlotResult & { error?: string }>('/projects/modify', {
+        prompt: p,
+      });
+      if (res.error) {
+        setModifyError(res.error);
+        return;
+      }
       if (!customPrompt) setModifyPrompt('');
+      if (res && res.scene) {
+        setVersionHistory((prev) => [
+          {
+            id: `ver-${prev.length + 1}-${Date.now()}`,
+            stepNumber: prev.length + 1,
+            prompt: p,
+            summary: res.summary,
+            engine: res.engine,
+            timestamp: new Date().toISOString(),
+            scene: res.scene,
+            stats: res.stats,
+          },
+          ...prev,
+        ]);
+        if (aiSlot5Result && aiSlot5Result.projectId === res.projectId) {
+          setAiSlot5Result(res);
+        }
+      }
+      await loadDashboard();
+    } catch (err) {
+      setModifyError(err instanceof Error ? err.message : 'KI-Änderung fehlgeschlagen.');
+    } finally {
+      setBusyMessage(null);
+    }
+  };
+
+  const handleRestoreVersionSnapshot = async (snap: SceneVersionSnapshot) => {
+    if (!data?.activeProject) return;
+    setBusyMessage(`Stelle Version #${snap.stepNumber} wieder her…`);
+    try {
+      const res = await api.post<GeneratedAiSlotResult>('/projects/modify', {
+        projectId: data.activeProject.id,
+        updatedScene: snap.scene,
+      });
+      if (aiSlot5Result && aiSlot5Result.projectId === res.projectId) {
+        setAiSlot5Result(res);
+      }
       await loadDashboard();
     } finally {
       setBusyMessage(null);
@@ -556,14 +920,34 @@ export function App() {
     await loadDashboard();
   };
 
-  const handleExportFile = async (format: '3mf' | 'stl' | 'gcode') => {
-    setBusyMessage(`Erzeuge druckbare .${format.toUpperCase()}-Datei…`);
+  const handleExportFile = async (format: '3mf' | 'stl' | 'gcode' | 'obj') => {
+    if (format === 'obj') {
+      if (!data?.activeProject) return;
+      const mesh = compileSceneToMesh(data.activeProject.scene);
+      const objText = exportWavefrontObj(mesh, data.activeProject.title);
+      const safeSlug =
+        data.activeProject.title
+          .toLowerCase()
+          .replace(/[^a-z0-9-_]+/g, '_')
+          .replace(/^_+|_+$/g, '') || 'thassi_3d_model';
+      const blob = new Blob([objText], { type: 'model/obj;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeSlug}.obj`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    setBusyMessage(`Exportiere .${format.toUpperCase()}…`);
     try {
       const res = await api.get<{
         filename: string;
         mimeType: string;
         base64: string;
-        sizeBytes: number;
       }>(`/projects/export?format=${format}`);
       const binStr = atob(res.base64);
       const bytes = new Uint8Array(binStr.length);
@@ -582,12 +966,10 @@ export function App() {
     }
   };
 
-  const handlePrintAction = async (action: 'start' | 'pause' | 'resume' | 'stop' | 'light_toggle') => {
-    setBusyMessage(
-      action === 'start'
-        ? 'Übertrage 3MF-Auftrag an BambuLab P1S…'
-        : `Sende Drucker-Befehl (${action})…`
-    );
+  const handlePrintAction = async (
+    action: 'start' | 'pause' | 'resume' | 'stop' | 'light_toggle'
+  ) => {
+    setBusyMessage(action === 'start' ? 'Sende Druckauftrag…' : `Sende (${action})…`);
     try {
       await api.post('/printer/print', { action });
       await loadDashboard();
@@ -597,14 +979,11 @@ export function App() {
   };
 
   const handleDiscoverPrinter = async () => {
-    setBusyMessage('Scanne Subnetz 192.168.188.0/24 (SSDP 2021/1990 & MQTT-TLS 8883)…');
+    setBusyMessage('Scanne LAN 192.168.188.0/24…');
     try {
       const res = await api.post<{
-        discoveredPrinters: Array<{ ip: string; serial: string; model: string }>;
+        discoveredPrinters: Array<{ ip: string; serial: string; model: string; name?: string }>;
         configuredPrinterProbe: {
-          ip: string;
-          mqttTls8883: boolean;
-          ftps990: boolean;
           shellyPlugEntity: string;
           shellyPlugState: string;
         };
@@ -613,12 +992,12 @@ export function App() {
         const p = res.discoveredPrinters[0];
         setPrinterIp(p.ip);
         setPrinterSerial(p.serial);
-        setDiscoverResult(
-          `✅ BambuLab Drucker gefunden: ${p.model} unter ${p.ip} (SN: ${p.serial})`
-        );
+        if (p.model) setPrinterModel(p.model);
+        if (p.name) setPrinterName(p.name);
+        setDiscoverResult(`Gefunden: ${p.model} (${p.ip})`);
       } else {
         setDiscoverResult(
-          `ℹ️ Scan abgeschlossen (192.168.188.0/24): Kein aktiver Port 8883/SSDP gefunden (Drucker im Standby/Aus · Shelly Plug ${res.configuredPrinterProbe.shellyPlugEntity}: ${res.configuredPrinterProbe.shellyPlugState}). Lokal erkanntes Slicer-Profil: Bambu Lab P1S (0.4mm Nozzle).`
+          `Kein aktiver Drucker im LAN gefunden (Shelly ${res.configuredPrinterProbe.shellyPlugEntity}: ${res.configuredPrinterProbe.shellyPlugState}).`
         );
       }
       await loadDashboard();
@@ -629,16 +1008,20 @@ export function App() {
 
   const handleSavePrinterConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusyMessage('Speichere BambuLab LAN-Konfiguration…');
+    setBusyMessage('Speichere LAN-Setup…');
     try {
       await api.post('/printer/config', {
         ip: printerIp,
         serial: printerSerial,
         accessCode: printerAccessCode,
         model: printerModel,
+        name: printerName,
+        nozzleDiameterMm,
+        shellyPowerEntityId,
+        lanOnlyMode,
       });
       setPrinterAccessCode('');
-      setDiscoverResult('✅ BambuLab LAN-Konfiguration gespeichert.');
+      setDiscoverResult('Gespeichert.');
       await loadDashboard();
     } finally {
       setBusyMessage(null);
@@ -647,252 +1030,807 @@ export function App() {
 
   const activeProj = data?.activeProject || null;
   const tel = data?.telemetry;
+  const cfg = data?.printerConfig;
   const stats = activeProj?.stats;
+  const projects = data?.projects || [];
+  const freshness = formatTelemetryFreshness(tel?.lastUpdated, nowMs);
+
+  const statusDotColor =
+    tel?.printerState === 'FAILED' || tel?.printerState === 'OFFLINE'
+      ? '#ef4444'
+      : tel?.connectionMode === 'lan_mqtt_tls' && cfg?.accessCodeConfigured
+        ? '#10b981'
+        : '#f59e0b';
 
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 430px',
-        height: '100vh',
-        width: '100vw',
-        overflow: 'hidden',
-        background: '#040711',
-        color: '#f8fafc',
+        minHeight: '100vh',
+        background: 'var(--bg-canvas)',
+        color: 'var(--text-primary)',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
       }}
     >
-      {/* LEFT REGION: INTERACTIVE 3D VIEWPORT + TOP/BOTTOM HUD */}
-      <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
-        <Interactive3dViewport
-          scene={activeProj?.scene || null}
-          renderMode={renderMode}
-          sliceRatio={sliceRatio}
-          autoRotate={autoRotate}
-          cameraResetKey={cameraResetKey}
-          cameraPreset={cameraPreset}
-        />
+      {/* MINIMALIST TOP BAR (Everything tucked into Drawers) */}
+      <header
+        style={{
+          height: 48,
+          padding: '0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--line-hairline)',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {viewMode === 'refine' ? (
+            <button
+              type="button"
+              onClick={() => setViewMode('search')}
+              className="ghost-btn"
+              style={{ padding: '4px 10px', fontSize: 12, color: 'var(--text-primary)' }}
+            >
+              Zurück zur Suche
+            </button>
+          ) : (
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                letterSpacing: '-0.02em',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              3D-Print
+            </span>
+          )}
 
-        {/* TOP-LEFT HUD: ACTIVE PROJECT & BAMBULAB TELEMETRY */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 18,
-            left: 20,
-            right: 20,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            pointerEvents: 'none',
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              background: 'rgba(6, 10, 22, 0.78)',
-              backdropFilter: 'blur(20px)',
-              padding: '12px 18px',
-              borderRadius: 16,
-              border: '1px solid rgba(56, 189, 248, 0.18)',
-              pointerEvents: 'auto',
-              maxWidth: 460,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          {viewMode === 'refine' && activeProj && (
+            <span
+              className="tabular-nums"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-primary)',
+              }}
+            >
+              {activeProj.title}
               <span
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: activeProj ? '#00AE42' : '#fbbf24',
-                  boxShadow: activeProj ? '0 0 10px #00AE42' : '0 0 10px #fbbf24',
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  color: '#38bdf8',
+                  marginLeft: 10,
+                  fontSize: 11.5,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-muted)',
                 }}
               >
-                thassi.3dprint · {data?.printerConfig?.model || 'Bambu Lab P1S'} (256×256×256mm)
+                {stats?.dimensionsMm.x}×{stats?.dimensionsMm.y}×{stats?.dimensionsMm.z} mm ·{' '}
+                {stats?.filamentWeightG} g
               </span>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>
-              {activeProj ? activeProj.title : 'Kein 3D-Projekt aktiv (Platzhalter)'}
-            </div>
-            <div style={{ fontSize: 12, color: 'rgba(248,250,252,0.65)', marginTop: 2 }}>
-              {activeProj
-                ? `${stats?.dimensionsMm.x} × ${stats?.dimensionsMm.y} × ${stats?.dimensionsMm.z} mm · ${stats?.triangleCount} Tris · ${stats?.filamentWeightG} g ${activeProj.scene.printProfile.filamentType} · ~${stats?.estimatedPrintMinutes} Min.`
-                : 'Wähle rechts ein Projekt oder generiere ein neues 3D-Objekt per KI-Prompt.'}
-            </div>
-          </div>
-
-          {/* VIEWPORT CAMERA & MODE CONTROLS */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: 8,
-              pointerEvents: 'auto',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                gap: 6,
-                background: 'rgba(6, 10, 22, 0.78)',
-                backdropFilter: 'blur(20px)',
-                padding: 6,
-                borderRadius: 12,
-                border: '1px solid rgba(255,255,255,0.08)',
-              }}
-            >
-              {(
-                [
-                  ['solid', 'Solid CAD'],
-                  ['wireframe', 'Mesh / Gitter'],
-                  ['xray', 'Röntgen'],
-                  ['slicer', 'Schicht-Slicer'],
-                ] as const
-              ).map(([m, label]) => (
-                <button
-                  key={m}
-                  onClick={() => setRenderMode(m)}
-                  style={{
-                    border: 'none',
-                    borderRadius: 8,
-                    padding: '6px 11px',
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    background: renderMode === m ? '#38bdf8' : 'transparent',
-                    color: renderMode === m ? '#040711' : 'rgba(248,250,252,0.75)',
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                gap: 6,
-                background: 'rgba(6, 10, 22, 0.72)',
-                backdropFilter: 'blur(16px)',
-                padding: 5,
-                borderRadius: 10,
-              }}
-            >
-              {(
-                [
-                  ['iso', '3D Iso'],
-                  ['front', 'Vorne'],
-                  ['top', 'Oben'],
-                  ['side', 'Seite'],
-                ] as const
-              ).map(([preset, lbl]) => (
-                <button
-                  key={preset}
-                  onClick={() => {
-                    setCameraPreset(preset);
-                    setCameraResetKey((k) => k + 1);
-                  }}
-                  style={smallHudBtnStyle}
-                >
-                  {lbl}
-                </button>
-              ))}
-              <button
-                onClick={() => setAutoRotate((r) => !r)}
-                style={{
-                  ...smallHudBtnStyle,
-                  color: autoRotate ? '#4ade80' : 'rgba(248,250,252,0.55)',
-                }}
-              >
-                {autoRotate ? '⟳ Auto-Rot AN' : '⟳ Auto-Rot AUS'}
-              </button>
-            </div>
-          </div>
+            </span>
+          )}
         </div>
 
-        {/* LAYER SLICER VERTICAL SLIDER WHEN IN SLICER MODE */}
-        {renderMode === 'slicer' && activeProj && (
+        {/* Right Menu / Drawer Triggers */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {busyMessage && (
+            <span
+              style={{
+                fontSize: 11.5,
+                fontFamily: 'var(--font-mono)',
+                color: '#f59e0b',
+                marginRight: 8,
+              }}
+            >
+              {busyMessage}
+            </span>
+          )}
+
+          {viewMode === 'refine' && (
+            <>
+              <button
+                type="button"
+                onClick={() => void handleExportFile('3mf')}
+                className="ghost-btn"
+                style={{ padding: '4px 10px', fontSize: 11.5 }}
+              >
+                .3MF
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExportFile('stl')}
+                className="ghost-btn"
+                style={{ padding: '4px 10px', fontSize: 11.5 }}
+              >
+                .STL
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePrintAction('start')}
+                className="primary-btn"
+                style={{ padding: '4px 12px', fontSize: 11.5 }}
+              >
+                Drucken
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveDrawer(activeDrawer === 'inspector' ? null : 'inspector')
+                }
+                className="ghost-btn"
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 11.5,
+                  borderColor:
+                    activeDrawer === 'inspector'
+                      ? 'rgba(255,255,255,0.28)'
+                      : 'var(--line-hairline)',
+                }}
+              >
+                Inspektor &amp; Verlauf ({activeProj?.scene.nodes.length || 0})
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setActiveDrawer(activeDrawer === 'projects' ? null : 'projects')}
+            className="ghost-btn"
+            style={{
+              padding: '4px 10px',
+              fontSize: 11.5,
+              borderColor:
+                activeDrawer === 'projects' ? 'rgba(255,255,255,0.28)' : 'var(--line-hairline)',
+            }}
+          >
+            Projekte ({projects.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveDrawer(activeDrawer === 'printer' ? null : 'printer')}
+            className="ghost-btn tabular-nums"
+            style={{
+              padding: '4px 10px',
+              fontSize: 11.5,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              borderColor:
+                activeDrawer === 'printer' ? 'rgba(255,255,255,0.28)' : 'var(--line-hairline)',
+            }}
+            title={`Stand: ${freshness.formattedTime} (${freshness.relativeAge})`}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: statusDotColor,
+              }}
+            />
+            <span>{tel?.printerState || 'IDLE'}</span>
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+              {freshness.relativeAge}
+            </span>
+          </button>
+        </div>
+      </header>
+
+      {/* =====================================================================
+          VIEW 1: HYPER-SIMPLISTIC SEARCH & 5-CARD RESULT GRID
+          ===================================================================== */}
+      {viewMode === 'search' && (
+        <main
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: hasSearchedOnce ? 'flex-start' : 'center',
+            alignItems: 'center',
+            padding: hasSearchedOnce ? '36px 32px' : '0 24px 12vh',
+            maxWidth: 1440,
+            width: '100%',
+            margin: '0 auto',
+          }}
+        >
+          {/* THE SEARCHBAR */}
+          <form
+            onSubmit={(e) => void handleSearchAndGenerate(e)}
+            style={{
+              width: '100%',
+              maxWidth: hasSearchedOnce ? '100%' : 680,
+              display: 'flex',
+              alignItems: 'center',
+              background: 'var(--bg-input)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: 6,
+              padding: '6px 8px 6px 18px',
+              transition: 'max-width 0.2s ease',
+            }}
+          >
+            <input
+              type="text"
+              value={newPrompt}
+              onChange={(e) => setNewPrompt(e.target.value)}
+              placeholder="Was möchtest du drucken? (Eingabe + Enter)"
+              autoFocus
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--text-primary)',
+                fontSize: 16,
+                fontFamily: 'var(--font-sans)',
+                padding: '10px 0',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={!newPrompt.trim() || librarySearching || aiGeneratingSlot5}
+              className="primary-btn"
+              style={{
+                padding: '10px 20px',
+                fontSize: 13,
+                fontWeight: 500,
+                opacity: !newPrompt.trim() ? 0.4 : 1,
+              }}
+            >
+              {librarySearching || aiGeneratingSlot5 ? 'Generiere…' : 'Enter'}
+            </button>
+          </form>
+
+          {/* 5-CARD RESULT STRIP (4 OPEN LIBRARY HITS + 5TH AI GENERATED MODEL) */}
+          {hasSearchedOnce && (
+            <div
+              style={{
+                width: '100%',
+                marginTop: 28,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+                border: '1px solid var(--line-hairline)',
+                background: 'var(--bg-canvas)',
+              }}
+            >
+              {/* SLOTS 1..4: OPEN 3D LIBRARIES (REAL PRINTABLES STL MESHES) */}
+              {[0, 1, 2, 3].map((slotIdx) => {
+                const hit = libraryHits[slotIdx];
+                const isLoading = librarySearching;
+
+                return (
+                  <div
+                    key={`slot-${slotIdx + 1}`}
+                    style={{
+                      borderRight: '1px solid var(--line-hairline)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      minHeight: 370,
+                      background: 'var(--bg-canvas)',
+                    }}
+                  >
+                    {isLoading ? (
+                      <div style={{ padding: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <div className="shimmer-block" style={{ width: '42%', height: 10 }} />
+                          <div className="shimmer-block" style={{ width: '18%', height: 10 }} />
+                        </div>
+                        <div
+                          className="shimmer-block"
+                          style={{ width: '100%', height: 220, marginTop: 12, borderRadius: 4 }}
+                        />
+                        <div
+                          className="shimmer-block"
+                          style={{ width: '80%', height: 14, marginTop: 14 }}
+                        />
+                        <div
+                          className="shimmer-block"
+                          style={{ width: '55%', height: 10, marginTop: 8 }}
+                        />
+                      </div>
+                    ) : !hit ? (
+                      <div
+                        style={{
+                          padding: 20,
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontFamily: 'var(--font-mono)',
+                            color: '#ef4444',
+                            letterSpacing: '0.06em',
+                          }}
+                        >
+                          {slotIdx + 1}/5 · KEIN ERGEBNIS
+                        </span>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                          {libraryError ||
+                            `Kein weiteres druckbares 3D-Modell in der Open Library für "${newPrompt}" gefunden.`}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Card Top Header */}
+                        <div
+                          style={{
+                            padding: '12px 14px 8px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            borderBottom: '1px solid var(--line-hairline)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontFamily: 'var(--font-mono)',
+                              letterSpacing: '0.06em',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            {slotIdx + 1}/5 · {hit.repository}
+                          </span>
+                          <span
+                            className="tabular-nums"
+                            style={{
+                              fontSize: 10,
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {hit.dimensionsLabel}
+                          </span>
+                        </div>
+
+                        {/* Interactive 3D Model Preview (Real parsed STL mesh from Printables) */}
+                        <div
+                          onClick={() => {
+                            if (hit.parametricScene) {
+                              void handleImportLibraryHitToRefine(hit);
+                            }
+                          }}
+                          style={{
+                            height: 230,
+                            width: '100%',
+                            position: 'relative',
+                            cursor: hit.parametricScene ? 'pointer' : 'default',
+                            borderBottom: '1px solid var(--line-hairline)',
+                          }}
+                        >
+                          {hit.parametricScene ? (
+                            <MiniCard3dViewport scene={hit.parametricScene} autoRotate={true} />
+                          ) : (
+                            <div
+                              style={{
+                                height: '100%',
+                                padding: 16,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                gap: 6,
+                                fontSize: 11.5,
+                                color: '#ef4444',
+                              }}
+                            >
+                              <span>STL-Vorschau fehlgeschlagen:</span>
+                              <span style={{ color: 'var(--text-muted)' }}>
+                                {hit.meshError || 'STL-Datei konnte nicht geladen werden.'}
+                              </span>
+                            </div>
+                          )}
+                          {hit.thumbnailUrl && (
+                            <img
+                              src={hit.thumbnailUrl}
+                              alt={hit.title}
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 8,
+                                right: 8,
+                                width: 42,
+                                height: 42,
+                                objectFit: 'cover',
+                                borderRadius: 4,
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                background: '#111113',
+                              }}
+                            />
+                          )}
+                        </div>
+
+                        {/* Card Footer */}
+                        <div
+                          style={{
+                            padding: '12px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                          }}
+                        >
+                          <div
+                            onClick={() => {
+                              if (hit.parametricScene) {
+                                void handleImportLibraryHitToRefine(hit);
+                              }
+                            }}
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 500,
+                              color: 'var(--text-primary)',
+                              cursor: hit.parametricScene ? 'pointer' : 'default',
+                              lineHeight: 1.35,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              minHeight: 35,
+                            }}
+                          >
+                            {hit.title}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                            {hit.parametricScene && (
+                              <button
+                                type="button"
+                                onClick={() => void handleImportLibraryHitToRefine(hit)}
+                                className="ghost-btn"
+                                style={{ flex: 1, padding: '6px 8px', fontSize: 11.5 }}
+                              >
+                                3D Öffnen
+                              </button>
+                            )}
+                            <a
+                              href={hit.externalUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="ghost-btn"
+                              style={{
+                                padding: '6px 8px',
+                                fontSize: 11,
+                                textDecoration: 'none',
+                                color: 'var(--text-muted)',
+                              }}
+                            >
+                              Printables
+                            </a>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* SLOT 5 (RIGHTMOST): AI-GENERATED 3D MODEL -> CLICK TO REFINE */}
+              <div
+                onClick={() => {
+                  if (!aiGeneratingSlot5 && aiSlot5Result) {
+                    void handleSelectAiSlot5ForRefine();
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  minHeight: 370,
+                  background: '#0d0d10',
+                  cursor: !aiGeneratingSlot5 && aiSlot5Result ? 'pointer' : 'default',
+                  borderLeft: '1px solid rgba(16, 185, 129, 0.25)',
+                }}
+              >
+                {aiGeneratingSlot5 ? (
+                  <div style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <div className="shimmer-block" style={{ width: '50%', height: 10 }} />
+                      <div className="shimmer-block" style={{ width: '20%', height: 10 }} />
+                    </div>
+                    <div
+                      className="shimmer-block"
+                      style={{ width: '100%', height: 220, marginTop: 12, borderRadius: 4 }}
+                    />
+                    <div
+                      className="shimmer-block"
+                      style={{ width: '85%', height: 14, marginTop: 14 }}
+                    />
+                    <div
+                      className="shimmer-block"
+                      style={{ width: '60%', height: 10, marginTop: 8 }}
+                    />
+                  </div>
+                ) : aiSlot5Error || !aiSlot5Result ? (
+                  <div
+                    style={{
+                      padding: 20,
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontFamily: 'var(--font-mono)',
+                        color: '#ef4444',
+                        letterSpacing: '0.06em',
+                        fontWeight: 600,
+                      }}
+                    >
+                      5/5 · KI-GENERIERUNG FEHLGESCHLAGEN
+                    </span>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                      {aiSlot5Error || 'KI-Modell konnte nicht generiert werden.'}
+                    </div>
+                    <a
+                      href="/apps/cortex/?tab=vault"
+                      onClick={(e) => e.stopPropagation()}
+                      className="ghost-btn"
+                      style={{
+                        marginTop: 4,
+                        padding: '6px 10px',
+                        fontSize: 11.5,
+                        textDecoration: 'none',
+                        textAlign: 'center',
+                      }}
+                    >
+                      API-Key im Cortex Vault prüfen
+                    </a>
+                  </div>
+                ) : (
+                  <>
+                    {/* Slot 5 Header */}
+                    <div
+                      style={{
+                        padding: '12px 14px 8px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderBottom: '1px solid var(--line-hairline)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'var(--font-mono)',
+                          letterSpacing: '0.06em',
+                          color: '#10b981',
+                          fontWeight: 600,
+                        }}
+                      >
+                        5/5 · KI-GENERIERT
+                      </span>
+                      <span
+                        className="tabular-nums"
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        {aiSlot5Result.stats.dimensionsMm.x}×{aiSlot5Result.stats.dimensionsMm.y}×
+                        {aiSlot5Result.stats.dimensionsMm.z} mm
+                      </span>
+                    </div>
+
+                    {/* Interactive 3D Viewport */}
+                    <div
+                      style={{
+                        height: 230,
+                        width: '100%',
+                        position: 'relative',
+                        borderBottom: '1px solid var(--line-hairline)',
+                      }}
+                    >
+                      <MiniCard3dViewport
+                        scene={aiSlot5Result.scene}
+                        autoRotate={true}
+                        accentBorder={true}
+                      />
+                    </div>
+
+                    {/* Slot 5 Footer */}
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          color: 'var(--text-primary)',
+                          lineHeight: 1.35,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          minHeight: 35,
+                        }}
+                      >
+                        {aiSlot5Result.scene.title}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleSelectAiSlot5ForRefine();
+                        }}
+                        className="primary-btn"
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          fontSize: 11.5,
+                          marginTop: 2,
+                        }}
+                      >
+                        Verfeinern (KI-Refine)
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </main>
+      )}
+
+      {/* =====================================================================
+          VIEW 2: HYPER-SIMPLISTIC AI REFINE PAGE (3D Canvas + Prompt Bar)
+          ===================================================================== */}
+      {viewMode === 'refine' && (
+        <main
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            position: 'relative',
+            height: 'calc(100vh - 48px)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Floating Minimal Camera / Render Mode Pill (Top-Left of Canvas) */}
           <div
             style={{
               position: 'absolute',
-              right: 22,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              background: 'rgba(6, 10, 22, 0.85)',
-              backdropFilter: 'blur(20px)',
-              padding: '14px 12px',
-              borderRadius: 14,
-              border: '1px solid rgba(251, 191, 36, 0.35)',
+              top: 16,
+              left: 24,
+              zIndex: 10,
               display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 8,
+              gap: 6,
+              background: 'rgba(17, 17, 19, 0.85)',
+              border: '1px solid var(--line-hairline)',
+              padding: 4,
+              borderRadius: 6,
             }}
           >
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24' }}>
-              LAYER {Math.max(1, Math.round(sliceRatio * (stats?.layerCount || 1)))} /{' '}
-              {stats?.layerCount || 1}
-            </span>
-            <input
-              type="range"
-              min={0.03}
-              max={1}
-              step={0.01}
-              value={sliceRatio}
-              onChange={(e) => setSliceRatio(Number(e.target.value))}
+            {(
+              [
+                { id: 'solid', label: 'Solid' },
+                { id: 'wireframe', label: 'Wire' },
+                { id: 'xray', label: 'X-Ray' },
+                { id: 'slicer', label: 'Schichten' },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setRenderMode(m.id)}
+                className="ghost-btn"
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  border: 'none',
+                  background: renderMode === m.id ? 'var(--bg-input)' : 'transparent',
+                  color: renderMode === m.id ? 'var(--text-primary)' : 'var(--text-muted)',
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setAutoRotate((v) => !v)}
+              className="ghost-btn"
               style={{
-                writingMode: 'vertical-lr',
-                direction: 'rtl',
-                height: 180,
-                accentColor: '#fbbf24',
-                cursor: 'pointer',
-              }}
-            />
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)' }}>
-              {(sliceRatio * (stats?.dimensionsMm.z || 0)).toFixed(1)} mm
-            </span>
-          </div>
-        )}
-
-        {/* BOTTOM VIEWPORT BAR: LIVE PROMPT MODIFIER + PRINT PROGRESS + EXPORT */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 20,
-            right: 20,
-            bottom: 18,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
-        >
-          {busyMessage && (
-            <div
-              style={{
-                alignSelf: 'flex-start',
-                background: 'rgba(14, 116, 144, 0.9)',
-                color: '#fff',
-                padding: '7px 14px',
-                borderRadius: 10,
-                fontSize: 12,
-                fontWeight: 500,
+                padding: '3px 8px',
+                fontSize: 11,
+                border: 'none',
+                color: autoRotate ? '#10b981' : 'var(--text-muted)',
               }}
             >
-              ⏳ {busyMessage}
-            </div>
-          )}
+              Auto-Rotation
+            </button>
+          </div>
 
-          {/* LIVE PROMPT MODIFIER BAR FOR ACTIVE 3D OBJECT */}
-          {activeProj && (
+          {/* Full-Screen 3D Canvas */}
+          <div style={{ flex: 1, width: '100%', height: '100%' }}>
+            <Interactive3dViewport
+              scene={activeProj?.scene || null}
+              renderMode={renderMode}
+              sliceRatio={sliceRatio}
+              autoRotate={autoRotate}
+              cameraResetKey={cameraResetKey}
+              cameraPreset={cameraPreset}
+            />
+          </div>
+
+          {/* Bottom Floating Prompt Bar for Iterative Text Refinement */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 28,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '100%',
+              maxWidth: 720,
+              padding: '0 20px',
+              zIndex: 10,
+            }}
+          >
+            {modifyError && (
+              <div
+                style={{
+                  marginBottom: 8,
+                  padding: '8px 12px',
+                  background: 'rgba(239, 68, 68, 0.14)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: '#fca5a5',
+                }}
+              >
+                {modifyError}
+              </div>
+            )}
+
+            {activeProj?.scene.promptHistory?.[0] && (
+              <div
+                style={{
+                  marginBottom: 8,
+                  padding: '6px 12px',
+                  background: 'rgba(17, 17, 19, 0.9)',
+                  border: '1px solid var(--line-hairline)',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <span>{activeProj.scene.promptHistory[0].summary}</span>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {activeProj.scene.nodes.length} Bauteile
+                </span>
+              </div>
+            )}
+
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -900,402 +1838,317 @@ export function App() {
               }}
               style={{
                 display: 'flex',
-                gap: 8,
-                background: 'rgba(6, 10, 22, 0.86)',
-                backdropFilter: 'blur(24px)',
-                padding: 10,
-                borderRadius: 14,
-                border: '1px solid rgba(56, 189, 248, 0.28)',
+                alignItems: 'center',
+                background: '#111113',
+                border: '1px solid rgba(255, 255, 255, 0.16)',
+                borderRadius: 6,
+                padding: '6px 8px 6px 16px',
               }}
             >
               <input
+                type="text"
                 value={modifyPrompt}
                 onChange={(e) => setModifyPrompt(e.target.value)}
-                placeholder="Aktuelles 3D-Objekt per Prompt verändern (z.B. 'Mache es 25% höher', 'Bohrung Ø10mm in der Mitte', 'Farbe Rot', 'Füge Sockelplatte hinzu')…"
+                placeholder="Änderung beschreiben… (z.B. '25% höher', 'Farbe Blau', '10mm Bohrung in die Mitte', 'Henkel hinzufügen')"
+                autoFocus
                 style={{
                   flex: 1,
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: 10,
-                  padding: '9px 14px',
-                  color: '#fff',
-                  fontSize: 13,
+                  background: 'transparent',
+                  border: 'none',
                   outline: 'none',
+                  color: 'var(--text-primary)',
+                  fontSize: 14,
+                  padding: '8px 0',
                 }}
               />
               <button
                 type="submit"
+                disabled={!modifyPrompt.trim()}
+                className="primary-btn"
                 style={{
-                  background: 'linear-gradient(135deg, #38bdf8, #0284c7)',
-                  color: '#040711',
-                  border: 'none',
-                  borderRadius: 10,
-                  padding: '0 18px',
-                  fontWeight: 700,
+                  padding: '8px 16px',
                   fontSize: 12.5,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
+                  opacity: !modifyPrompt.trim() ? 0.4 : 1,
                 }}
               >
-                ✨ Objekt per KI anpassen
+                Anwenden
               </button>
             </form>
-          )}
-
-          {/* PRINT PROGRESS & EXPORT BAR */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 12,
-              background: 'rgba(6, 10, 22, 0.86)',
-              backdropFilter: 'blur(24px)',
-              padding: '12px 16px',
-              borderRadius: 16,
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
-            {/* PROGRESS METER */}
-            <div style={{ flex: 1, minWidth: 240 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 11.5,
-                  marginBottom: 5,
-                }}
-              >
-                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
-                  {tel?.printerState === 'RUNNING' || tel?.printerState === 'PREPARE'
-                    ? `🖨️ Druckt: ${tel.lastMessage}`
-                    : tel?.lastMessage || 'Bereit zum Slicen & Drucken'}
-                </span>
-                <span style={{ fontWeight: 700, color: '#00AE42' }}>
-                  {activeProj ? `${tel?.progressPercent ?? 100}%` : '0% (Leerlauf)'}
-                </span>
-              </div>
-              <div
-                style={{
-                  height: 7,
-                  borderRadius: 99,
-                  background: 'rgba(255,255,255,0.09)',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${activeProj ? (tel?.progressPercent ?? 100) : 0}%`,
-                    height: '100%',
-                    background: 'linear-gradient(90deg, #00AE42, #38bdf8)',
-                    transition: 'width 0.4s ease',
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 14,
-                  fontSize: 11,
-                  color: 'rgba(248,250,252,0.55)',
-                  marginTop: 5,
-                }}
-              >
-                <span>🌡️ Düse: {tel?.nozzleTempC ?? 24}°C / {tel?.nozzleTargetTempC ?? 0}°C</span>
-                <span>🔥 Heizbett: {tel?.bedTempC ?? 24}°C / {tel?.bedTargetTempC ?? 0}°C</span>
-                <span>
-                  📑 Layer: {tel?.currentLayer ?? 0} / {tel?.totalLayers ?? (stats?.layerCount || 0)}
-                </span>
-                <span style={{ color: 'rgba(248,250,252,0.4)' }}>
-                  🖱️ Links ziehen: Drehen · Rechts/Shift: Verschieben · Mausrad: Zoom
-                </span>
-              </div>
-            </div>
-
-            {/* EXPORT & PRINT BUTTONS */}
-            {activeProj && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => handleExportFile('3mf')}
-                  style={exportBtnStyle}
-                  title="Bambu Studio / OrcaSlicer / ElegooSlicer .3MF Projektdatei herunterladen"
-                >
-                  ⬇ .3MF (Bambu)
-                </button>
-                <button
-                  onClick={() => handleExportFile('stl')}
-                  style={exportBtnStyle}
-                  title="Standard Binary .STL Mesh herunterladen"
-                >
-                  ⬇ .STL
-                </button>
-                <button
-                  onClick={() => handleExportFile('gcode')}
-                  style={exportBtnStyle}
-                  title="Direkt druckbaren Bambu Lab P1S .GCODE herunterladen"
-                >
-                  ⬇ .GCODE
-                </button>
-
-                {tel?.printerState === 'RUNNING' || tel?.printerState === 'PREPARE' ? (
-                  <>
-                    <button
-                      onClick={() => handlePrintAction('pause')}
-                      style={{ ...primaryBtnStyle, background: '#fbbf24' }}
-                    >
-                      ⏸ Pause
-                    </button>
-                    <button
-                      onClick={() => handlePrintAction('stop')}
-                      style={{ ...primaryBtnStyle, background: '#ef4444', color: '#fff' }}
-                    >
-                      ⏹ Stop
-                    </button>
-                  </>
-                ) : tel?.printerState === 'PAUSE' ? (
-                  <>
-                    <button
-                      onClick={() => handlePrintAction('resume')}
-                      style={{ ...primaryBtnStyle, background: '#00AE42', color: '#fff' }}
-                    >
-                      ▶ Fortsetzen
-                    </button>
-                    <button
-                      onClick={() => handlePrintAction('stop')}
-                      style={{ ...primaryBtnStyle, background: '#ef4444', color: '#fff' }}
-                    >
-                      ⏹ Stop
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => handlePrintAction('start')}
-                    style={{
-                      ...primaryBtnStyle,
-                      background: 'linear-gradient(135deg, #00AE42, #16a34a)',
-                      color: '#fff',
-                    }}
-                  >
-                    🖨️ An BambuLab senden / Druck starten
-                  </button>
-                )}
-              </div>
-            )}
           </div>
-        </div>
-      </div>
+        </main>
+      )}
 
-      {/* RIGHT REGION: AI STUDIO, PARAMETRIC COMPONENT INSPECTOR & BAMBULAB NETWORK */}
-      <div
-        style={{
-          height: '100vh',
-          overflowY: 'auto',
-          background: '#080d1a',
-          borderLeft: '1px solid rgba(255,255,255,0.08)',
-          padding: '18px 20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-        }}
-      >
-        {/* TAB NAVIGATION */}
+      {/* =====================================================================
+          SLIDE-OVER DRAWERS (Inspector, Saved Projects, Printer & Setup)
+          ===================================================================== */}
+      {activeDrawer && (
         <div
+          onClick={() => setActiveDrawer(null)}
           style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            gap: 6,
-            background: '#0f172a',
-            padding: 5,
-            borderRadius: 12,
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            zIndex: 100,
+            display: 'flex',
+            justifyContent: 'flex-end',
           }}
         >
-          {(
-            [
-              ['ai_editor', '✨ KI & Projekte'],
-              ['nodes', '📐 CAD-Bauteile'],
-              ['bambu_network', '📡 Bambu LAN'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 440,
+              maxWidth: '92vw',
+              height: '100vh',
+              background: '#111113',
+              borderLeft: '1px solid var(--line-hairline)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflowY: 'auto',
+              padding: 24,
+            }}
+          >
+            {/* Drawer Header */}
+            <div
               style={{
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 6px',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: activeTab === id ? '#38bdf8' : 'transparent',
-                color: activeTab === id ? '#040711' : 'rgba(248,250,252,0.7)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingBottom: 14,
+                borderBottom: '1px solid var(--line-hairline)',
+                marginBottom: 18,
               }}
             >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* TAB 1: AI GENERATOR, QUICK MODIFIERS & PROJECT LIST */}
-        {activeTab === 'ai_editor' && (
-          <>
-            <div style={cardStyle}>
-              <div style={sectionHeaderStyle}>
-                <span>NEUES 3D-OBJEKT PER KI GENERIEREN</span>
-                <span style={{ color: '#4ade80', fontSize: 10 }}>
-                  {data?.aiStatus?.engine || 'Antigravity AI'}
-                </span>
-              </div>
-              <form onSubmit={(e) => void handleGenerateNew(e)} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <textarea
-                  rows={2}
-                  value={newPrompt}
-                  onChange={(e) => setNewPrompt(e.target.value)}
-                  placeholder="Beschreibe das gewünschte 3D-Druckteil (z.B. 'Zahnrad mit 30 Zähnen und 8mm Bohrung', 'Spiral-Vase 110mm hoch', 'Schreibtisch-Organizer 3x2 Fächer')…"
-                  style={inputStyle}
-                />
-                <button
-                  type="submit"
-                  style={{
-                    ...primaryBtnStyle,
-                    width: '100%',
-                    background: 'linear-gradient(135deg, #38bdf8, #0284c7)',
-                  }}
-                >
-                  🚀 Neues 3D-Objekt generieren & slicen
-                </button>
-              </form>
-
-              <div style={{ marginTop: 10 }}>
-                <div style={{ fontSize: 10.5, color: 'rgba(248,250,252,0.5)', marginBottom: 6 }}>
-                  Schnellstart-Vorlagen (Bambu Lab P1S optimiert):
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {[
-                    ['desk_headphone_stand', '🎧 Kopfhörerhalter'],
-                    ['precision_planetary_gear', '⚙️ Stirnrad Z24'],
-                    ['twisted_rib_vase', '🏺 Spiral-Designvase'],
-                    ['smart_home_organizer', '📦 6-Fach Organizer'],
-                  ].map(([key, lbl]) => (
-                    <button
-                      key={key}
-                      onClick={() => void handleGenerateNew(undefined, key)}
-                      style={chipBtnStyle}
-                    >
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {activeDrawer === 'inspector'
+                  ? 'CAD-Inspektor, Slicer & Verlauf'
+                  : activeDrawer === 'projects'
+                    ? 'Gespeicherte 3D-Projekte'
+                    : 'Bambu Lab Drucker & LAN-Setup'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveDrawer(null)}
+                className="ghost-btn"
+                style={{ padding: '3px 8px', fontSize: 11.5 }}
+              >
+                Schließen
+              </button>
             </div>
 
-            {activeProj && (
-              <div style={cardStyle}>
-                <div style={sectionHeaderStyle}>
-                  <span>SCHNELL-MODIFIKATIONEN (AKTIVES OBJEKT)</span>
-                  <span style={{ color: '#38bdf8' }}>{activeProj.scene.nodes.length} Nodes</span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {[
-                    'Mache das Objekt 25% höher',
-                    'Vergrößere die Breite um 20%',
-                    'Füge eine Bohrung mit 10mm Durchmesser in der Mitte hinzu',
-                    'Füge unten eine verstärkte Sockelplatte hinzu',
-                    'Füge oben einen Befestigungsring hinzu',
-                    'Ändere die Farbe auf Bambu Grün #00AE42',
-                    'Ändere die Farbe auf Cyber Blau #38bdf8',
-                    'Ändere die Farbe auf Gold #fbbf24',
-                  ].map((qPrompt) => (
-                    <button
-                      key={qPrompt}
-                      onClick={() => void handleModifyScene(qPrompt)}
-                      style={chipBtnStyle}
-                    >
-                      + {qPrompt}
-                    </button>
-                  ))}
+            {/* DRAWER 1: INSPECTOR & VERSION HISTORY */}
+            {activeDrawer === 'inspector' && activeProj && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {/* Layer Slicer Slider */}
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--text-secondary)',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span>SCHICHT-VORSCHAU (SLICER)</span>
+                    <span>
+                      {Math.max(1, Math.round(sliceRatio * (stats?.layerCount || 1)))} /{' '}
+                      {stats?.layerCount || 1} ({Math.round(sliceRatio * 100)}%)
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.02}
+                    max={1.0}
+                    step={0.01}
+                    value={sliceRatio}
+                    onChange={(e) => setSliceRatio(Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
                 </div>
 
-                {/* Prompt History */}
-                {activeProj.scene.promptHistory?.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 10.5, color: 'rgba(248,250,252,0.45)', marginBottom: 6 }}>
-                      KI-Prompt-Verlauf ({activeProj.scene.promptHistory.length}):
-                    </div>
-                    <div
-                      style={{
-                        maxHeight: 135,
-                        overflowY: 'auto',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 6,
-                      }}
-                    >
-                      {activeProj.scene.promptHistory.map((h) => (
-                        <div
-                          key={h.id}
-                          style={{
-                            background: 'rgba(255,255,255,0.035)',
-                            padding: '7px 10px',
-                            borderRadius: 8,
-                            fontSize: 11.5,
-                          }}
-                        >
-                          <div style={{ fontWeight: 600, color: '#e2e8f0' }}>“{h.prompt}”</div>
-                          <div style={{ color: 'rgba(248,250,252,0.58)', fontSize: 11, marginTop: 2 }}>
-                            {h.summary}
+                {/* Export Formats */}
+                <div>
+                  <div style={sectionLabelStyle}>DATEI-EXPORT</div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: 6,
+                      marginTop: 8,
+                    }}
+                  >
+                    {(['3mf', 'stl', 'obj', 'gcode'] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        type="button"
+                        onClick={() => void handleExportFile(fmt)}
+                        className="ghost-btn"
+                        style={{ padding: '6px 8px', fontSize: 11.5 }}
+                      >
+                        .{fmt.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Version History */}
+                <div>
+                  <div style={sectionLabelStyle}>PROMPT-VERLAUF</div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                      marginTop: 8,
+                    }}
+                  >
+                    {versionHistory.map((snap) => (
+                      <div
+                        key={snap.id}
+                        style={{
+                          padding: 10,
+                          border: '1px solid var(--line-hairline)',
+                          borderRadius: 4,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>
+                            &ldquo;{snap.prompt}&rdquo;
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {snap.summary}
                           </div>
                         </div>
-                      ))}
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleRestoreVersionSnapshot(snap)}
+                          className="ghost-btn"
+                          style={{ padding: '4px 8px', fontSize: 11 }}
+                        >
+                          Laden
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+
+                {/* Parametric Nodes */}
+                <div>
+                  <div style={sectionLabelStyle}>
+                    CAD-BAUTEILE ({activeProj.scene.nodes.length})
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                      marginTop: 8,
+                    }}
+                  >
+                    {activeProj.scene.nodes.map((node, idx) => (
+                      <div
+                        key={node.id}
+                        style={{
+                          padding: 10,
+                          border: '1px solid var(--line-hairline)',
+                          borderRadius: 4,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: 12,
+                            marginBottom: 8,
+                          }}
+                        >
+                          <span style={{ fontWeight: 500 }}>{node.name}</span>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {node.type} ({node.operation})
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: 6,
+                          }}
+                        >
+                          {Object.entries(node.params).map(([pKey, pVal]) => (
+                            <label
+                              key={pKey}
+                              style={{
+                                fontSize: 10.5,
+                                color: 'var(--text-muted)',
+                                fontFamily: 'var(--font-mono)',
+                              }}
+                            >
+                              {pKey}
+                              <input
+                                type="number"
+                                step="any"
+                                value={pVal}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  const nextNodes = activeProj.scene.nodes.map((n, i) =>
+                                    i === idx
+                                      ? { ...n, params: { ...n.params, [pKey]: val } }
+                                      : n
+                                  );
+                                  void handleDirectNodeUpdate(nextNodes);
+                                }}
+                                style={{ ...inputStyle, marginTop: 2, padding: '4px 6px' }}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* PROJECT LIST & PLACEHOLDER TOGGLE */}
-            <div style={cardStyle}>
-              <div style={sectionHeaderStyle}>
-                <span>3D-DRUCK PROJEKTE ({data?.projects?.length || 0})</span>
-                <button
-                  onClick={async () => {
-                    await api.post('/projects/select', {
-                      projectId: activeProj ? null : data?.projects?.[0]?.id || null,
-                    });
-                    await loadDashboard();
-                  }}
-                  style={{
-                    border: '1px solid rgba(251, 191, 36, 0.4)',
-                    background: !activeProj ? 'rgba(251, 191, 36, 0.2)' : 'transparent',
-                    color: '#fbbf24',
-                    borderRadius: 6,
-                    padding: '3px 8px',
-                    fontSize: 10.5,
-                    cursor: 'pointer',
-                  }}
-                  title="Schaltet um zwischen aktivem 3D-Projekt und dem Leerlauf-Platzhalter auf dem HASS Dashboard"
-                >
-                  {activeProj ? '⏸ Projekt deaktivieren (Platzhalter)' : '▶ Projekt aktivieren'}
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {(data?.projects || []).map((p) => {
-                  const isSelected = activeProj?.id === p.id;
+            {/* DRAWER 2: SAVED PROJECTS */}
+            {activeDrawer === 'projects' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {projects.map((p) => {
+                  const isSelected = p.id === activeProj?.id;
                   return (
                     <div
                       key={p.id}
                       onClick={async () => {
                         await api.post('/projects/select', { projectId: p.id });
                         await loadDashboard();
+                        setActiveDrawer(null);
+                        setViewMode('refine');
                       }}
                       style={{
-                        padding: '10px 12px',
-                        borderRadius: 10,
-                        background: isSelected ? 'rgba(56, 189, 248, 0.14)' : 'rgba(255,255,255,0.03)',
-                        border: isSelected
-                          ? '1px solid rgba(56, 189, 248, 0.45)'
-                          : '1px solid rgba(255,255,255,0.06)',
+                        padding: 12,
+                        border: '1px solid var(--line-hairline)',
+                        borderColor: isSelected
+                          ? 'rgba(16, 185, 129, 0.45)'
+                          : 'var(--line-hairline)',
+                        borderRadius: 4,
                         cursor: 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -1303,344 +2156,208 @@ export function App() {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
-                          {isSelected ? '● ' : ''}
-                          {p.title}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'rgba(248,250,252,0.55)', marginTop: 2 }}>
-                          {p.stats.dimensionsMm.x}×{p.stats.dimensionsMm.y}×{p.stats.dimensionsMm.z}mm ·{' '}
-                          {p.stats.filamentWeightG}g · {p.stats.layerCount} Layer
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{p.title}</div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontFamily: 'var(--font-mono)',
+                            color: 'var(--text-muted)',
+                            marginTop: 4,
+                          }}
+                        >
+                          {p.stats.dimensionsMm.x}×{p.stats.dimensionsMm.y}×
+                          {p.stats.dimensionsMm.z} mm · {p.stats.filamentWeightG} g
                         </div>
                       </div>
                       <button
-                        onClick={async (ev) => {
-                          ev.stopPropagation();
-                          await api.delete(`/projects?id=${encodeURIComponent(p.id)}`);
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await api.post('/projects/delete', { projectId: p.id });
                           await loadDashboard();
                         }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'rgba(248, 113, 113, 0.7)',
-                          cursor: 'pointer',
-                          fontSize: 13,
-                        }}
-                        title="Projekt löschen"
+                        className="ghost-btn"
+                        style={{ padding: '4px 8px', fontSize: 11, color: '#ef4444' }}
                       >
-                        ✕
+                        Löschen
                       </button>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          </>
-        )}
-
-        {/* TAB 2: DIRECT PARAMETRIC CAD COMPONENT INSPECTOR */}
-        {activeTab === 'nodes' && (
-          <div style={cardStyle}>
-            <div style={sectionHeaderStyle}>
-              <span>PARAMETRISCHE CAD-KOMPONENTEN</span>
-              <span style={{ color: '#38bdf8' }}>{activeProj?.scene.nodes.length || 0} Elemente</span>
-            </div>
-            {!activeProj ? (
-              <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.5)' }}>
-                Kein aktives 3D-Projekt ausgewählt.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {activeProj.scene.nodes.map((node, idx) => (
-                  <div
-                    key={node.id}
-                    style={{
-                      background: 'rgba(255,255,255,0.035)',
-                      padding: 12,
-                      borderRadius: 10,
-                      border: '1px solid rgba(255,255,255,0.07)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 8,
-                      }}
-                    >
-                      <strong style={{ fontSize: 12.5, color: '#fff' }}>
-                        #{idx + 1} {node.name} ({node.type})
-                      </strong>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          padding: '2px 7px',
-                          borderRadius: 99,
-                          background:
-                            node.operation === 'subtract'
-                              ? 'rgba(244,63,94,0.2)'
-                              : 'rgba(0,174,66,0.2)',
-                          color: node.operation === 'subtract' ? '#fb7185' : '#4ade80',
-                        }}
-                      >
-                        {node.operation === 'subtract' ? 'Abzug (Bohrung)' : 'Solid (Union)'}
-                      </span>
-                    </div>
-
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: 8,
-                        fontSize: 11.5,
-                      }}
-                    >
-                      {Object.entries(node.params).map(([pKey, pVal]) => (
-                        <label
-                          key={pKey}
-                          style={{ display: 'flex', flexDirection: 'column', gap: 3 }}
-                        >
-                          <span style={{ color: 'rgba(248,250,252,0.55)', fontSize: 10.5 }}>
-                            {pKey}
-                          </span>
-                          <input
-                            type="number"
-                            step="any"
-                            value={pVal}
-                            onChange={(e) => {
-                              const nextNodes = activeProj.scene.nodes.map((n, i) =>
-                                i === idx
-                                  ? {
-                                      ...n,
-                                      params: { ...n.params, [pKey]: Number(e.target.value) },
-                                    }
-                                  : n
-                              );
-                              void handleDirectNodeUpdate(nextNodes);
-                            }}
-                            style={{ ...inputStyle, padding: '5px 8px', marginBottom: 0 }}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
             )}
-          </div>
-        )}
 
-        {/* TAB 3: BAMBULAB NETWORK DISCOVERY & DIRECT LAN API CONFIG */}
-        {activeTab === 'bambu_network' && (
-          <>
-            <div style={cardStyle}>
-              <div style={sectionHeaderStyle}>
-                <span>1. BAMBULAB IM NETZWERK FINDEN</span>
-                <span style={{ color: '#38bdf8' }}>192.168.188.0/24</span>
-              </div>
-              <p style={{ fontSize: 12, color: 'rgba(248,250,252,0.68)', margin: '0 0 10px' }}>
-                Scannt das lokale Fritz!Box-Subnetz aktiv via <strong>SSDP Multicast (UDP 2021 / 1990)</strong>{' '}
-                sowie <strong>MQTT-over-TLS (Port 8883)</strong> &amp; <strong>Implicit FTPS (Port 990)</strong>.
-              </p>
-              <button
-                onClick={() => void handleDiscoverPrinter()}
-                style={{
-                  ...primaryBtnStyle,
-                  width: '100%',
-                  background: 'linear-gradient(135deg, #38bdf8, #0284c7)',
-                }}
-              >
-                🔍 BambuLab Drucker im LAN jetzt suchen
-              </button>
-              {discoverResult && (
+            {/* DRAWER 3: PRINTER TELEMETRY & LAN SETUP */}
+            {activeDrawer === 'printer' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                {/* Live Telemetry Summary */}
                 <div
                   style={{
-                    marginTop: 10,
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    background: 'rgba(56, 189, 248, 0.1)',
-                    border: '1px solid rgba(56, 189, 248, 0.25)',
-                    fontSize: 11.5,
-                    lineHeight: 1.45,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 10,
+                    paddingBottom: 16,
+                    borderBottom: '1px solid var(--line-hairline)',
                   }}
                 >
-                  {discoverResult}
+                  <div>
+                    <div style={sectionLabelStyle}>STATUS</div>
+                    <div
+                      className="tabular-nums"
+                      style={{ fontSize: 18, fontFamily: 'var(--font-mono)', marginTop: 4 }}
+                    >
+                      {tel?.printerState || 'IDLE'} ({tel?.progressPercent || 0}%)
+                    </div>
+                  </div>
+                  <div>
+                    <div style={sectionLabelStyle}>TEMPERATUREN</div>
+                    <div
+                      className="tabular-nums"
+                      style={{ fontSize: 14, fontFamily: 'var(--font-mono)', marginTop: 4 }}
+                    >
+                      Düse {tel?.nozzleTempC ?? 24}°C · Bett {tel?.bedTempC ?? 24}°C
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            <div style={cardStyle}>
-              <div style={sectionHeaderStyle}>
-                <span>2. DIREKTE LAN-VERBINDUNG &amp; CREDENTIALS</span>
-                <span style={{ color: data?.printerConfig?.accessCodeConfigured ? '#4ade80' : '#fbbf24' }}>
-                  {data?.printerConfig?.accessCodeConfigured ? 'Access Code gesetzt' : 'Standby / Digital Twin'}
-                </span>
-              </div>
-              <form onSubmit={handleSavePrinterConfig} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <label style={{ fontSize: 11, color: 'rgba(248,250,252,0.65)' }}>
-                  Drucker-Modell (aus lokalem Slicer-Profil erkannt)
-                  <input
-                    value={printerModel}
-                    onChange={(e) => setPrinterModel(e.target.value)}
-                    style={{ ...inputStyle, marginTop: 4 }}
-                  />
-                </label>
-                <label style={{ fontSize: 11, color: 'rgba(248,250,252,0.65)' }}>
-                  Lokale IPv4-Adresse (Subnetz 192.168.188.x)
-                  <input
-                    value={printerIp}
-                    onChange={(e) => setPrinterIp(e.target.value)}
-                    placeholder="192.168.188.x"
-                    style={{ ...inputStyle, marginTop: 4 }}
-                  />
-                </label>
-                <label style={{ fontSize: 11, color: 'rgba(248,250,252,0.65)' }}>
-                  Geräte-Seriennummer (USN, z.B. 01S00C... für P1S)
-                  <input
-                    value={printerSerial}
-                    onChange={(e) => setPrinterSerial(e.target.value)}
-                    placeholder="01S00C..."
-                    style={{ ...inputStyle, marginTop: 4 }}
-                  />
-                </label>
-                <label style={{ fontSize: 11, color: 'rgba(248,250,252,0.65)' }}>
-                  8-stelliger LAN Access Code (Username ist fest: <code>bblp</code>)
-                  <input
-                    type="password"
-                    value={printerAccessCode}
-                    onChange={(e) => setPrinterAccessCode(e.target.value)}
-                    placeholder={
-                      data?.printerConfig?.accessCodeConfigured
-                        ? '•••••••• (Gespeichert)'
-                        : '8-stelliger Code vom Drucker-Display'
-                    }
-                    style={{ ...inputStyle, marginTop: 4 }}
-                  />
-                </label>
-                <button
-                  type="submit"
+                {/* Printer Controls */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => void handlePrintAction('start')}
+                    className="primary-btn"
+                    style={{ flex: 1, padding: '7px 10px', fontSize: 12 }}
+                  >
+                    Druck starten
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handlePrintAction('pause')}
+                    className="ghost-btn"
+                    style={{ padding: '7px 10px', fontSize: 12 }}
+                  >
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handlePrintAction('stop')}
+                    className="ghost-btn"
+                    style={{ padding: '7px 10px', fontSize: 12, color: '#ef4444' }}
+                  >
+                    Stopp
+                  </button>
+                </div>
+
+                {/* LAN Configuration Form */}
+                <form
+                  onSubmit={handleSavePrinterConfig}
                   style={{
-                    ...primaryBtnStyle,
-                    background: '#00AE42',
-                    color: '#fff',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    paddingTop: 12,
+                    borderTop: '1px solid var(--line-hairline)',
                   }}
                 >
-                  💾 Verbindungsdaten speichern
-                </button>
-              </form>
-            </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={sectionLabelStyle}>BAMBU LAB LAN-KONFIGURATION</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleDiscoverPrinter()}
+                      className="ghost-btn"
+                      style={{ padding: '3px 8px', fontSize: 11 }}
+                    >
+                      LAN-Scan
+                    </button>
+                  </div>
 
-            <div style={cardStyle}>
-              <div style={sectionHeaderStyle}>
-                <span>3. PROTOKOLL- &amp; API-REFERENZ (DIREKTE KOMMUNIKATION)</span>
+                  {discoverResult && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {discoverResult}
+                    </div>
+                  )}
+
+                  <label style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    Drucker-IP
+                    <input
+                      type="text"
+                      value={printerIp}
+                      onChange={(e) => setPrinterIp(e.target.value)}
+                      style={{ ...inputStyle, marginTop: 4 }}
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    Seriennummer
+                    <input
+                      type="text"
+                      value={printerSerial}
+                      onChange={(e) => setPrinterSerial(e.target.value)}
+                      style={{ ...inputStyle, marginTop: 4 }}
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    LAN Access Code (8-stellig)
+                    <input
+                      type="password"
+                      value={printerAccessCode}
+                      onChange={(e) => setPrinterAccessCode(e.target.value)}
+                      placeholder={cfg?.accessCodeConfigured ? '•••••••• (hinterlegt)' : 'z.B. 12345678'}
+                      style={{ ...inputStyle, marginTop: 4 }}
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    className="primary-btn"
+                    style={{ padding: '8px 14px', fontSize: 12, marginTop: 4 }}
+                  >
+                    Speichern
+                  </button>
+                </form>
               </div>
-              <div style={{ fontSize: 11.5, color: 'rgba(248,250,252,0.75)', lineHeight: 1.55 }}>
-                <div>
-                  <strong>• Discovery:</strong> UDP <code>239.255.255.250:2021</code> &amp;{' '}
-                  <code>:1990</code> (<code>urn:bambulab-com:device:3dprinter:1</code>)
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <strong>• MQTT over TLS:</strong> <code>mqtts://bblp:&lt;CODE&gt;@&lt;IP&gt;:8883</code>
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <strong>• Telemetrie-Topic:</strong> <code>device/&lt;SERIAL&gt;/report</code>
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <strong>• Steuer-Topic:</strong> <code>device/&lt;SERIAL&gt;/request</code>
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <strong>• Datei-Upload (3MF/GCode):</strong>{' '}
-                  <code>ftps://bblp:&lt;CODE&gt;@&lt;IP&gt;:990/</code> (Implicit TLS)
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <strong>• Kamera-Stream:</strong> TCP <code>:6000</code> (P1S/P1P/A1) bzw. RTSPS{' '}
-                  <code>:322</code> (X1C)
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+            )}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
 
-const cardStyle: React.CSSProperties = {
-  background: '#0f172a',
-  borderRadius: 14,
-  padding: 14,
-  border: '1px solid rgba(255,255,255,0.07)',
-};
-
-const sectionHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  fontSize: 10.5,
-  fontWeight: 700,
-  letterSpacing: '0.12em',
-  color: 'rgba(248,250,252,0.55)',
-  marginBottom: 10,
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 500,
+  textTransform: 'uppercase',
+  letterSpacing: '0.07em',
+  color: 'var(--text-muted)',
 };
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  boxSizing: 'border-box',
-  background: '#060a15',
-  border: '1px solid rgba(255,255,255,0.12)',
-  borderRadius: 9,
-  padding: '8px 11px',
-  color: '#f8fafc',
+  background: 'var(--bg-input)',
+  color: 'var(--text-primary)',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  borderRadius: 4,
+  padding: '7px 10px',
   fontSize: 12.5,
+  fontFamily: 'var(--font-mono)',
   outline: 'none',
-  fontFamily: 'inherit',
 };
 
-const primaryBtnStyle: React.CSSProperties = {
-  border: 'none',
-  borderRadius: 9,
-  padding: '9px 14px',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer',
-  color: '#040711',
-};
-
-const exportBtnStyle: React.CSSProperties = {
-  background: 'rgba(56, 189, 248, 0.14)',
-  border: '1px solid rgba(56, 189, 248, 0.35)',
-  color: '#38bdf8',
-  borderRadius: 9,
-  padding: '8px 12px',
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const chipBtnStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.055)',
-  border: '1px solid rgba(255,255,255,0.09)',
-  color: '#e2e8f0',
-  borderRadius: 8,
-  padding: '5px 9px',
-  fontSize: 11,
-  cursor: 'pointer',
-  textAlign: 'left',
-};
-
-const smallHudBtnStyle: React.CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  color: 'rgba(248,250,252,0.75)',
-  padding: '4px 9px',
-  borderRadius: 6,
-  fontSize: 11,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+const rootEl = document.getElementById('root');
+if (rootEl) {
+  createRoot(rootEl).render(<App />);
+}

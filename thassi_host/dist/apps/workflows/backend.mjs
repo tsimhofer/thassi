@@ -89,6 +89,25 @@ var ThassiAppDatabase = class {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.raw = this.openWithAutoRecovery(dbPath);
   }
+  isCorruptionError(err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /malformed|corrupt|not a database|disk I\/O error/i.test(msg);
+  }
+  recoverCorruptedDatabase() {
+    try {
+      this.raw.close();
+    } catch {
+    }
+    try {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        if (fs.existsSync(this.dbPath + suffix)) {
+          fs.rmSync(this.dbPath + suffix, { force: true });
+        }
+      }
+    } catch {
+    }
+    this.raw = this.openWithAutoRecovery(this.dbPath);
+  }
   openWithAutoRecovery(dbPath) {
     try {
       const db = new DatabaseSync(dbPath);
@@ -127,26 +146,64 @@ var ThassiAppDatabase = class {
   }
   /** Execute raw DDL or multi-statement SQL */
   exec(sql) {
-    this.raw.exec(sql);
+    try {
+      this.raw.exec(sql);
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        this.raw.exec(sql);
+        return;
+      }
+      throw err;
+    }
   }
   /** Run a SELECT query and return typed rows */
   query(sql, params = []) {
-    const stmt = this.raw.prepare(sql);
-    return stmt.all(...params);
+    try {
+      const stmt = this.raw.prepare(sql);
+      return stmt.all(...params);
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        return [];
+      }
+      throw err;
+    }
   }
   /** Run a SELECT query and return the first row or undefined */
   queryOne(sql, params = []) {
-    const stmt = this.raw.prepare(sql);
-    return stmt.get(...params);
+    try {
+      const stmt = this.raw.prepare(sql);
+      return stmt.get(...params);
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        return void 0;
+      }
+      throw err;
+    }
   }
   /** Run an INSERT / UPDATE / DELETE statement */
   execute(sql, params = []) {
-    const stmt = this.raw.prepare(sql);
-    const res = stmt.run(...params);
-    return {
-      changes: Number(res.changes),
-      lastInsertRowid: res.lastInsertRowid
-    };
+    try {
+      const stmt = this.raw.prepare(sql);
+      const res = stmt.run(...params);
+      return {
+        changes: Number(res.changes),
+        lastInsertRowid: res.lastInsertRowid
+      };
+    } catch (err) {
+      if (this.isCorruptionError(err)) {
+        this.recoverCorruptedDatabase();
+        const stmt = this.raw.prepare(sql);
+        const res = stmt.run(...params);
+        return {
+          changes: Number(res.changes),
+          lastInsertRowid: res.lastInsertRowid
+        };
+      }
+      throw err;
+    }
   }
   /** Key-Value convenience store for app settings, cursors, or state */
   kvGet(key, defaultValue) {
@@ -560,10 +617,14 @@ var ThassiActionRegistry = class {
     return { geminiApiKey, githubToken, googleOAuthToken };
   }
   async resolveGoogleAccessToken(explicitToken) {
-    if (explicitToken && explicitToken.trim()) {
-      return explicitToken.trim();
+    try {
+      return await this.google.getValidAccessToken();
+    } catch (err) {
+      if (explicitToken && explicitToken.trim()) {
+        return explicitToken.trim();
+      }
+      throw err;
     }
-    return await this.google.getValidAccessToken();
   }
   /**
    * Execute an atomic Axon by ID with full input interpolation (`{{$input}}`),
@@ -648,16 +709,16 @@ var ThassiActionRegistry = class {
   registerCoreAxons() {
     this.register({
       id: "ha.get_state",
-      name: "Read Entity State",
+      name: "Entit\xE4tsstatus lesen",
       domainCode: "HA",
       category: "homeassistant",
       icon: "HA",
-      description: "Reads the live state, unit, and attributes of a single Home Assistant entity.",
+      description: "Liest den aktuellen Live-Status, die Messeinheit und alle Attribute einer einzelnen Home Assistant Entit\xE4t aus.",
       defaultInput: { entityId: "sensor.shellyhtg3_e4b32331dde0_temperatur" },
       fields: [
         {
           key: "entityId",
-          label: "Entity ID",
+          label: "Entit\xE4ts-ID",
           type: "text",
           placeholder: "sensor.shellyhtg3_e4b32331dde0_temperatur",
           required: true
@@ -685,16 +746,16 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "ha.get_states",
-      name: "Query Entities by Domain / Search",
+      name: "Entit\xE4ten nach Dom\xE4ne & Suche abfragen",
       domainCode: "HA",
       category: "homeassistant",
       icon: "HA",
-      description: "Filters all 597+ Home Assistant entities by domain (sensor, switch, light, camera, binary_sensor) and search keyword.",
+      description: "Filtert alle 597+ Home Assistant Entit\xE4ten nach Dom\xE4ne (sensor, switch, light, camera, binary_sensor) und Suchbegriff.",
       defaultInput: { domain: "sensor", search: "", limit: "50" },
       fields: [
-        { key: "domain", label: "Domain (optional)", type: "text", placeholder: "sensor / switch / light / camera" },
-        { key: "search", label: "Search Filter (optional)", type: "text", placeholder: "shelly / pixel / power" },
-        { key: "limit", label: "Max Rows", type: "number", placeholder: "50" }
+        { key: "domain", label: "Dom\xE4ne (optional)", type: "text", placeholder: "sensor / switch / light / camera" },
+        { key: "search", label: "Suchfilter (optional)", type: "text", placeholder: "shelly / pixel / power" },
+        { key: "limit", label: "Max. Zeilen", type: "number", placeholder: "50" }
       ],
       execute: async (input, ctx) => {
         const domain = String(input.domain || "").trim() || void 0;
@@ -727,14 +788,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "ha.energy.live_power",
-      name: "Shelly & Smart Home Live Power",
+      name: "Shelly & Smart Home Live-Leistung",
       domainCode: "HA",
       category: "homeassistant",
       icon: "HA",
-      description: "Aggregates all active power sensors (W) and energy counters (kWh/Wh) across all Shelly relays and plugs.",
+      description: "Aggregiert alle aktiven Leistungssensoren (W) und Energiez\xE4hler (kWh/Wh) s\xE4mtlicher Shelly-Relais und Zwischenstecker.",
       defaultInput: { includeZero: "true" },
       fields: [
-        { key: "includeZero", label: "Include 0 W Channels", type: "select", options: ["true", "false"] }
+        { key: "includeZero", label: "0-W-Kan\xE4le einbeziehen", type: "select", options: ["true", "false"] }
       ],
       execute: async (input, ctx) => {
         const includeZero = String(input.includeZero || "true") !== "false";
@@ -765,14 +826,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "ha.rooms.snapshot",
-      name: "Spatial Rooms & Devices Snapshot",
+      name: "Raum- & Ger\xE4te-Momentaufnahme",
       domainCode: "HA",
       category: "homeassistant",
       icon: "HA",
-      description: "Returns live temperatures, humidity, switch states, and power draw grouped by room.",
+      description: "Liefert aktuelle Raumtemperaturen, Luftfeuchtigkeit, Schalterzust\xE4nde und Stromverbrauch gruppiert nach R\xE4umen.",
       defaultInput: { roomFilter: "" },
       fields: [
-        { key: "roomFilter", label: "Room ID Filter (optional)", type: "text", placeholder: "buro_og / wohnkuche / vorzimmer_og" }
+        { key: "roomFilter", label: "Raum-Filter (optional)", type: "text", placeholder: "buro_og / wohnkuche / vorzimmer_og" }
       ],
       execute: async (input, ctx) => {
         const allStates = await ctx.ha.getStates();
@@ -851,11 +912,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "ha.call_service",
-      name: "Call Service / Switch Device",
+      name: "Dienst aufrufen / Ger\xE4t schalten",
       domainCode: "HA",
       category: "homeassistant",
       icon: "HA",
-      description: "Invokes any Home Assistant service (light, switch, script, automation, media_player, persistent_notification).",
+      description: "F\xFChrt einen beliebigen Home Assistant Dienst aus (Licht, Schalter, Skript, Automation, Mediaplayer oder Benachrichtigung).",
       defaultInput: {
         domain: "persistent_notification",
         service: "create",
@@ -864,19 +925,19 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "domain",
-          label: "Domain",
+          label: "Dom\xE4ne",
           type: "select",
           options: ["persistent_notification", "light", "switch", "script", "automation", "media_player", "siren"]
         },
         {
           key: "service",
-          label: "Service",
+          label: "Dienst (Service)",
           type: "select",
           options: ["create", "turn_on", "turn_off", "toggle", "trigger"]
         },
         {
           key: "targetOrMessage",
-          label: "Entity ID, Message or JSON Payload",
+          label: "Entit\xE4ts-ID, Nachricht oder JSON-Payload",
           type: "textarea",
           placeholder: "light.buro_og_grosses_licht or {{$input}}"
         }
@@ -911,11 +972,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "ha.publish_sensor",
-      name: "Publish Custom Sensor",
+      name: "Eigenen Sensor ver\xF6ffentlichen",
       domainCode: "HA",
       category: "homeassistant",
       icon: "HA",
-      description: "Creates or updates a sensor.thassi_* entity in Home Assistant.",
+      description: "Erstellt oder aktualisiert eine benutzerdefinierte sensor.thassi_*-Entit\xE4t direkt in Home Assistant.",
       defaultInput: {
         sensorSlug: "custom_metric",
         state: "100",
@@ -923,10 +984,10 @@ var ThassiActionRegistry = class {
         friendlyName: "Thassi Metric"
       },
       fields: [
-        { key: "sensorSlug", label: "Sensor Slug", type: "text", placeholder: "custom_metric" },
-        { key: "state", label: "State Value", type: "text", placeholder: "42.5 or {{$input}}" },
-        { key: "unit", label: "Unit", type: "text", placeholder: "EUR / W / %" },
-        { key: "friendlyName", label: "Friendly Name", type: "text", placeholder: "Thassi Metric" }
+        { key: "sensorSlug", label: "Sensor-Kennung (Slug)", type: "text", placeholder: "custom_metric" },
+        { key: "state", label: "Zustandswert", type: "text", placeholder: "42.5 or {{$input}}" },
+        { key: "unit", label: "Messeinheit", type: "text", placeholder: "EUR / W / %" },
+        { key: "friendlyName", label: "Anzeigename", type: "text", placeholder: "Thassi Metric" }
       ],
       execute: async (input, ctx) => {
         const slug = String(input.sensorSlug || "custom_metric").trim();
@@ -944,11 +1005,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "ha.wearables.biometrics",
-      name: "Wearables & Mobile Telemetry (Pixel 10 / Watch)",
+      name: "Wearables & Mobil-Telemetrie (Pixel 10 / Watch)",
       domainCode: "FIT",
       category: "fitness",
       icon: "FIT",
-      description: "Reads live steps, heart rate, battery, sleep, and activity states from Pixel 10, Pixel Watch, and iPad entities in Home Assistant.",
+      description: "Liest Live-Schritte, Herzfrequenz, Akkustand, Schlaf- und Aktivit\xE4tsdaten von Pixel 10, Pixel Watch und iPad aus Home Assistant.",
       defaultInput: {},
       fields: [],
       execute: async (_input, ctx) => {
@@ -971,15 +1032,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "gcal.upcoming",
-      name: "Calendar: Upcoming Events",
+      name: "Kalender: Kommende Termine",
       domainCode: "GCAL",
       category: "gcal",
       icon: "GCAL",
-      description: "Fetches upcoming events from Google Calendar REST API v3 (or Home Assistant calendar.* entity).",
+      description: "Ruft anstehende Termine \xFCber die Google Calendar REST API v3 oder lokale Home Assistant Kalender-Entit\xE4ten ab.",
       defaultInput: { calendarId: "primary", maxResults: "10" },
       fields: [
-        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
-        { key: "maxResults", label: "Max Events", type: "number", placeholder: "10" }
+        { key: "calendarId", label: "Kalender-ID", type: "text", placeholder: "primary" },
+        { key: "maxResults", label: "Max. Termine", type: "number", placeholder: "10" }
       ],
       execute: async (input, ctx) => {
         const calendarId = String(input.calendarId || "primary").trim();
@@ -1042,11 +1103,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "gcal.create_event",
-      name: "Calendar: Create Event",
+      name: "Kalender: Termin erstellen",
       domainCode: "GCAL",
       category: "gcal",
       icon: "GCAL",
-      description: "Creates a calendar event via Google Calendar v3 or Home Assistant calendar.create_event.",
+      description: "Legt einen neuen Kalendereintrag mit Startzeit, Dauer und Beschreibung in Google Calendar oder Home Assistant an.",
       defaultInput: {
         calendarId: "primary",
         summary: "{{$input}}",
@@ -1055,11 +1116,11 @@ var ThassiActionRegistry = class {
         description: ""
       },
       fields: [
-        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
-        { key: "summary", label: "Summary", type: "text", placeholder: "Meeting / Task" },
-        { key: "startIso", label: "Start ISO (empty = in 1h)", type: "text", placeholder: "2026-10-20T14:00:00+02:00" },
-        { key: "durationMinutes", label: "Duration (min)", type: "number", placeholder: "30" },
-        { key: "description", label: "Description", type: "textarea", placeholder: "Notes" }
+        { key: "calendarId", label: "Kalender-ID", type: "text", placeholder: "primary" },
+        { key: "summary", label: "Titel / Betreff", type: "text", placeholder: "Meeting / Task" },
+        { key: "startIso", label: "Startzeit ISO (leer = in 1 Std.)", type: "text", placeholder: "2026-10-20T14:00:00+02:00" },
+        { key: "durationMinutes", label: "Dauer (Min.)", type: "number", placeholder: "30" },
+        { key: "description", label: "Beschreibung", type: "textarea", placeholder: "Notes" }
       ],
       execute: async (input, ctx) => {
         const calendarId = String(input.calendarId || "primary").trim();
@@ -1126,15 +1187,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "gcal.delete_event",
-      name: "Calendar: Delete Event",
+      name: "Kalender: Termin l\xF6schen",
       domainCode: "GCAL",
       category: "gcal",
       icon: "GCAL",
-      description: "Deletes an event from Google Calendar by eventId.",
+      description: "Entfernt einen bestehenden Termin anhand seiner Event-ID aus dem Google Kalender.",
       defaultInput: { calendarId: "primary", eventId: "" },
       fields: [
-        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
-        { key: "eventId", label: "Event ID", type: "text", placeholder: "Google Event ID", required: true }
+        { key: "calendarId", label: "Kalender-ID", type: "text", placeholder: "primary" },
+        { key: "eventId", label: "Termin-ID (Event ID)", type: "text", placeholder: "Google Event ID", required: true }
       ],
       execute: async (input, ctx) => {
         const calendarId = String(input.calendarId || "primary").trim();
@@ -1163,14 +1224,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "google.fit.daily_summary",
-      name: "Google Fit & Biometrics Summary",
+      name: "Google Fit & Biometrie-Tagesbilanz",
       domainCode: "FIT",
       category: "fitness",
       icon: "FIT",
-      description: "Queries Google Fitness REST API dataset:aggregate (steps, calories, heart rate) and merges with local SQLite biometrics.",
+      description: "Fragt aggregierte Gesundheitsdaten (Schritte, Kalorien, Puls) \xFCber die Google Fitness API ab und kombiniert sie mit lokalen SQLite-Vitaldaten.",
       defaultInput: { days: "7" },
       fields: [
-        { key: "days", label: "Lookback Days", type: "number", placeholder: "7" }
+        { key: "days", label: "R\xFCckblick (Tage)", type: "number", placeholder: "7" }
       ],
       execute: async (input, ctx) => {
         const days = Math.max(1, Math.min(30, Number(input.days || 7)));
@@ -1229,15 +1290,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "gmail.list_unread",
-      name: "Gmail: Query Messages",
+      name: "Gmail: Nachrichten suchen & abrufen",
       domainCode: "GMAIL",
       category: "gmail",
       icon: "GMAIL",
-      description: "Searches Gmail messages via REST API v1 (/users/me/messages).",
+      description: "Durchsucht das Gmail-Postfach \xFCber die REST API v1 nach ungelesenen oder gefilterten E-Mails inklusive Betreff und Vorschau.",
       defaultInput: { query: "is:unread label:INBOX", maxResults: "5" },
       fields: [
-        { key: "query", label: "Search Query", type: "text", placeholder: "is:unread label:INBOX" },
-        { key: "maxResults", label: "Max Results", type: "number", placeholder: "5" }
+        { key: "query", label: "Suchabfrage", type: "text", placeholder: "is:unread label:INBOX" },
+        { key: "maxResults", label: "Max. Ergebnisse", type: "number", placeholder: "5" }
       ],
       execute: async (input, ctx) => {
         const query = String(input.query || "is:unread label:INBOX").trim();
@@ -1292,20 +1353,20 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "gmail.send",
-      name: "Gmail: Send Email",
+      name: "Gmail: E-Mail senden",
       domainCode: "GMAIL",
       category: "gmail",
       icon: "GMAIL",
-      description: "Sends an RFC-2822 email via Gmail REST API v1 (/users/me/messages/send).",
+      description: "Versendet eine E-Mail (RFC-2822) direkt \xFCber das verkn\xFCpfte Google-Konto per Gmail REST API v1.",
       defaultInput: {
         to: "thomas.simhofer@gmail.com",
         subject: "Thassi Notification",
         body: "{{$input}}"
       },
       fields: [
-        { key: "to", label: "To", type: "text", placeholder: "thomas.simhofer@gmail.com", required: true },
-        { key: "subject", label: "Subject", type: "text", placeholder: "Thassi Notification" },
-        { key: "body", label: "Body", type: "textarea", placeholder: "{{$input}}" }
+        { key: "to", label: "Empf\xE4nger (An)", type: "text", placeholder: "thomas.simhofer@gmail.com", required: true },
+        { key: "subject", label: "Betreff", type: "text", placeholder: "Thassi Notification" },
+        { key: "body", label: "Nachrichtentext", type: "textarea", placeholder: "{{$input}}" }
       ],
       execute: async (input, ctx) => {
         const to = String(input.to || "").trim();
@@ -1346,15 +1407,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "google.drive.recent_files",
-      name: "Google Drive: List Recent Files",
+      name: "Google Drive: Zuletzt ge\xE4nderte Dateien",
       domainCode: "DRIVE",
       category: "drive",
       icon: "DRIVE",
-      description: "Lists recently modified files and folders from Google Drive REST API v3.",
+      description: "Listet k\xFCrzlich bearbeitete Dokumente, Tabellen und Ordner aus Google Drive v3 inklusive Direktlinks auf.",
       defaultInput: { pageSize: "15", query: "trashed = false" },
       fields: [
-        { key: "pageSize", label: "Max Files", type: "number", placeholder: "15" },
-        { key: "query", label: "Drive Query (q)", type: "text", placeholder: "trashed = false" }
+        { key: "pageSize", label: "Max. Dateien", type: "number", placeholder: "15" },
+        { key: "query", label: "Drive-Suchfilter (q)", type: "text", placeholder: "trashed = false" }
       ],
       execute: async (input, ctx) => {
         const pageSize = Math.max(1, Math.min(50, Number(input.pageSize || 15)));
@@ -1386,11 +1447,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "finance.summary.get",
-      name: "Finance: Cashflow & Balance KPIs",
+      name: "Finanzen: Cashflow- & Kontostand-KPIs",
       domainCode: "FIN",
       category: "finance",
       icon: "FIN",
-      description: "Reads current account balance, monthly/weekly/daily expenses, net cashflow, and category budgets.",
+      description: "Liest aktuellen Kontostand, Tages-/Wochen-/Monatsausgaben, Netto-Cashflow sowie Kategorie-Budgets aus der Finanz-Datenbank.",
       defaultInput: {},
       fields: [],
       execute: async (_input, ctx) => {
@@ -1430,16 +1491,16 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "finance.transactions.query",
-      name: "Finance: Search Ledger Transactions",
+      name: "Finanzen: Buchungen im Hauptbuch suchen",
       domainCode: "FIN",
       category: "finance",
       icon: "FIN",
-      description: "Searches the SQLite transaction ledger by payee/notes, category, or minimum amount.",
+      description: "Durchsucht das SQLite-Transaktionsregister nach Empf\xE4nger, Verwendungszweck, Kategorie oder Mindestbetrag.",
       defaultInput: { search: "", category: "", limit: "30" },
       fields: [
-        { key: "search", label: "Payee / Notes", type: "text", placeholder: "SPAR / HOFER / AREC" },
-        { key: "category", label: "Category", type: "text", placeholder: "Groceries / Housing" },
-        { key: "limit", label: "Limit", type: "number", placeholder: "30" }
+        { key: "search", label: "Empf\xE4nger / Notiz", type: "text", placeholder: "SPAR / HOFER / AREC" },
+        { key: "category", label: "Kategorie", type: "text", placeholder: "Groceries / Housing" },
+        { key: "limit", label: "Max. Anzahl", type: "number", placeholder: "30" }
       ],
       execute: async (input, ctx) => {
         const finDb = openAppDatabaseReadWrite(ctx.dataDir, "finance-analytics");
@@ -1471,11 +1532,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "meals.week_plan.get",
-      name: "Meals: Weekly Plan & Macro Summary",
+      name: "Ern\xE4hrung: 7-Tage-Wochenplan & Makros",
       domainCode: "MEALS",
       category: "food",
       icon: "MEALS",
-      description: "Reads the current 7-day meal plan, recipes, and daily calorie/macro totals from meal-planner.",
+      description: "Liest den aktuellen Wochenplan, hinterlegte Rezepte sowie die t\xE4gliche Kalorien- und Makron\xE4hrstoffbilanz aus dem Meal-Planner.",
       defaultInput: {},
       fields: [],
       execute: async (_input, ctx) => {
@@ -1498,16 +1559,16 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "meals.groceries.manage",
-      name: "Meals: Grocery List & Stock Manager",
+      name: "Ern\xE4hrung: Einkaufsliste & Vorrat verwalten",
       domainCode: "MEALS",
       category: "food",
       icon: "MEALS",
-      description: "Lists, adds, or clears items on the persistent grocery shopping list.",
+      description: "Liest, erg\xE4nzt oder leert Positionen auf der persistenten Einkaufsliste.",
       defaultInput: { action: "list", itemName: "", category: "Frische & Markt" },
       fields: [
-        { key: "action", label: "Action", type: "select", options: ["list", "add", "clear_checked"] },
-        { key: "itemName", label: "Item Name (for add)", type: "text", placeholder: "Bio Hafermilch 1L" },
-        { key: "category", label: "Category", type: "text", placeholder: "Frische & Markt" }
+        { key: "action", label: "Aktion", type: "select", options: ["list", "add", "clear_checked"] },
+        { key: "itemName", label: "Artikelname (beim Hinzuf\xFCgen)", type: "text", placeholder: "Bio Hafermilch 1L" },
+        { key: "category", label: "Kategorie", type: "text", placeholder: "Frische & Markt" }
       ],
       execute: async (input, ctx) => {
         const mealDb = openAppDatabaseReadWrite(ctx.dataDir, "meal-planner");
@@ -1530,14 +1591,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "food.openfoodfacts.barcode",
-      name: "OpenFoodFacts: EAN Barcode Lookup",
+      name: "OpenFoodFacts: EAN-N\xE4hrwertabfrage",
       domainCode: "MEALS",
       category: "food",
       icon: "MEALS",
-      description: "Looks up nutritional values (kcal, protein, carbs, fat, fiber) for any EAN/GTIN barcode via OpenFoodFacts v2.",
+      description: "Ermittelt N\xE4hrwerte (kcal, Protein, Kohlenhydrate, Fett, Ballaststoffe) und Nutri-Score zu jedem Lebensmittel-Barcode \xFCber OpenFoodFacts v2.",
       defaultInput: { barcode: "5449000000996" },
       fields: [
-        { key: "barcode", label: "EAN / GTIN Barcode", type: "text", placeholder: "5449000000996", required: true }
+        { key: "barcode", label: "EAN- / GTIN-Barcode", type: "text", placeholder: "5449000000996", required: true }
       ],
       execute: async (input) => {
         const barcode = String(input.barcode || "").replace(/[^0-9]/g, "");
@@ -1584,15 +1645,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "bambu.printer.telemetry",
-      name: "BambuLab X1C: LAN Probe & Telemetry",
+      name: "BambuLab X1C: LAN-Status & Drucktelemetrie",
       domainCode: "3DP",
       category: "bambu",
       icon: "3DP",
-      description: "Probes the BambuLab printer on LAN (MQTT TLS :8883 / FTPS :990), checks Shelly plug power, and returns active 3D print projects.",
+      description: "Pr\xFCft den BambuLab 3D-Drucker im LAN (MQTT TLS :8883 / FTPS :990), liest den Shelly-Leistungswert und liefert aktive Druckprojekte.",
       defaultInput: { printerIp: "192.168.188.175", shellyEntity: "switch.buro_og_plug_90" },
       fields: [
-        { key: "printerIp", label: "Printer IP", type: "text", placeholder: "192.168.188.175" },
-        { key: "shellyEntity", label: "Shelly Power Plug Entity", type: "text", placeholder: "switch.buro_og_plug_90" }
+        { key: "printerIp", label: "Drucker-IP-Adresse", type: "text", placeholder: "192.168.188.175" },
+        { key: "shellyEntity", label: "Shelly-Steckdosen-Entit\xE4t", type: "text", placeholder: "switch.buro_og_plug_90" }
       ],
       execute: async (input, ctx) => {
         const ip = String(input.printerIp || "192.168.188.175").trim();
@@ -1638,48 +1699,191 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "vision.detections.recent",
-      name: "Camera Vision: Recent Object Detections",
+      name: "Kamera-Vision: Letzte Objekterkennungen",
       domainCode: "VISION",
       category: "vision",
       icon: "VISION",
-      description: "Reads the latest COCO-SSD object detections, motion scores, and camera health metrics.",
-      defaultInput: { limit: "15" },
+      description: "Liest die neuesten COCO-SSD-Objekterkennungen, Bewegungswerte, Kamera-Schwellwerte und Trigger-Zusammenfassungen aus.",
+      defaultInput: { limit: "15", cameraId: "" },
       fields: [
-        { key: "limit", label: "Max Detections", type: "number", placeholder: "15" }
+        { key: "cameraId", label: "Kamera-ID (optional)", type: "text", placeholder: "camera.cam_eg_vz_eingang" },
+        { key: "limit", label: "Max. Erkennungen", type: "number", placeholder: "15" }
       ],
       execute: async (input, ctx) => {
         const limit = Math.max(1, Math.min(100, Number(input.limit || 15)));
+        const camFilter = String(input.cameraId || "").trim();
         const visDb = openAppDatabaseReadWrite(ctx.dataDir, "camera-vision");
         const cameras = visDb.query(
-          "SELECT id, name, room, source_type, lan_ip, optimization_mode, enabled, last_sampled_at, last_status FROM camera_sources"
+          "SELECT * FROM camera_sources ORDER BY enabled DESC, name ASC"
         );
-        const detections = visDb.query(
-          `SELECT id, camera_id, camera_name, sampled_at, status, scene_summary, total_objects, person_count, vehicle_count, motion_pct, processing_ms
-           FROM vision_detections ORDER BY id DESC LIMIT ?`,
+        const detections = camFilter ? visDb.query(
+          `SELECT id, camera_id, camera_name, optimization_mode, sampled_at, status, scene_summary, total_objects, person_count, vehicle_count, motion_pct, engine_used, processing_ms
+               FROM vision_detections WHERE camera_id = ? ORDER BY id DESC LIMIT ?`,
+          [camFilter, limit]
+        ) : visDb.query(
+          `SELECT id, camera_id, camera_name, optimization_mode, sampled_at, status, scene_summary, total_objects, person_count, vehicle_count, motion_pct, engine_used, processing_ms
+               FROM vision_detections ORDER BY id DESC LIMIT ?`,
           [limit]
         );
+        const perfSummary = ctx.sharedDb.kvGet("camera_vision_performance") || null;
         return {
           summary: `${detections.length} detections across ${cameras.length} configured cameras`,
-          data: { cameras, detections }
+          data: { cameras, detections, performance: perfSummary }
+        };
+      }
+    });
+    this.register({
+      id: "vision.camera.configure",
+      name: "Kamera-Vision: Bildanalyse & Schwellwerte konfigurieren",
+      domainCode: "VISION",
+      category: "vision",
+      icon: "VISION",
+      description: "Liest oder aktualisiert pro Kamera Erkennungsschwellwerte (Min-Konfidenz, Motion-Gate, Bewegungs-Delta %, Luma-Schwelle, KI-Aufl\xF6sung).",
+      defaultInput: {
+        action: "get",
+        cameraId: "camera.cam_eg_vz_eingang",
+        optimizationMode: "Personen",
+        minConfidence: "0.25",
+        motionGateEnabled: "true",
+        motionThresholdPct: "0.8",
+        pixelDiffThreshold: "15",
+        aiInputWidth: "300"
+      },
+      fields: [
+        { key: "action", label: "Modus", type: "select", options: ["get", "update"] },
+        { key: "cameraId", label: "Kamera-ID", type: "text", placeholder: "camera.cam_eg_vz_eingang", required: true },
+        { key: "optimizationMode", label: "Profil", type: "select", options: ["Personen", "Fahrzeuge", "Objekte", "Kamera", "Aktivit\xE4ten"] },
+        { key: "minConfidence", label: "Min. Konfidenz (0.10 - 0.95)", type: "text", placeholder: "0.25" },
+        { key: "motionGateEnabled", label: "Motion-Gate aktiv", type: "select", options: ["true", "false"] },
+        { key: "motionThresholdPct", label: "Bewegungs-Schwellwert (%)", type: "text", placeholder: "0.8" },
+        { key: "pixelDiffThreshold", label: "Pixel-Luma-Schwelle (4-80)", type: "number", placeholder: "15" },
+        { key: "aiInputWidth", label: "KI-Aufl\xF6sung (px)", type: "select", options: ["224", "300", "416"] }
+      ],
+      execute: async (input, ctx) => {
+        const visDb = openAppDatabaseReadWrite(ctx.dataDir, "camera-vision");
+        const camId = String(input.cameraId || "camera.cam_eg_vz_eingang").trim();
+        const act = String(input.action || "get").trim().toLowerCase();
+        if (act === "update") {
+          const minConf = Math.max(0.1, Math.min(0.95, Number(input.minConfidence) || 0.25));
+          const gate = String(input.motionGateEnabled) === "false" ? 0 : 1;
+          const motionThresh = Math.max(0.1, Math.min(25, Number(input.motionThresholdPct) || 0.8));
+          const pixelDiff = Math.max(4, Math.min(80, Number(input.pixelDiffThreshold) || 15));
+          const aiW = [224, 300, 416].includes(Number(input.aiInputWidth)) ? Number(input.aiInputWidth) : 300;
+          const mode = String(input.optimizationMode || "Personen");
+          visDb.execute(
+            `UPDATE camera_sources
+             SET optimization_mode = ?, min_confidence = ?, motion_gate_enabled = ?, motion_threshold_pct = ?, pixel_diff_threshold = ?, ai_input_width = ?
+             WHERE id = ?`,
+            [mode, minConf, gate, motionThresh, pixelDiff, aiW, camId]
+          );
+        }
+        const cam = visDb.queryOne(
+          "SELECT * FROM camera_sources WHERE id = ?",
+          [camId]
+        );
+        if (!cam) {
+          throw new Error(`Camera "${camId}" not found`);
+        }
+        return {
+          summary: `${cam.name} (${cam.id}): Mode=${cam.optimization_mode}, Conf>=${Math.round(Number(cam.min_confidence ?? 0.25) * 100)}%, MotionGate=${cam.motion_gate_enabled ? "ON" : "OFF"} (\u0394>=${cam.motion_threshold_pct ?? 0.8}%)`,
+          data: { camera: cam }
+        };
+      }
+    });
+    this.register({
+      id: "vision.triggers.manage",
+      name: "Kamera-Vision: Objekt-Trigger & Aktionen verwalten",
+      domainCode: "VISION",
+      category: "vision",
+      icon: "VISION",
+      description: "Verwaltet Vision-Trigger (\u201EObjekt X zu >= p% erkannt => Aktion A ausf\xFChren\u201C) und liest das Trigger-Ausf\xFChrungsprotokoll.",
+      defaultInput: {
+        action: "list",
+        name: "Person im Garten erkannt (>= 65%)",
+        cameraId: "*",
+        objectClass: "person",
+        minConfidencePct: "65",
+        actionType: "axon",
+        actionTarget: "ha.call_service",
+        actionPayloadJson: '{"domain":"persistent_notification","service":"create","targetOrMessage":"[Vision] {{object_label}} ({{confidence_pct}}%) auf {{camera_name}}"}'
+      },
+      fields: [
+        { key: "action", label: "Aktion", type: "select", options: ["list", "create", "delete"] },
+        { key: "name", label: "Regel-Name (bei create)", type: "text", placeholder: "Person erkannt -> Licht an" },
+        { key: "cameraId", label: "Kamera-ID (* f\xFCr alle)", type: "text", placeholder: "* oder camera.cam_eg_vz_eingang" },
+        { key: "objectClass", label: "Objektklasse", type: "select", options: ["person", "car", "truck", "bicycle", "dog", "cat", "backpack", "any_vehicle", "any_animal", "any_object", "motion_only"] },
+        { key: "minConfidencePct", label: "Min. Wahrscheinlichkeit (%)", type: "number", placeholder: "65" },
+        { key: "actionType", label: "Aktionstyp", type: "select", options: ["axon", "ha_service", "ha_event", "orchestrator_event"] },
+        { key: "actionTarget", label: "Ziel-Axon oder HA-Service", type: "text", placeholder: "ha.call_service / light.turn_on" },
+        { key: "actionPayloadJson", label: "Aktions-Payload (JSON)", type: "textarea", placeholder: "{}" }
+      ],
+      execute: async (input, ctx) => {
+        const visDb = openAppDatabaseReadWrite(ctx.dataDir, "camera-vision");
+        const act = String(input.action || "list").trim().toLowerCase();
+        if (act === "create" && String(input.name || "").trim()) {
+          visDb.execute(
+            `INSERT INTO vision_triggers
+             (name, enabled, camera_id, object_class, min_confidence_pct, min_count, min_motion_pct, time_window, cooldown_sec, action_type, action_target, action_payload_json, created_at)
+             VALUES (?, 1, ?, ?, ?, 1, 0.5, 'always', 60, ?, ?, ?, ?)`,
+            [
+              String(input.name).trim(),
+              String(input.cameraId || "*").trim(),
+              String(input.objectClass || "person").trim(),
+              Math.max(10, Math.min(99, Number(input.minConfidencePct) || 65)),
+              String(input.actionType || "axon").trim(),
+              String(input.actionTarget || "ha.call_service").trim(),
+              String(input.actionPayloadJson || "{}").trim(),
+              (/* @__PURE__ */ new Date()).toISOString()
+            ]
+          );
+        } else if (act === "delete" && input.triggerId) {
+          visDb.execute("DELETE FROM vision_triggers WHERE id = ?", [Number(input.triggerId)]);
+        }
+        const triggers = visDb.query("SELECT * FROM vision_triggers ORDER BY enabled DESC, id DESC");
+        const recentLogs = visDb.query("SELECT * FROM vision_trigger_logs ORDER BY id DESC LIMIT 20");
+        return {
+          summary: `${triggers.length} vision triggers configured \xB7 ${recentLogs.length} recent executions`,
+          data: { triggers, recentLogs }
+        };
+      }
+    });
+    this.register({
+      id: "vision.performance.status",
+      name: "Kamera-Vision: Pipeline-Leistungsmonitor & Motion-Gate-Telemetrie",
+      domainCode: "VISION",
+      category: "vision",
+      icon: "VISION",
+      description: "Liefert Echtzeit-Metriken der Vision-Pipeline (Motion-Gate-Skip-Rate %, eingesparte CPU-Sekunden, Inferenz-/Luma-Latenzen und TF.js Speicher).",
+      defaultInput: {},
+      fields: [],
+      execute: async (_input, ctx) => {
+        const perf = ctx.sharedDb.kvGet("camera_vision_performance") || {};
+        const today = ctx.sharedDb.kvGet("camera_vision_today") || {};
+        return {
+          summary: `Motion-Gate Skip: ${perf.motionGateSkipRatePct ?? 0}% (${perf.savedCpuSeconds ?? 0}s CPU saved) \xB7 Avg AI: ${perf.avgInferenceMs ?? 0}ms \xB7 Avg Luma: ${perf.avgLumaMs ?? 0}ms`,
+          data: {
+            performance: perf,
+            visionSummary: today
+          }
         };
       }
     });
     this.register({
       id: "weather.openmeteo.forecast",
-      name: "Weather: Open-Meteo Forecast",
+      name: "Wetter: Open-Meteo Live-Prognose",
       domainCode: "WX",
       category: "weather",
       icon: "WX",
-      description: "Fetches live temperature, wind, humidity, and 24-hour forecast from Open-Meteo.",
+      description: "Ruft aktuelle Au\xDFentemperatur, Windgeschwindigkeit, Luftfeuchtigkeit und die 24-Stunden-Vorhersage \xFCber Open-Meteo ab.",
       defaultInput: {
         lat: "48.0444",
         lon: "15.6689",
         locationName: "St. Veit / G\xF6lsen"
       },
       fields: [
-        { key: "lat", label: "Latitude", type: "text", placeholder: "48.0444" },
-        { key: "lon", label: "Longitude", type: "text", placeholder: "15.6689" },
-        { key: "locationName", label: "Location Label", type: "text", placeholder: "St. Veit / G\xF6lsen" }
+        { key: "lat", label: "Breitengrad (Lat)", type: "text", placeholder: "48.0444" },
+        { key: "lon", label: "L\xE4ngengrad (Lon)", type: "text", placeholder: "15.6689" },
+        { key: "locationName", label: "Ortsbezeichnung", type: "text", placeholder: "St. Veit / G\xF6lsen" }
       ],
       execute: async (input) => {
         const lat = Number(input.lat || 48.0444);
@@ -1716,15 +1920,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "github.list_issues",
-      name: "GitHub: List Repository Issues",
+      name: "GitHub: Repository-Issues auflisten",
       domainCode: "GH",
       category: "github",
       icon: "GH",
-      description: "Fetches open or closed issues from GitHub REST API v3.",
+      description: "L\xE4dt offene oder geschlossene Issues eines GitHub-Repositories \xFCber die GitHub REST API v3.",
       defaultInput: { repo: "tsimhofer/thassi", state: "open" },
       fields: [
-        { key: "repo", label: "Owner / Repository", type: "text", placeholder: "tsimhofer/thassi", required: true },
-        { key: "state", label: "State", type: "select", options: ["open", "closed", "all"] }
+        { key: "repo", label: "Eigent\xFCmer / Repository", type: "text", placeholder: "tsimhofer/thassi", required: true },
+        { key: "state", label: "Status", type: "select", options: ["open", "closed", "all"] }
       ],
       execute: async (input, ctx) => {
         const repo = String(input.repo || "tsimhofer/thassi").trim();
@@ -1762,20 +1966,20 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "github.create_issue",
-      name: "GitHub: Create Issue",
+      name: "GitHub: Neues Issue erstellen",
       domainCode: "GH",
       category: "github",
       icon: "GH",
-      description: "Creates a GitHub issue via POST /repos/:owner/:repo/issues.",
+      description: "Legt ein neues Issue mit Titel und Markdown-Beschreibung in einem GitHub-Repository an.",
       defaultInput: {
         repo: "tsimhofer/thassi",
         title: "[Axon] {{$input}}",
         body: "{{$input}}"
       },
       fields: [
-        { key: "repo", label: "Owner / Repository", type: "text", placeholder: "tsimhofer/thassi", required: true },
-        { key: "title", label: "Issue Title", type: "text", placeholder: "Issue title", required: true },
-        { key: "body", label: "Body (Markdown)", type: "textarea", placeholder: "{{$input}}" }
+        { key: "repo", label: "Eigent\xFCmer / Repository", type: "text", placeholder: "tsimhofer/thassi", required: true },
+        { key: "title", label: "Issue-Titel", type: "text", placeholder: "Issue title", required: true },
+        { key: "body", label: "Beschreibung (Markdown)", type: "textarea", placeholder: "{{$input}}" }
       ],
       execute: async (input, ctx) => {
         const repo = String(input.repo || "tsimhofer/thassi").trim();
@@ -1809,11 +2013,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "gemini.generate",
-      name: "Gemini AI: Generate & Synthesize",
+      name: "Gemini KI: Analyse & Textsynthese",
       domainCode: "AI",
       category: "gemini",
       icon: "AI",
-      description: "Calls Google Gemini API (generateContent) to analyze or transform upstream data.",
+      description: "Ruft Google Gemini (generateContent) auf, um \xFCbergebene Daten auszuwerten, zusammenzufassen oder Entscheidungen abzuleiten.",
       defaultInput: {
         model: "gemini-2.5-flash",
         prompt: "Analyze concisely:\n\n{{$input}}"
@@ -1821,13 +2025,13 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "model",
-          label: "Model",
+          label: "KI-Modell",
           type: "select",
           options: ["gemini-2.5-flash", "gemini-2.5-pro"]
         },
         {
           key: "prompt",
-          label: "Prompt (supports {{$input}})",
+          label: "Prompt / Anweisung ({{$input}} m\xF6glich)",
           type: "textarea",
           placeholder: "Analyze:\n{{$input}}",
           required: true
@@ -1854,15 +2058,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "system.notes.manage",
-      name: "System Notes: Read & Append",
+      name: "System-Notizen: Lesen & Hinzuf\xFCgen",
       domainCode: "SYS",
       category: "system",
       icon: "SYS",
-      description: "Reads or creates quick notes in the shared SQLite database.",
+      description: "Liest oder speichert Kurznotizen in der gemeinsamen Thassi SQLite-Systemdatenbank.",
       defaultInput: { action: "list", content: "" },
       fields: [
-        { key: "action", label: "Action", type: "select", options: ["list", "add"] },
-        { key: "content", label: "Note Content (for add)", type: "textarea", placeholder: "Note text..." }
+        { key: "action", label: "Aktion", type: "select", options: ["list", "add"] },
+        { key: "content", label: "Notizinhalt (beim Hinzuf\xFCgen)", type: "textarea", placeholder: "Note text..." }
       ],
       execute: async (input, ctx) => {
         const act = String(input.action || "list").trim();
@@ -1882,12 +2086,46 @@ var ThassiActionRegistry = class {
       }
     });
     this.register({
+      id: "system.hass.monitor",
+      name: "HASS OS: Echtzeit-Performance, Container & Prozesse",
+      domainCode: "SYS",
+      category: "system",
+      icon: "SYS",
+      description: "Liest die aktuelle HASS OS Systemauslastung (CPU pro Kern, Temperatur, Load, RAM, Swap, Disk-I/O), laufende Supervisor-Container/Add-ons und aktive Linux-/proc-Prozesse aus.",
+      defaultInput: { filter: "" },
+      fields: [
+        {
+          key: "filter",
+          label: "Filter (Prozess / Container / Add-on)",
+          type: "text",
+          placeholder: "core / zigbee / mosquitto / node"
+        }
+      ],
+      execute: async (input, ctx) => {
+        const filter = String(input.filter || "").trim().toLowerCase();
+        const cached = ctx.sharedDb.kvGet("hass_os_performance") || {};
+        const workloads = Array.isArray(cached.activeWorkloads) ? cached.activeWorkloads : [];
+        const containers = Array.isArray(cached.containers) ? cached.containers : [];
+        const filteredContainers = filter ? containers.filter(
+          (c) => String(c.name || "").toLowerCase().includes(filter) || String(c.slug || "").toLowerCase().includes(filter)
+        ) : containers;
+        return {
+          summary: `HASS OS: CPU ${cached.cpuPct ?? 0}% (${cached.cpuTempC ? cached.cpuTempC + "\xB0C, " : ""}Load ${cached.load1m ?? 0}) \xB7 RAM ${cached.memPct ?? 0}% (${Math.round(cached.memUsedMb || 0)}/${Math.round(cached.memTotalMb || 0)} MB) \xB7 ${cached.runningContainers ?? 0} Container aktiv`,
+          data: {
+            ...cached,
+            activeWorkloads: workloads,
+            containers: filteredContainers
+          }
+        };
+      }
+    });
+    this.register({
       id: "http.request",
-      name: "HTTP: Generic REST Connector",
+      name: "HTTP: Universeller REST-Connector",
       domainCode: "HTTP",
       category: "http",
       icon: "HTTP",
-      description: "Executes a live HTTP GET/POST/PUT/DELETE call to any endpoint.",
+      description: "F\xFChrt einen beliebigen HTTP-Aufruf (GET, POST, PUT, DELETE) mit eigenen Headern und JSON-Payload gegen externe Endpunkte aus.",
       defaultInput: {
         method: "GET",
         endpoint: "http://192.168.188.92:8099/healthz",
@@ -1895,10 +2133,10 @@ var ThassiActionRegistry = class {
         payload: ""
       },
       fields: [
-        { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "DELETE"] },
-        { key: "endpoint", label: "URL", type: "text", placeholder: "https://api.example.com/v1", required: true },
-        { key: "headersJson", label: "Headers (JSON)", type: "textarea", placeholder: "{}" },
-        { key: "payload", label: "Body (POST/PUT)", type: "textarea", placeholder: "{{$input}}" }
+        { key: "method", label: "HTTP-Methode", type: "select", options: ["GET", "POST", "PUT", "DELETE"] },
+        { key: "endpoint", label: "Ziel-URL", type: "text", placeholder: "https://api.example.com/v1", required: true },
+        { key: "headersJson", label: "HTTP-Header (JSON)", type: "textarea", placeholder: "{}" },
+        { key: "payload", label: "Request-Body (POST/PUT)", type: "textarea", placeholder: "{{$input}}" }
       ],
       execute: async (input) => {
         const method = String(input.method || "GET").toUpperCase();
@@ -1950,14 +2188,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "trigger.manual",
-      name: "Manual / Webhook Trigger",
+      name: "Manueller Start / Webhook-Ausl\xF6ser",
       domainCode: "TRIG",
       category: "trigger",
       icon: "TRIG",
-      description: "Starts an Axon chain manually or via HTTP webhook.",
+      description: "Startet eine Axon-Kette manuell per Klick oder \xFCber einen eingehenden HTTP-Webhook mit Initialdaten.",
       defaultInput: { payload: '{"source":"axons"}' },
       fields: [
-        { key: "payload", label: "Initial Payload", type: "textarea", placeholder: '{"source":"manual"}' }
+        { key: "payload", label: "Start-Payload", type: "textarea", placeholder: '{"source":"manual"}' }
       ],
       execute: async (input) => ({
         summary: `Triggered at ${(/* @__PURE__ */ new Date()).toLocaleTimeString("de-AT")}`,
@@ -1966,16 +2204,16 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "trigger.schedule",
-      name: "Cron / Interval Schedule",
+      name: "Zeitplan / Cron-Intervall-Ausl\xF6ser",
       domainCode: "TRIG",
       category: "trigger",
       icon: "TRIG",
-      description: "Triggers an Axon flow on a recurring interval.",
+      description: "F\xFChrt einen Workflow automatisch nach festem Zeitintervall oder Cron-Ausdruck wiederkehrend aus.",
       defaultInput: { cron: "0 7 * * *", intervalSeconds: "900", timezone: "Europe/Vienna" },
       fields: [
-        { key: "cron", label: "Cron Expression", type: "text", placeholder: "0 7 * * *" },
-        { key: "intervalSeconds", label: "Interval (s)", type: "number", placeholder: "900" },
-        { key: "timezone", label: "Timezone", type: "text", placeholder: "Europe/Vienna" }
+        { key: "cron", label: "Cron-Ausdruck", type: "text", placeholder: "0 7 * * *" },
+        { key: "intervalSeconds", label: "Intervall (Sek.)", type: "number", placeholder: "900" },
+        { key: "timezone", label: "Zeitzone", type: "text", placeholder: "Europe/Vienna" }
       ],
       execute: async (input) => ({
         summary: `Schedule active (${input.cron || `${input.intervalSeconds}s`})`,
@@ -1989,15 +2227,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "market.spar.search",
-      name: "SPAR Austria: Live Product & Price Search",
+      name: "SPAR \xD6sterreich: Live-Produkt- & Preissuche",
       domainCode: "MARKET",
       category: "market",
       icon: "MARKET",
-      description: "Queries the live SPAR Austria Fact-Finder API for current shelf prices, unit prices, and promotions.",
+      description: "Durchsucht die SPAR \xD6sterreich Fact-Finder API in Echtzeit nach aktuellen Regalpreisen, Grundpreisen und Aktionen.",
       defaultInput: { query: "Bio Vollmilch", hitsPerPage: "8" },
       fields: [
-        { key: "query", label: "Search Query / Product", type: "text", placeholder: "Bio Vollmilch / Skyr / Eier", required: true },
-        { key: "hitsPerPage", label: "Max Results", type: "number", placeholder: "8" }
+        { key: "query", label: "Suchbegriff / Produkt", type: "text", placeholder: "Bio Vollmilch / Skyr / Eier", required: true },
+        { key: "hitsPerPage", label: "Max. Ergebnisse", type: "number", placeholder: "8" }
       ],
       execute: async (input) => {
         const query = String(input.query || "Bio Vollmilch").trim();
@@ -2050,17 +2288,17 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "market.billa.search",
-      name: "BILLA Austria: Live Product & Category Discovery",
+      name: "BILLA \xD6sterreich: Live-Sortiment & Preise",
       domainCode: "MARKET",
       category: "market",
       icon: "MARKET",
-      description: "Queries the live BILLA Online Shop API for Austrian product prices, base unit prices, and promotions.",
+      description: "Fragt die BILLA Online-Shop API nach \xF6sterreichischen Produktpreisen, Einheiten und aktuellen Angeboten ab.",
       defaultInput: { query: "Milch", categorySlug: "kuehlwaren-15416", maxResults: "10" },
       fields: [
-        { key: "query", label: "Filter Keyword", type: "text", placeholder: "Milch / Butter / Brot / Apfel" },
+        { key: "query", label: "Filter-Stichwort", type: "text", placeholder: "Milch / Butter / Brot / Apfel" },
         {
           key: "categorySlug",
-          label: "BILLA Category",
+          label: "BILLA-Kategorie",
           type: "select",
           options: [
             "kuehlwaren-15416",
@@ -2071,7 +2309,7 @@ var ThassiActionRegistry = class {
             "tiefkuehl-15415"
           ]
         },
-        { key: "maxResults", label: "Max Results", type: "number", placeholder: "10" }
+        { key: "maxResults", label: "Max. Ergebnisse", type: "number", placeholder: "10" }
       ],
       execute: async (input) => {
         const query = String(input.query || "").trim().toLowerCase();
@@ -2128,16 +2366,16 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "market.basket.compare",
-      name: "Supermarket Basket: SPAR vs. BILLA Optimizer",
+      name: "Warenkorb-Vergleich: SPAR vs. BILLA Optimierer",
       domainCode: "MARKET",
       category: "market",
       icon: "MARKET",
-      description: "Compares a shopping basket across SPAR Austria and BILLA Austria in real time to find the cheapest store and split-basket savings.",
+      description: "Vergleicht eine Einkaufsliste live zwischen SPAR und BILLA und berechnet den g\xFCnstigsten Markt sowie das Split-Einsparpotenzial.",
       defaultInput: { itemsCsv: "Milch, Butter, Eier, Haferflocken, Skyr" },
       fields: [
         {
           key: "itemsCsv",
-          label: "Shopping Basket Items (comma-separated)",
+          label: "Warenkorb-Artikel (kommagetrennt)",
           type: "textarea",
           placeholder: "Milch, Butter, Eier, Haferflocken, Skyr"
         }
@@ -2181,11 +2419,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "product.barcode.resolve",
-      name: "Universal Barcode / EAN Resolver (Multi-Stage)",
+      name: "Universal-Barcode- & EAN-Resolver (5-stufig)",
       domainCode: "MARKET",
       category: "market",
       icon: "MARKET",
-      description: "Resolves any EAN/GTIN/UPC barcode across 5 stages: OpenFoodFacts -> OpenBeautyFacts -> OpenProductsFacts -> UPCitemdb -> SPAR Austria.",
+      description: "L\xF6st Barcodes (EAN/GTIN/UPC) f\xFCnfstufig auf: OpenFoodFacts -> OpenBeautyFacts -> OpenProductsFacts -> UPCitemdb -> SPAR AT.",
       defaultInput: { barcode: "9002490100070" },
       fields: [
         {
@@ -2329,11 +2567,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "mobility.econtrol.fuel_prices",
-      name: "E-Control Austria: Live Fuel Prices (Spritpreisrechner)",
+      name: "E-Control: Live-Spritpreise (Diesel & Super 95)",
       domainCode: "ENERGY",
       category: "mobility",
       icon: "ENERGY",
-      description: "Queries the official Austrian E-Control Spritpreisrechner API for live Diesel (DIE) and Super 95 (SUP) prices around St. Veit an der G\xF6lsen.",
+      description: "Fragt die offizielle E-Control Spritpreisrechner API nach den g\xFCnstigsten Tankstellen rund um St. Veit an der G\xF6lsen ab.",
       defaultInput: {
         lat: "48.0444",
         lon: "15.6689",
@@ -2341,10 +2579,10 @@ var ThassiActionRegistry = class {
         includeClosed: "false"
       },
       fields: [
-        { key: "fuelType", label: "Fuel Type", type: "select", options: ["DIE", "SUP", "GAS"] },
-        { key: "lat", label: "Latitude", type: "text", placeholder: "48.0444 (St. Veit/G\xF6lsen)" },
-        { key: "lon", label: "Longitude", type: "text", placeholder: "15.6689 (St. Veit/G\xF6lsen)" },
-        { key: "includeClosed", label: "Include Closed Stations", type: "select", options: ["false", "true"] }
+        { key: "fuelType", label: "Treibstoffart", type: "select", options: ["DIE", "SUP", "GAS"] },
+        { key: "lat", label: "Breitengrad (Lat)", type: "text", placeholder: "48.0444 (St. Veit/G\xF6lsen)" },
+        { key: "lon", label: "L\xE4ngengrad (Lon)", type: "text", placeholder: "15.6689 (St. Veit/G\xF6lsen)" },
+        { key: "includeClosed", label: "Geschlossene Tankstellen einbeziehen", type: "select", options: ["false", "true"] }
       ],
       execute: async (input) => {
         const lat = Number(input.lat || 48.0444);
@@ -2390,11 +2628,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "energy.awattar.prices_at",
-      name: "aWATTar Austria: EPEX Spot Hourly Electricity Prices",
+      name: "aWATTar \xD6sterreich: EPEX-Spot Strompreise",
       domainCode: "ENERGY",
       category: "energy",
       icon: "ENERGY",
-      description: "Fetches hourly Austrian EPEX Spot electricity prices (ct/kWh) from aWATTar AT and calculates the cheapest 3-hour window for high-load appliances or 3D printing.",
+      description: "L\xE4dt die st\xFCndlichen EPEX-Spot-Strompreise (ct/kWh) f\xFCr \xD6sterreich und ermittelt das g\xFCnstigste 3-Stunden-Zeitfenster f\xFCr Gro\xDFverbraucher.",
       defaultInput: {},
       fields: [],
       execute: async () => {
@@ -2442,14 +2680,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "network.fritzbox.status",
-      name: "FRITZ!Box 6890 LTE & WLAN Mesh Telemetry",
+      name: "FRITZ!Box 6890 LTE & WLAN-Mesh Telemetrie",
       domainCode: "NET",
       category: "network",
       icon: "NET",
-      description: "Probes the FRITZ!Box gateway (192.168.188.1 :80/:49000 TR-064) and reads live Wi-Fi SSID (Obi-WLAN Kenobi), BSSID, signal strength, Tailscale VPN, and public WAN IP sensors.",
+      description: "Pr\xFCft das FRITZ!Box-Gateway (192.168.188.1) und liest WLAN-SSID, Signalst\xE4rke, Tailscale-VPN und \xF6ffentliche WAN-IP aus.",
       defaultInput: { gatewayIp: "192.168.188.1" },
       fields: [
-        { key: "gatewayIp", label: "FRITZ!Box Gateway IP", type: "text", placeholder: "192.168.188.1" }
+        { key: "gatewayIp", label: "FRITZ!Box Gateway-IP", type: "text", placeholder: "192.168.188.1" }
       ],
       execute: async (input, ctx) => {
         const gwIp = String(input.gatewayIp || "192.168.188.1").trim();
@@ -2497,14 +2735,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "hardware.peripherals.status",
-      name: "Peripherals: Printers (Epson/Brother), PC & Battery Fleet",
+      name: "Peripherie: Drucker (Epson/Brother), PC & Batterie-Flotte",
       domainCode: "SYS",
       category: "system",
       icon: "SYS",
-      description: "Aggregates Epson XP-7100 ink levels, Brother MFC-L2700DW toner/page counters, THOMAS-PC status, and low-battery warnings across all home devices.",
+      description: "Fasst Epson XP-7100 Tintenst\xE4nde, Brother MFC-L2700DW Toner/Seitenz\xE4hler, Workstation-Status und Batteriewarnungen zusammen.",
       defaultInput: { batteryWarningThreshold: "25" },
       fields: [
-        { key: "batteryWarningThreshold", label: "Low Battery Warning (%)", type: "number", placeholder: "25" }
+        { key: "batteryWarningThreshold", label: "Batterie-Warnschwelle (%)", type: "number", placeholder: "25" }
       ],
       execute: async (input, ctx) => {
         const threshold = Number(input.batteryWarningThreshold || 25);
@@ -2541,18 +2779,18 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "media.now_playing",
-      name: "Media & YouTube Music: Active Players & Control",
+      name: "Medien & YouTube Music: Aktive Player & Steuerung",
       domainCode: "MEDIA",
       category: "media",
       icon: "MEDIA",
-      description: "Reads all Home Assistant media_player entities (Music Assistant / YouTube Music, Samsung TV, Google Cast, Xbox) and optionally dispatches media commands.",
+      description: "Liest alle Home Assistant Mediaplayer (Music Assistant, Samsung TV, Google Cast, Xbox) aus und sendet optional Steuerbefehle.",
       defaultInput: { action: "status", entityId: "", command: "media_play_pause" },
       fields: [
-        { key: "action", label: "Mode", type: "select", options: ["status", "control"] },
-        { key: "entityId", label: "Target Media Player (optional)", type: "text", placeholder: "media_player.samsung_6_series_49" },
+        { key: "action", label: "Modus", type: "select", options: ["status", "control"] },
+        { key: "entityId", label: "Ziel-Mediaplayer (optional)", type: "text", placeholder: "media_player.samsung_6_series_49" },
         {
           key: "command",
-          label: "Media Command (when mode=control)",
+          label: "Steuerbefehl (bei Modus=control)",
           type: "select",
           options: ["media_play_pause", "media_next_track", "media_previous_track", "volume_up", "volume_down", "turn_off"]
         }
@@ -2587,15 +2825,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "youtube.videos.search",
-      name: "YouTube: Search Videos & Channels",
+      name: "YouTube: Video- & Kanalsuche",
       domainCode: "YT",
       category: "youtube",
       icon: "YT",
-      description: "Searches YouTube videos with live metadata, view counts, duration, and channel details (supports YouTube Data API v3 or zero-key live extraction).",
+      description: "Sucht YouTube-Videos inklusive Aufrufzahlen, Dauer und Kanalinformationen (per Data API v3 oder Zero-Key-Extraktion).",
       defaultInput: { query: "BambuLab X1C Gridfinity", maxResults: "8" },
       fields: [
-        { key: "query", label: "Search Query", type: "text", placeholder: "BambuLab X1C / Home Assistant / Finanzen", required: true },
-        { key: "maxResults", label: "Max Results", type: "number", placeholder: "8" }
+        { key: "query", label: "Suchabfrage", type: "text", placeholder: "BambuLab X1C / Home Assistant / Finanzen", required: true },
+        { key: "maxResults", label: "Max. Ergebnisse", type: "number", placeholder: "8" }
       ],
       execute: async (input, ctx) => {
         const query = String(input.query || "BambuLab X1C").trim();
@@ -2675,21 +2913,21 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "youtube.channel.feed",
-      name: "YouTube: Channel RSS Video Feed",
+      name: "YouTube: Kanal-RSS-Videofeed",
       domainCode: "YT",
       category: "youtube",
       icon: "YT",
-      description: "Fetches the latest uploads from any YouTube channel via its official XML Atom feed without requiring API keys.",
+      description: "Ruft die neuesten Video-Uploads eines YouTube-Kanals schl\xFCssellos \xFCber den offiziellen XML-Atom-Feed ab.",
       defaultInput: { channelId: "UCsBjURrPoezykLs9EqgamOA", maxVideos: "8" },
       fields: [
         {
           key: "channelId",
-          label: "YouTube Channel ID",
+          label: "YouTube-Kanal-ID",
           type: "text",
           placeholder: "UCsBjURrPoezykLs9EqgamOA (Fireship)",
           required: true
         },
-        { key: "maxVideos", label: "Max Videos", type: "number", placeholder: "8" }
+        { key: "maxVideos", label: "Max. Videos", type: "number", placeholder: "8" }
       ],
       execute: async (input) => {
         const channelId = String(input.channelId || "UCsBjURrPoezykLs9EqgamOA").trim();
@@ -2732,18 +2970,18 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "maps.routes.commute",
-      name: "Maps & Routing: Live Travel Time & Distance",
+      name: "Routen & Pendeln: Live-Fahrzeit & Distanz",
       domainCode: "MAPS",
       category: "maps",
       icon: "MAPS",
-      description: "Geocodes addresses and calculates live driving distance, duration, and route geometry from St. Veit an der G\xF6lsen (or any origin) to any destination.",
+      description: "Geokodiert Start- und Zieladresse und berechnet Live-Fahrzeit sowie Streckenl\xE4nge ab St. Veit an der G\xF6lsen oder beliebigem Startpunkt.",
       defaultInput: {
         origin: "St. Veit an der G\xF6lsen, Austria",
         destination: "St. P\xF6lten Hauptbahnhof, Austria"
       },
       fields: [
-        { key: "origin", label: 'Origin Address or "lat,lon"', type: "text", placeholder: "St. Veit an der G\xF6lsen, Austria", required: true },
-        { key: "destination", label: 'Destination Address or "lat,lon"', type: "text", placeholder: "St. P\xF6lten Hauptbahnhof, Austria", required: true }
+        { key: "origin", label: 'Startadresse oder "lat,lon"', type: "text", placeholder: "St. Veit an der G\xF6lsen, Austria", required: true },
+        { key: "destination", label: 'Zieladresse oder "lat,lon"', type: "text", placeholder: "St. P\xF6lten Hauptbahnhof, Austria", required: true }
       ],
       execute: async (input) => {
         const geocode = async (queryStr) => {
@@ -2799,15 +3037,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "finance.market.rates",
-      name: "Finance: EZB Live FX & Currency Reference Rates",
+      name: "Finanzen: EZB-Wechselkurse & W\xE4hrungsreferenz",
       domainCode: "FIN",
       category: "finance",
       icon: "FIN",
-      description: "Fetches daily European Central Bank (EZB) foreign exchange reference rates via Frankfurter API.",
+      description: "Ruft die tagesaktuellen Referenzwechselkurse der Europ\xE4ischen Zentralbank (EZB) \xFCber die Frankfurter API ab.",
       defaultInput: { base: "EUR", symbols: "USD,CHF,GBP,JPY,PLN,CZK,HUF" },
       fields: [
-        { key: "base", label: "Base Currency", type: "text", placeholder: "EUR" },
-        { key: "symbols", label: "Target Currencies (CSV)", type: "text", placeholder: "USD,CHF,GBP,JPY,PLN,CZK,HUF" }
+        { key: "base", label: "Basisw\xE4hrung", type: "text", placeholder: "EUR" },
+        { key: "symbols", label: "Zielw\xE4hrungen (CSV)", type: "text", placeholder: "USD,CHF,GBP,JPY,PLN,CZK,HUF" }
       ],
       execute: async (input) => {
         const base = String(input.base || "EUR").trim().toUpperCase();
@@ -2829,14 +3067,14 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "pc.status.telemetry",
-      name: "Workstation: Live Telemetry, Monitors & KVM Link",
+      name: "Workstation: Live-Telemetrie, Monitore & KVM-Stream",
       domainCode: "PC",
       category: "system",
       icon: "PC",
-      description: "Reads live CPU/RAM usage, active window, attached displays (DISPLAY1-3), audio volume, and Web-VNC/KVM stream URL from Thassi.PcAgent on DESKTOP-M8TJERB.",
+      description: "Liest CPU-/RAM-Auslastung, aktives Fenster, angeschlossene Monitore (DISPLAY1-3), Lautst\xE4rke und Web-VNC-Link von DESKTOP-M8TJERB.",
       defaultInput: { agentUrl: "http://192.168.188.46:5185" },
       fields: [
-        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+        { key: "agentUrl", label: "PC-Agent-URL", type: "text", placeholder: "http://192.168.188.46:5185" }
       ],
       execute: async (input) => {
         const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
@@ -2849,11 +3087,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "pc.power.control",
-      name: "Workstation: Power, Wake-on-LAN & Monitor Control",
+      name: "Workstation: Energie, Wake-on-LAN & Monitorsteuerung",
       domainCode: "PC",
       category: "system",
       icon: "PC",
-      description: "Powers DESKTOP-M8TJERB ON via UDP Wake-on-LAN Magic Packet (30:9C:23:E1:03:96) or executes Shutdown, Reboot, Standby, Hibernate, Lock, and Monitor Off/On via Thassi.PcAgent.",
+      description: "Weckt DESKTOP-M8TJERB per Wake-on-LAN Magic Packet auf oder f\xFChrt Shutdown, Neustart, Standby, Sperren und Monitor-Schaltung aus.",
       defaultInput: {
         action: "wake_on_lan",
         macAddress: "30:9C:23:E1:03:96",
@@ -2864,7 +3102,7 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "action",
-          label: "Power Action",
+          label: "Energie-Aktion",
           type: "select",
           options: [
             "wake_on_lan",
@@ -2878,10 +3116,10 @@ var ThassiActionRegistry = class {
             "abort_shutdown"
           ]
         },
-        { key: "macAddress", label: "MAC Address (for WOL)", type: "text", placeholder: "30:9C:23:E1:03:96" },
-        { key: "broadcastIp", label: "LAN Broadcast IP", type: "text", placeholder: "192.168.188.255" },
-        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" },
-        { key: "delaySeconds", label: "Shutdown/Reboot Delay (s)", type: "number", placeholder: "5" }
+        { key: "macAddress", label: "MAC-Adresse (f\xFCr Wake-on-LAN)", type: "text", placeholder: "30:9C:23:E1:03:96" },
+        { key: "broadcastIp", label: "LAN-Broadcast-IP", type: "text", placeholder: "192.168.188.255" },
+        { key: "agentUrl", label: "PC-Agent-URL", type: "text", placeholder: "http://192.168.188.46:5185" },
+        { key: "delaySeconds", label: "Verz\xF6gerung bis Shutdown/Reboot (Sek.)", type: "number", placeholder: "5" }
       ],
       execute: async (input, ctx) => {
         const action = String(input.action || "wake_on_lan").trim().toLowerCase();
@@ -2911,11 +3149,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "pc.session.login",
-      name: "Workstation: User Login, Unlock & Winlogon Auto-Logon",
+      name: "Workstation: Windows-Anmeldung, Entsperren & Auto-Logon",
       domainCode: "PC",
       category: "system",
       icon: "PC",
-      description: "Wakes displays, unlocks the Windows session (or injects PIN/Password), reattaches console sessions (tscon), or configures Winlogon AutoAdminLogon.",
+      description: "Weckt Bildschirme auf, entsperrt die Windows-Sitzung (inkl. PIN/Passwort-Injektion), verbindet Konsolensitzungen oder setzt AutoLogon.",
       defaultInput: {
         mode: "unlock",
         username: "thoma",
@@ -2925,13 +3163,13 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "mode",
-          label: "Login / Session Mode",
+          label: "Anmelde- / Sitzungsmodus",
           type: "select",
           options: ["unlock", "tscon", "enable_autologon", "disable_autologon"]
         },
-        { key: "username", label: "Windows Username", type: "text", placeholder: "thoma" },
-        { key: "pinOrPassword", label: "PIN or Password (optional)", type: "text", placeholder: "Leave empty for curtain wake only" },
-        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+        { key: "username", label: "Windows-Benutzername", type: "text", placeholder: "thoma" },
+        { key: "pinOrPassword", label: "PIN oder Passwort (optional)", type: "text", placeholder: "Leave empty for curtain wake only" },
+        { key: "agentUrl", label: "PC-Agent-URL", type: "text", placeholder: "http://192.168.188.46:5185" }
       ],
       execute: async (input) => {
         const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
@@ -2956,11 +3194,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "pc.powershell.exec",
-      name: "Workstation: Execute PowerShell Command",
+      name: "Workstation: PowerShell-Befehl ausf\xFChren",
       domainCode: "PC",
       category: "system",
       icon: "PC",
-      description: "Executes any PowerShell command or script directly on DESKTOP-M8TJERB via Thassi.PcAgent and returns stdout, stderr, and exit code.",
+      description: "F\xFChrt beliebige PowerShell-Befehle oder Skripte direkt auf DESKTOP-M8TJERB \xFCber den Thassi.PcAgent aus und liefert Stdout/Exit-Code.",
       defaultInput: {
         command: "Get-Process | Sort-Object CPU -Descending | Select-Object -First 6 Name, Id, CPU | Format-Table -AutoSize",
         workingDirectory: "c:\\Users\\thoma\\source\\repos\\thassi",
@@ -2970,14 +3208,14 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "command",
-          label: "PowerShell Command / Script",
+          label: "PowerShell-Befehl / Skript",
           type: "textarea",
           placeholder: "Get-Service | Where-Object Status -eq Running",
           required: true
         },
-        { key: "workingDirectory", label: "Working Directory", type: "text", placeholder: "c:\\Users\\thoma\\source\\repos\\thassi" },
-        { key: "timeoutSeconds", label: "Timeout (s)", type: "number", placeholder: "30" },
-        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+        { key: "workingDirectory", label: "Arbeitsverzeichnis", type: "text", placeholder: "c:\\Users\\thoma\\source\\repos\\thassi" },
+        { key: "timeoutSeconds", label: "Zeitlimit (Sek.)", type: "number", placeholder: "30" },
+        { key: "agentUrl", label: "PC-Agent-URL", type: "text", placeholder: "http://192.168.188.46:5185" }
       ],
       execute: async (input) => {
         const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
@@ -3003,11 +3241,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "pc.media.control",
-      name: "Workstation: Media Playback & Master Audio Volume",
+      name: "Workstation: Medienwiedergabe & Master-Lautst\xE4rke",
       domainCode: "PC",
       category: "media",
       icon: "PC",
-      description: "Controls media playback (Play/Pause, Next, Previous, Stop) and Windows CoreAudio Master Volume (0-100% / Mute) on DESKTOP-M8TJERB.",
+      description: "Steuert Medienwiedergabe (Play/Pause, Weiter, Zur\xFCck, Stopp) sowie die Windows CoreAudio Systemlautst\xE4rke (0-100 % / Stumm).",
       defaultInput: {
         action: "play_pause",
         volumePercent: "",
@@ -3016,12 +3254,12 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "action",
-          label: "Media Action",
+          label: "Medien-Aktion",
           type: "select",
           options: ["play_pause", "next", "prev", "stop", "mute", "vol_up", "vol_down", "set_volume"]
         },
-        { key: "volumePercent", label: "Master Volume % (0-100, optional)", type: "number", placeholder: "50" },
-        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+        { key: "volumePercent", label: "Systemlautst\xE4rke % (0-100, optional)", type: "number", placeholder: "50" },
+        { key: "agentUrl", label: "PC-Agent-URL", type: "text", placeholder: "http://192.168.188.46:5185" }
       ],
       execute: async (input) => {
         const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
@@ -3048,11 +3286,11 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "pc.antigravity.prompt",
-      name: "Workstation: Send Prompt to Antigravity (thassi)",
+      name: "Workstation: Prompt an Antigravity (thassi) senden",
       domainCode: "PC",
       category: "system",
       icon: "PC",
-      description: "Creates a new Chat in the thassi project (or targets an existing Chat) in the running Antigravity desktop app on DESKTOP-M8TJERB and dispatches a prompt directly via ConnectRPC.",
+      description: "Erstellt einen neuen oder \xF6ffnet einen bestehenden Chat im thassi-Projekt der laufenden Antigravity-App auf DESKTOP-M8TJERB per ConnectRPC.",
       defaultInput: {
         prompt: "",
         newChat: "true",
@@ -3064,36 +3302,36 @@ var ThassiActionRegistry = class {
       fields: [
         {
           key: "prompt",
-          label: "Antigravity Prompt",
+          label: "Antigravity-Auftrag (Prompt)",
           type: "textarea",
           placeholder: "Describe the coding or automation task for Antigravity in thassi...",
           required: true
         },
         {
           key: "newChat",
-          label: "Create New Chat in thassi",
+          label: "Neuen Chat in thassi starten",
           type: "select",
           options: ["true", "false"]
         },
         {
           key: "cascadeId",
-          label: "Target Cascade ID (optional, when newChat=false)",
+          label: "Ziel-Cascade-ID (optional, falls kein neuer Chat)",
           type: "text",
           placeholder: "Leave empty for new chat or active chat"
         },
         {
           key: "projectName",
-          label: "Antigravity Project Name",
+          label: "Antigravity-Projektname",
           type: "text",
           placeholder: "thassi"
         },
         {
           key: "focusWindow",
-          label: "Navigate Antigravity Window to Chat",
+          label: "Antigravity-Fenster zum Chat fokussieren",
           type: "select",
           options: ["true", "false"]
         },
-        { key: "agentUrl", label: "PC Agent URL", type: "text", placeholder: "http://192.168.188.46:5185" }
+        { key: "agentUrl", label: "PC-Agent-URL", type: "text", placeholder: "http://192.168.188.46:5185" }
       ],
       execute: async (input) => {
         const baseUrl = String(input.agentUrl || "http://192.168.188.46:5185").replace(/\/+$/, "");
@@ -3128,15 +3366,15 @@ var ThassiActionRegistry = class {
     });
     this.register({
       id: "google.drive.read_file",
-      name: "Google Drive: Read / Export File Content",
+      name: "Google Drive: Dateiinhalt lesen & exportieren",
       domainCode: "DRIVE",
       category: "drive",
       icon: "DRIVE",
-      description: "Reads or exports the full text content of a Google Doc, Markdown file, CSV, or plain text file from Google Drive v3.",
+      description: "Liest oder exportiert den Volltext eines Google Docs, einer Tabelle (CSV), Markdown- oder Textdatei direkt aus Google Drive v3.",
       defaultInput: { fileId: "", maxChars: "12000" },
       fields: [
-        { key: "fileId", label: "Google Drive File ID", type: "text", placeholder: "1aBcDeFgHiJkLmNoPqRsTuVwXyZ", required: true },
-        { key: "maxChars", label: "Max Characters", type: "number", placeholder: "12000" }
+        { key: "fileId", label: "Google Drive Datei-ID", type: "text", placeholder: "1aBcDeFgHiJkLmNoPqRsTuVwXyZ", required: true },
+        { key: "maxChars", label: "Max. Zeichenanzahl", type: "number", placeholder: "12000" }
       ],
       execute: async (input, ctx) => {
         const fileId = String(input.fileId || "").trim();
@@ -3207,25 +3445,25 @@ ${clipped}`
     });
     this.register({
       id: "memo.search",
-      name: "Memo: Federated Knowledge Search (Drive + Notes + .md + SQLite)",
+      name: "Memo: F\xF6derierte Wissenssuche (Drive + Notizen + .md + SQLite)",
       domainCode: "MEMO",
       category: "system",
       icon: "MEMO",
-      description: "Searches across Google Drive, Google Notes/Keep, local .md files, and all Thassi SQLite databases (Notes, Finance, Meals, Calendar, Projects) with relevance ranking.",
+      description: "Durchsucht gleichzeitig Google Drive, lokale Markdown-Dateien, Notizen und alle Thassi SQLite-Datenbanken mit Relevanz-Ranking.",
       defaultInput: {
         query: "BambuLab",
         sources: "all",
         limit: "20"
       },
       fields: [
-        { key: "query", label: "Search Topic / Query", type: "text", placeholder: "BambuLab / Budget / Rezept / Home Assistant" },
+        { key: "query", label: "Suchthema / Suchbegriff", type: "text", placeholder: "BambuLab / Budget / Rezept / Home Assistant" },
         {
           key: "sources",
-          label: "Sources Filter",
+          label: "Quellen-Filter",
           type: "select",
           options: ["all", "markdown", "notes", "drive", "database"]
         },
-        { key: "limit", label: "Max Results", type: "number", placeholder: "20" }
+        { key: "limit", label: "Max. Ergebnisse", type: "number", placeholder: "20" }
       ],
       execute: async (input, ctx) => {
         const query = String(input.query || "").trim();
@@ -3255,11 +3493,11 @@ ${clipped}`
     });
     this.register({
       id: "memo.note.upsert",
-      name: "Memo: Save Note or Markdown Document",
+      name: "Memo: Notiz oder Markdown-Dokument speichern",
       domainCode: "MEMO",
       category: "system",
       icon: "MEMO",
-      description: "Creates or updates a structured note or .md file in the Memo knowledge base and SQLite index.",
+      description: "Erstellt oder aktualisiert eine strukturierte Notiz samt optionaler .md-Datei im Memo-Wissensspeicher und SQLite-Index.",
       defaultInput: {
         title: "Neue Erkenntnis",
         content: "{{$input}}",
@@ -3267,10 +3505,10 @@ ${clipped}`
         saveAsMarkdownFile: "true"
       },
       fields: [
-        { key: "title", label: "Title", type: "text", placeholder: "Projekt-Notiz / Zusammenfassung", required: true },
-        { key: "content", label: "Markdown Content", type: "textarea", placeholder: "# \xDCberschrift\n\nInhalt...", required: true },
-        { key: "tags", label: "Tags (CSV)", type: "text", placeholder: "ha,projekt,notiz" },
-        { key: "saveAsMarkdownFile", label: "Also write .md file to Vault", type: "select", options: ["true", "false"] }
+        { key: "title", label: "Titel", type: "text", placeholder: "Projekt-Notiz / Zusammenfassung", required: true },
+        { key: "content", label: "Markdown-Inhalt", type: "textarea", placeholder: "# \xDCberschrift\n\nInhalt...", required: true },
+        { key: "tags", label: "Schlagw\xF6rter / Tags (CSV)", type: "text", placeholder: "ha,projekt,notiz" },
+        { key: "saveAsMarkdownFile", label: "Zus\xE4tzlich als .md-Datei im Vault speichern", type: "select", options: ["true", "false"] }
       ],
       execute: async (input, ctx) => {
         const title = String(input.title || "Unbenannte Notiz").trim();
@@ -3332,18 +3570,18 @@ ${content}
     });
     this.register({
       id: "memo.context.bundle",
-      name: "Memo: Build Topic Context Bundle for AI",
+      name: "Memo: Themen-Kontextdossier f\xFCr KI erstellen",
       domainCode: "MEMO",
       category: "system",
       icon: "MEMO",
-      description: "Compiles a structured Markdown context dossier for any topic by querying Google Drive, local .md files, notes, and SQLite databases.",
+      description: "Stellt ein strukturiertes Markdown-Wissensdossier zu einem Thema aus Google Drive, lokalen .md-Dateien, Notizen und Datenbanken zusammen.",
       defaultInput: {
         topic: "Smart Home & Energie",
         maxSnippets: "12"
       },
       fields: [
-        { key: "topic", label: "Topic / Research Question", type: "text", placeholder: "Smart Home / Finanzen / 3D Druck" },
-        { key: "maxSnippets", label: "Max Context Blocks", type: "number", placeholder: "12" }
+        { key: "topic", label: "Thema / Fragestellung", type: "text", placeholder: "Smart Home / Finanzen / 3D Druck" },
+        { key: "maxSnippets", label: "Max. Kontextbl\xF6cke", type: "number", placeholder: "12" }
       ],
       execute: async (input, ctx) => {
         const topic = String(input.topic || "").trim();
@@ -3378,11 +3616,11 @@ ${h.contentPreview || h.snippet}`
     });
     this.register({
       id: "cortex.prompt.enriched",
-      name: "Cortex: Context-Enriched Gemini Intelligence",
+      name: "Cortex: Kontextangereicherte Gemini-Intelligenz",
       domainCode: "AI",
       category: "gemini",
       icon: "AI",
-      description: "Enriches a prompt with live local data (Memo knowledge, Home Assistant, Calendar, Finance, Health, PC) and executes Gemini with a structured response pattern.",
+      description: "Reichert einen Auftrag automatisch mit lokalen Live-Daten (Memo, Home Assistant, Kalender, Finanzen, PC) an und f\xFChrt Gemini strukturiert aus.",
       defaultInput: {
         prompt: "Erstelle mein aktuelles Tages-Briefing und schlage die 3 wichtigsten n\xE4chsten Schritte vor.",
         contextScopes: "memo,ha,calendar,finance,pc",
@@ -3391,7 +3629,7 @@ ${h.contentPreview || h.snippet}`
       },
       fields: [
         { key: "prompt", label: "Prompt / Auftrag", type: "textarea", placeholder: "Was soll Cortex analysieren oder ausf\xFChren?", required: true },
-        { key: "contextScopes", label: "Context Scopes (CSV)", type: "text", placeholder: "memo,ha,calendar,finance,health,meals,pc" },
+        { key: "contextScopes", label: "Kontext-Quellen (CSV)", type: "text", placeholder: "memo,ha,calendar,finance,health,meals,pc" },
         {
           key: "responsePattern",
           label: "Antwort-Muster (Pattern)",
@@ -3404,7 +3642,7 @@ ${h.contentPreview || h.snippet}`
             "DATA_TABLE"
           ]
         },
-        { key: "model", label: "Gemini Model", type: "select", options: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"] }
+        { key: "model", label: "Gemini-Modell", type: "select", options: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"] }
       ],
       execute: async (input, ctx) => {
         const prompt = String(input.prompt || "").trim();
@@ -3891,37 +4129,37 @@ var STARTER_NODE_PALETTE = [
   {
     typeId: "trigger.manual",
     category: "trigger",
-    categoryLabel: "Triggers",
-    name: "Manual / Webhook Trigger",
-    subtitle: "Starts workflow on click or webhook",
+    categoryLabel: "Ausl\xF6ser",
+    name: "Manueller / Webhook-Ausl\xF6ser",
+    subtitle: "Startet den Ablauf per Klick oder Webhook",
     icon: "\u26A1",
     accentColor: "#f59e0b",
     n8nType: "n8n-nodes-base.webhook",
     defaultConfig: {
       webhookPath: "/webhook/run",
-      payloadHint: "Trigger event"
+      payloadHint: "Manueller Start"
     },
     fields: [
       {
         key: "webhookPath",
-        label: "Webhook Path",
+        label: "Webhook-Pfad",
         type: "text",
         placeholder: "/webhook/run"
       },
       {
         key: "payloadHint",
-        label: "Initial Input Text / JSON",
+        label: "Start-Eingabetext / JSON",
         type: "textarea",
-        placeholder: "Optional test input passed to next node..."
+        placeholder: "Optionale Testdaten f\xFCr den n\xE4chsten Schritt..."
       }
     ]
   },
   {
     typeId: "trigger.schedule",
     category: "trigger",
-    categoryLabel: "Triggers",
-    name: "Schedule Timer",
-    subtitle: "Runs on a recurring cron / interval",
+    categoryLabel: "Ausl\xF6ser",
+    name: "Zeitplan-Timer",
+    subtitle: "Wiederkehrende Ausf\xFChrung per Cron / Intervall",
     icon: "\u23F0",
     accentColor: "#f59e0b",
     n8nType: "n8n-nodes-base.scheduleTrigger",
@@ -3932,15 +4170,57 @@ var STARTER_NODE_PALETTE = [
     fields: [
       {
         key: "cron",
-        label: "Cron Schedule",
+        label: "Cron-Zeitplan",
         type: "text",
-        placeholder: "30 7 * * * (Every day at 07:30)"
+        placeholder: "30 7 * * * (T\xE4glich um 07:30 Uhr)"
       },
       {
         key: "timezone",
-        label: "Timezone",
+        label: "Zeitzone",
         type: "text",
         placeholder: "Europe/Vienna"
+      }
+    ]
+  },
+  {
+    typeId: "trigger.vision_object",
+    category: "trigger",
+    categoryLabel: "Ausl\xF6ser",
+    name: "Kamera-Objekt-Ausl\xF6ser",
+    subtitle: "Startet bei Objekt X >= p% Wahrscheinlichkeit",
+    icon: "\u{1F3A5}",
+    accentColor: "#10b981",
+    n8nType: "n8n-nodes-base.webhook",
+    defaultConfig: {
+      cameraId: "camera.cam_eg_vz_eingang",
+      objectClass: "person",
+      minConfidencePct: "65"
+    },
+    fields: [
+      {
+        key: "cameraId",
+        label: "Kamera-ID (* f\xFCr alle)",
+        type: "text",
+        placeholder: "camera.cam_eg_vz_eingang"
+      },
+      {
+        key: "objectClass",
+        label: "Ziel-Objektklasse",
+        type: "select",
+        options: [
+          { label: "Person (person)", value: "person" },
+          { label: "Auto (car)", value: "car" },
+          { label: "Beliebiges Fahrzeug (any_vehicle)", value: "any_vehicle" },
+          { label: "Paket / Rucksack (backpack)", value: "backpack" },
+          { label: "Hund / Katze (any_animal)", value: "any_animal" },
+          { label: "Reine Bewegung (motion_only)", value: "motion_only" }
+        ]
+      },
+      {
+        key: "minConfidencePct",
+        label: "Mindest-Wahrscheinlichkeit (%)",
+        type: "text",
+        placeholder: "65"
       }
     ]
   },
@@ -3948,51 +4228,51 @@ var STARTER_NODE_PALETTE = [
   {
     typeId: "gemini.generate",
     category: "gemini",
-    categoryLabel: "Gemini AI",
-    name: "Gemini Generate",
-    subtitle: "Prompt Gemini 2.5 Flash / Pro",
+    categoryLabel: "Gemini KI",
+    name: "Gemini Analyse & Text",
+    subtitle: "Prompt an Gemini 2.5 Flash / Pro senden",
     icon: "\u2728",
     accentColor: "#8b5cf6",
     n8nType: "n8n-nodes-base.googleGemini",
     defaultConfig: {
       model: "gemini-2.5-flash",
-      prompt: "Summarize the incoming data in 3 concise bullet points:\n\n{{$input}}"
+      prompt: "Fasse die eingehenden Daten in 3 pr\xE4zisen Punkten auf Deutsch zusammen:\n\n{{$input}}"
     },
     fields: [
       {
         key: "model",
-        label: "Gemini Model",
+        label: "Gemini-Modell",
         type: "select",
         options: [
-          { label: "gemini-2.5-flash (Fast)", value: "gemini-2.5-flash" },
-          { label: "gemini-2.5-pro (Reasoning)", value: "gemini-2.5-pro" }
+          { label: "gemini-2.5-flash (Schnell)", value: "gemini-2.5-flash" },
+          { label: "gemini-2.5-pro (Tiefenanalyse)", value: "gemini-2.5-pro" }
         ]
       },
       {
         key: "prompt",
-        label: "Prompt (use {{$input}} for previous node data)",
+        label: "Prompt ({{$input}} f\xFCr Daten des vorherigen Knotens)",
         type: "textarea",
-        placeholder: "Analyze {{$input}} and return recommendations..."
+        placeholder: "Analysiere {{$input}} und gib Empfehlungen aus..."
       }
     ]
   },
   {
     typeId: "gemini.decide",
     category: "gemini",
-    categoryLabel: "Gemini AI",
-    name: "Gemini AI Classifier",
-    subtitle: "Extract structured JSON / decision",
+    categoryLabel: "Gemini KI",
+    name: "Gemini KI-Klassifizierer",
+    subtitle: "Strukturierte JSON-Entscheidung ableiten",
     icon: "\u{1F9E0}",
     accentColor: "#8b5cf6",
     n8nType: "n8n-nodes-base.googleGemini",
     defaultConfig: {
       model: "gemini-2.5-flash",
-      prompt: "Classify urgency (HIGH / NORMAL / LOW) and suggest next action for:\n{{$input}}"
+      prompt: "Klassifiziere die Dringlichkeit (HOCH / NORMAL / NIEDRIG) und schlage die n\xE4chste Aktion vor:\n{{$input}}"
     },
     fields: [
       {
         key: "model",
-        label: "Gemini Model",
+        label: "Gemini-Modell",
         type: "select",
         options: [
           { label: "gemini-2.5-flash", value: "gemini-2.5-flash" },
@@ -4001,7 +4281,7 @@ var STARTER_NODE_PALETTE = [
       },
       {
         key: "prompt",
-        label: "Classification Prompt",
+        label: "Klassifizierungs-Prompt",
         type: "textarea"
       }
     ]
@@ -4011,8 +4291,8 @@ var STARTER_NODE_PALETTE = [
     typeId: "gmail.list_unread",
     category: "gmail",
     categoryLabel: "Gmail",
-    name: "Gmail Fetch Emails",
-    subtitle: "Read unread messages matching query",
+    name: "Gmail E-Mails abrufen",
+    subtitle: "Ungelesene Nachrichten per Suchfilter lesen",
     icon: "\u{1F4E7}",
     accentColor: "#ef4444",
     n8nType: "n8n-nodes-base.gmail",
@@ -4023,13 +4303,13 @@ var STARTER_NODE_PALETTE = [
     fields: [
       {
         key: "query",
-        label: "Gmail Search Query",
+        label: "Gmail-Suchfilter",
         type: "text",
         placeholder: "is:unread from:alerts@..."
       },
       {
         key: "maxResults",
-        label: "Max Emails",
+        label: "Max. E-Mails",
         type: "text",
         placeholder: "5"
       }
@@ -4039,32 +4319,32 @@ var STARTER_NODE_PALETTE = [
     typeId: "gmail.send",
     category: "gmail",
     categoryLabel: "Gmail",
-    name: "Gmail Send Email",
-    subtitle: "Send email with workflow output",
+    name: "Gmail E-Mail senden",
+    subtitle: "E-Mail mit Workflow-Ergebnis versenden",
     icon: "\u{1F4E8}",
     accentColor: "#ef4444",
     n8nType: "n8n-nodes-base.gmail",
     defaultConfig: {
       to: "thomas@example.com",
-      subject: "[Thassi Workflow] Automated Report",
-      body: "Here is your automated workflow summary:\n\n{{$input}}"
+      subject: "[Thassi Workflow] Automatischer Bericht",
+      body: "Hier ist die automatische Zusammenfassung:\n\n{{$input}}"
     },
     fields: [
       {
         key: "to",
-        label: "To (Recipient Email)",
+        label: "Empf\xE4nger (An)",
         type: "text",
-        placeholder: "you@gmail.com"
+        placeholder: "du@gmail.com"
       },
       {
         key: "subject",
-        label: "Subject",
+        label: "Betreff",
         type: "text",
-        placeholder: "Workflow Notification"
+        placeholder: "Workflow-Benachrichtigung"
       },
       {
         key: "body",
-        label: "Email Body (supports {{$input}})",
+        label: "Nachrichtentext ({{$input}} m\xF6glich)",
         type: "textarea"
       }
     ]
@@ -4073,9 +4353,9 @@ var STARTER_NODE_PALETTE = [
   {
     typeId: "gcal.upcoming",
     category: "gcal",
-    categoryLabel: "Google Calendar",
-    name: "Calendar Upcoming Events",
-    subtitle: "Fetch today / next 7d schedule",
+    categoryLabel: "Google Kalender",
+    name: "Kalender: Kommende Termine",
+    subtitle: "Termine f\xFCr heute / n\xE4chste 7 Tage laden",
     icon: "\u{1F4C5}",
     accentColor: "#3b82f6",
     n8nType: "n8n-nodes-base.googleCalendar",
@@ -4086,18 +4366,18 @@ var STARTER_NODE_PALETTE = [
     fields: [
       {
         key: "calendarId",
-        label: "Calendar ID",
+        label: "Kalender-ID",
         type: "text",
         placeholder: "primary"
       },
       {
         key: "windowHours",
-        label: "Lookahead Window (Hours)",
+        label: "Zeitfenster (Stunden)",
         type: "select",
         options: [
-          { label: "Next 24 Hours (Today)", value: "24" },
-          { label: "Next 48 Hours", value: "48" },
-          { label: "Next 7 Days (168h)", value: "168" }
+          { label: "N\xE4chste 24 Stunden (Heute)", value: "24" },
+          { label: "N\xE4chste 48 Stunden", value: "48" },
+          { label: "N\xE4chste 7 Tage (168h)", value: "168" }
         ]
       }
     ]
@@ -4105,9 +4385,9 @@ var STARTER_NODE_PALETTE = [
   {
     typeId: "gcal.create_event",
     category: "gcal",
-    categoryLabel: "Google Calendar",
-    name: "Calendar Create Event",
-    subtitle: "Add a new event or reminder",
+    categoryLabel: "Google Kalender",
+    name: "Kalender: Termin erstellen",
+    subtitle: "Neuen Kalendereintrag oder Erinnerung anlegen",
     icon: "\u{1F5D3}\uFE0F",
     accentColor: "#3b82f6",
     n8nType: "n8n-nodes-base.googleCalendar",
@@ -4119,19 +4399,19 @@ var STARTER_NODE_PALETTE = [
     fields: [
       {
         key: "calendarId",
-        label: "Calendar ID",
+        label: "Kalender-ID",
         type: "text",
         placeholder: "primary"
       },
       {
         key: "summary",
-        label: "Event Title",
+        label: "Termin-Titel",
         type: "text",
-        placeholder: "Smart Home Maintenance"
+        placeholder: "Smart Home Wartung"
       },
       {
         key: "durationMinutes",
-        label: "Duration (minutes)",
+        label: "Dauer (Minuten)",
         type: "text",
         placeholder: "30"
       }
@@ -4142,8 +4422,8 @@ var STARTER_NODE_PALETTE = [
     typeId: "github.list_issues",
     category: "github",
     categoryLabel: "GitHub",
-    name: "GitHub Fetch Issues",
-    subtitle: "List issues & PRs from repository",
+    name: "GitHub Issues abrufen",
+    subtitle: "Issues & PRs eines Repositories auflisten",
     icon: "\u{1F419}",
     accentColor: "#10b981",
     n8nType: "n8n-nodes-base.github",
@@ -4167,12 +4447,12 @@ var STARTER_NODE_PALETTE = [
       },
       {
         key: "state",
-        label: "Issue State",
+        label: "Issue-Status",
         type: "select",
         options: [
-          { label: "Open Issues", value: "open" },
-          { label: "All Issues (Open + Closed)", value: "all" },
-          { label: "Closed Issues", value: "closed" }
+          { label: "Offene Issues", value: "open" },
+          { label: "Alle Issues (Offen + Geschlossen)", value: "all" },
+          { label: "Geschlossene Issues", value: "closed" }
         ]
       }
     ]
@@ -4181,15 +4461,15 @@ var STARTER_NODE_PALETTE = [
     typeId: "github.create_issue",
     category: "github",
     categoryLabel: "GitHub",
-    name: "GitHub Create Issue",
-    subtitle: "Open a new issue in a repository",
+    name: "GitHub Issue erstellen",
+    subtitle: "Neues Issue in einem Repository er\xF6ffnen",
     icon: "\u{1F3AF}",
     accentColor: "#10b981",
     n8nType: "n8n-nodes-base.github",
     defaultConfig: {
       repo: "tsimhofer/thassi",
-      title: "[Automated] Follow-up Task",
-      body: "Created automatically by Thassi Workflows:\n\n{{$input}}"
+      title: "[Automatisch] Folgeaufgabe",
+      body: "Automatisch erstellt durch Thassi Axons:\n\n{{$input}}"
     },
     fields: [
       {
@@ -4207,12 +4487,12 @@ var STARTER_NODE_PALETTE = [
       },
       {
         key: "title",
-        label: "Issue Title",
+        label: "Issue-Titel",
         type: "text"
       },
       {
         key: "body",
-        label: "Issue Body (supports {{$input}})",
+        label: "Beschreibung ({{$input}} m\xF6glich)",
         type: "textarea"
       }
     ]
@@ -4222,8 +4502,8 @@ var STARTER_NODE_PALETTE = [
     typeId: "ha.get_state",
     category: "homeassistant",
     categoryLabel: "Home Assistant",
-    name: "HA Read Sensor / State",
-    subtitle: "Fetch live state from Home Assistant",
+    name: "HA Sensor / Zustand lesen",
+    subtitle: "Aktuellen Live-Status aus Home Assistant lesen",
     icon: "\u{1F3E0}",
     accentColor: "#06b6d4",
     n8nType: "n8n-nodes-base.homeAssistant",
@@ -4233,7 +4513,7 @@ var STARTER_NODE_PALETTE = [
     fields: [
       {
         key: "entityId",
-        label: "Entity ID",
+        label: "Entit\xE4ts-ID",
         type: "text",
         placeholder: "sensor.shellyhtg3_e4b32331dde0_temperatur"
       }
@@ -4243,8 +4523,8 @@ var STARTER_NODE_PALETTE = [
     typeId: "ha.call_service",
     category: "homeassistant",
     categoryLabel: "Home Assistant",
-    name: "HA Call Service / Notify",
-    subtitle: "Trigger switch, light, or notification",
+    name: "HA Dienst / Benachrichtigung",
+    subtitle: "Schalter, Licht oder Benachrichtigung ausl\xF6sen",
     icon: "\u{1F514}",
     accentColor: "#06b6d4",
     n8nType: "n8n-nodes-base.homeAssistant",
@@ -4256,26 +4536,26 @@ var STARTER_NODE_PALETTE = [
     fields: [
       {
         key: "domain",
-        label: "Service Domain",
+        label: "Dienst-Dom\xE4ne",
         type: "select",
         options: [
-          { label: "persistent_notification (HA UI Notification)", value: "persistent_notification" },
-          { label: "switch (Turn On / Off)", value: "switch" },
-          { label: "light (Turn On / Off)", value: "light" },
-          { label: "script (Run Script)", value: "script" }
+          { label: "persistent_notification (HA Benachrichtigung)", value: "persistent_notification" },
+          { label: "switch (Schalter Ein / Aus)", value: "switch" },
+          { label: "light (Licht Ein / Aus)", value: "light" },
+          { label: "script (Skript starten)", value: "script" }
         ]
       },
       {
         key: "service",
-        label: "Service Action",
+        label: "Dienst-Aktion",
         type: "text",
         placeholder: "create / turn_on / turn_off"
       },
       {
         key: "targetOrMessage",
-        label: "Message or Entity ID (supports {{$input}})",
+        label: "Nachricht oder Entit\xE4ts-ID ({{$input}} m\xF6glich)",
         type: "textarea",
-        placeholder: "Message text or entity_id..."
+        placeholder: "Nachrichtentext oder entity_id..."
       }
     ]
   }
@@ -4283,16 +4563,16 @@ var STARTER_NODE_PALETTE = [
 var DEFAULT_STARTER_WORKFLOWS = [
   {
     id: "wf-morning-briefing",
-    name: "Morning Smart Home & Calendar Briefing",
-    description: "Reads upcoming Google Calendar events, unread Gmail messages, and Home Assistant room temperature, then summarizes them with Gemini AI and sends a Home Assistant notification.",
+    name: "Morgen-Briefing: Smart Home & Kalender",
+    description: "Liest anstehende Google-Kalendertermine, ungelesene Gmail-Nachrichten und die Raumtemperatur aus Home Assistant, fasst alles mit Gemini KI zusammen und sendet eine Benachrichtigung.",
     updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     nodes: [
       {
         id: "node-1",
         typeId: "trigger.schedule",
         category: "trigger",
-        name: "07:30 Morning Trigger",
-        subtitle: "Runs daily at 07:30",
+        name: "07:30 Morgen-Ausl\xF6ser",
+        subtitle: "T\xE4glich um 07:30 Uhr",
         icon: "\u23F0",
         accentColor: "#f59e0b",
         n8nType: "n8n-nodes-base.scheduleTrigger",
@@ -4304,8 +4584,8 @@ var DEFAULT_STARTER_WORKFLOWS = [
         id: "node-2",
         typeId: "gcal.upcoming",
         category: "gcal",
-        name: "Today's Calendar",
-        subtitle: "Next 24h events",
+        name: "Heutiger Kalender",
+        subtitle: "Termine der n\xE4chsten 24 Std.",
         icon: "\u{1F4C5}",
         accentColor: "#3b82f6",
         n8nType: "n8n-nodes-base.googleCalendar",
@@ -4317,8 +4597,8 @@ var DEFAULT_STARTER_WORKFLOWS = [
         id: "node-3",
         typeId: "gmail.list_unread",
         category: "gmail",
-        name: "Unread Gmail Inbox",
-        subtitle: "Top 5 unread emails",
+        name: "Ungelesene E-Mails",
+        subtitle: "Top 5 ungelesene Nachrichten",
         icon: "\u{1F4E7}",
         accentColor: "#ef4444",
         n8nType: "n8n-nodes-base.gmail",
@@ -4330,8 +4610,8 @@ var DEFAULT_STARTER_WORKFLOWS = [
         id: "node-4",
         typeId: "ha.get_state",
         category: "homeassistant",
-        name: "HA Living Room Temp",
-        subtitle: "Read Shelly H&T Gen3",
+        name: "HA Wohnzimmer-Temperatur",
+        subtitle: "Shelly H&T Gen3 auslesen",
         icon: "\u{1F3E0}",
         accentColor: "#06b6d4",
         n8nType: "n8n-nodes-base.homeAssistant",
@@ -4343,8 +4623,8 @@ var DEFAULT_STARTER_WORKFLOWS = [
         id: "node-5",
         typeId: "gemini.generate",
         category: "gemini",
-        name: "Gemini Daily Briefing",
-        subtitle: "Synthesize schedule + home state",
+        name: "Gemini Tages-Briefing",
+        subtitle: "Termine + Hausstatus zusammenfassen",
         icon: "\u2728",
         accentColor: "#8b5cf6",
         n8nType: "n8n-nodes-base.googleGemini",
@@ -4352,15 +4632,15 @@ var DEFAULT_STARTER_WORKFLOWS = [
         y: 190,
         config: {
           model: "gemini-2.5-flash",
-          prompt: "Create a friendly German morning briefing from Calendar, Gmail, and Home Assistant sensor data:\n\n{{$input}}"
+          prompt: "Erstelle ein kompaktes deutsches Morgen-Briefing aus Kalender-, Gmail- und Home-Assistant-Sensordaten:\n\n{{$input}}"
         }
       },
       {
         id: "node-6",
         typeId: "ha.call_service",
         category: "homeassistant",
-        name: "HA Push Briefing",
-        subtitle: "Show persistent notification",
+        name: "HA Briefing-Benachrichtigung",
+        subtitle: "Persistente Benachrichtigung senden",
         icon: "\u{1F514}",
         accentColor: "#06b6d4",
         n8nType: "n8n-nodes-base.homeAssistant",
@@ -4385,28 +4665,28 @@ var DEFAULT_STARTER_WORKFLOWS = [
   },
   {
     id: "wf-github-gemini-digest",
-    name: "GitHub Issue Triage -> Gemini -> Gmail",
-    description: "Fetches open GitHub issues from tsimhofer/taskassistant, prioritizes them with Gemini AI, and sends an email digest via Gmail.",
+    name: "GitHub Issue-Triage -> Gemini -> Gmail",
+    description: "L\xE4dt offene GitHub-Issues aus tsimhofer/taskassistant, priorisiert sie mit Gemini KI und versendet eine Zusammenfassung per Gmail.",
     updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     nodes: [
       {
         id: "gh-1",
         typeId: "trigger.manual",
         category: "trigger",
-        name: "Manual Start",
-        subtitle: "On-demand trigger",
+        name: "Manueller Start",
+        subtitle: "Start auf Abruf",
         icon: "\u26A1",
         accentColor: "#f59e0b",
         n8nType: "n8n-nodes-base.webhook",
         x: 70,
         y: 180,
-        config: { webhookPath: "/webhook/github-triage", payloadHint: "Start GitHub issue triage" }
+        config: { webhookPath: "/webhook/github-triage", payloadHint: "GitHub Issue-Triage starten" }
       },
       {
         id: "gh-2",
         typeId: "github.list_issues",
         category: "github",
-        name: "Fetch GitHub Issues",
+        name: "GitHub Issues laden",
         subtitle: "tsimhofer/taskassistant",
         icon: "\u{1F419}",
         accentColor: "#10b981",
@@ -4419,8 +4699,8 @@ var DEFAULT_STARTER_WORKFLOWS = [
         id: "gh-3",
         typeId: "gemini.generate",
         category: "gemini",
-        name: "Gemini Prioritize Issues",
-        subtitle: "Summarize & rank open PRs/issues",
+        name: "Gemini Issue-Priorisierung",
+        subtitle: "Offene PRs/Issues bewerten & reihen",
         icon: "\u2728",
         accentColor: "#8b5cf6",
         n8nType: "n8n-nodes-base.googleGemini",
@@ -4428,15 +4708,15 @@ var DEFAULT_STARTER_WORKFLOWS = [
         y: 180,
         config: {
           model: "gemini-2.5-flash",
-          prompt: "Review these open GitHub issues/PRs and recommend which ones to merge or fix first:\n\n{{$input}}"
+          prompt: "Analysiere diese offenen GitHub-Issues/PRs auf Deutsch und empfehle, welche zuerst umgesetzt werden sollten:\n\n{{$input}}"
         }
       },
       {
         id: "gh-4",
         typeId: "gmail.send",
         category: "gmail",
-        name: "Send Gmail Digest",
-        subtitle: "Email summary to maintainer",
+        name: "Gmail-Zusammenfassung senden",
+        subtitle: "Bericht per E-Mail versenden",
         icon: "\u{1F4E8}",
         accentColor: "#ef4444",
         n8nType: "n8n-nodes-base.gmail",
@@ -4444,7 +4724,7 @@ var DEFAULT_STARTER_WORKFLOWS = [
         y: 180,
         config: {
           to: "tsimhofer@gmail.com",
-          subject: "[GitHub Triage] Prioritized Open Issues",
+          subject: "[GitHub Triage] Priorisierte offene Issues",
           body: "{{$input}}"
         }
       }
@@ -4650,7 +4930,7 @@ var index_default = defineThassiApp((ctx) => {
       haEntities
     };
   });
-  ctx.route("POST", "/execute-axon", async (req) => {
+  const handleExecuteAxon = async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     if (!body.axonId) {
       return { ok: false, error: "Missing axonId" };
@@ -4660,13 +4940,26 @@ var index_default = defineThassiApp((ctx) => {
       upstreamText: body.upstreamText,
       credentials: creds
     });
+    const ok = result.status === "success";
     return {
-      ok: result.status === "success",
+      ok,
+      status: result.status,
+      actionId: result.actionId,
+      axonId: result.axonId,
+      durationMs: result.durationMs,
+      executedAt: result.executedAt,
+      summary: result.summary,
+      data: result.data,
+      error: ok ? void 0 : result.summary,
+      errorCode: result.errorCode,
+      remediationHint: result.remediationHint,
       result,
       axons: actionRegistry.listActions()
     };
-  });
-  ctx.route("POST", "/workflows", async (req) => {
+  };
+  ctx.route("POST", "/execute-axon", handleExecuteAxon);
+  ctx.route("POST", "/axons/execute", handleExecuteAxon);
+  const handleSaveWorkflowRoute = async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     if (!body.workflow || !body.workflow.id) {
       return { ok: false, error: "Missing workflow object" };
@@ -4685,7 +4978,9 @@ var index_default = defineThassiApp((ctx) => {
     ctx.db.kvSet("saved_workflows", existing);
     syncScheduledWorkflowJobs();
     return { ok: true, workflows: existing, saved: updated };
-  });
+  };
+  ctx.route("POST", "/workflows", handleSaveWorkflowRoute);
+  ctx.route("POST", "/workflows/save", handleSaveWorkflowRoute);
   ctx.route("POST", "/workflows/delete", async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const existing = getSavedWorkflows().filter((w) => w.id !== body.workflowId);
@@ -4781,7 +5076,7 @@ var index_default = defineThassiApp((ctx) => {
     );
     return { ok: true, result };
   });
-  ctx.route("POST", "/execute-workflow", async (req) => {
+  const handleExecuteWorkflowRoute = async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const wf = body.workflow;
     if (!wf || !Array.isArray(wf.nodes)) {
@@ -4789,7 +5084,9 @@ var index_default = defineThassiApp((ctx) => {
     }
     const report = await executeFullWorkflow(wf);
     return { ok: true, report };
-  });
+  };
+  ctx.route("POST", "/execute-workflow", handleExecuteWorkflowRoute);
+  ctx.route("POST", "/workflows/execute", handleExecuteWorkflowRoute);
   ctx.route("POST", "/pc-bridge/sync", async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     return PcAgentReverseBridge.ingestSync(body);
@@ -4810,7 +5107,41 @@ var index_default = defineThassiApp((ctx) => {
       frameDataUrl: PcAgentReverseBridge.latestFrameJpeg ? `data:image/jpeg;base64,${PcAgentReverseBridge.latestFrameJpeg.toString("base64")}` : null
     };
   });
-  ctx.route("POST", "/pc-bridge/input", async (req) => {
+  ctx.route("GET", "/pc/kvm/frame.jpg", async (req) => {
+    const mon = String(req.query.monitor || PcAgentReverseBridge.requestedMonitor || "primary");
+    PcAgentReverseBridge.requestedMonitor = mon;
+    if (PcAgentReverseBridge.latestFrameJpeg && PcAgentReverseBridge.latestFrameJpeg.length > 100) {
+      return {
+        status: 200,
+        headers: {
+          "Content-Type": "image/jpeg",
+          "Cache-Control": "no-store, no-cache, must-revalidate"
+        },
+        body: PcAgentReverseBridge.latestFrameJpeg
+      };
+    }
+    try {
+      const r = await fetch(
+        `http://192.168.188.46:5185/api/screen/frame.jpg?monitor=${encodeURIComponent(mon)}&quality=68&maxWidth=1600`,
+        { signal: AbortSignal.timeout(3e3) }
+      );
+      if (r.ok) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        PcAgentReverseBridge.latestFrameJpeg = buf;
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Cache-Control": "no-store, no-cache, must-revalidate"
+          },
+          body: buf
+        };
+      }
+    } catch {
+    }
+    return { status: 404, body: { ok: false, error: "No PC frame available" } };
+  });
+  const handlePcInputRoute = async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     if (body.setMonitor) {
       PcAgentReverseBridge.requestedMonitor = String(body.setMonitor);
@@ -4826,7 +5157,9 @@ var index_default = defineThassiApp((ctx) => {
       4e3
     );
     return { ok: true, result: res };
-  });
+  };
+  ctx.route("POST", "/pc-bridge/input", handlePcInputRoute);
+  ctx.route("POST", "/pc/kvm/input", handlePcInputRoute);
   ctx.route("POST", "/pc-bridge/antigravity", async (req) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const prompt = String(body.prompt || "").trim();

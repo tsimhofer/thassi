@@ -1,0 +1,1631 @@
+{
+  "rooms": [
+    {
+      "id": "og-loggia",
+      "floorId": "og",
+      "name": "Loggia",
+      "zoneCode": "OG-LOG",
+      "x": 19,
+      "y": 12,
+      "width": 1152,
+      "height": 273,
+      "points": [
+        {
+          "x": 19,
+          "y": 12
+        },
+        {
+          "x": 1171,
+          "y": 12
+        },
+        {
+          "x": 1171,
+          "y": 285
+        },
+        {
+          "x": 19,
+          "y": 285
+        }
+      ],
+      "wallThickness": 25,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Überdachte Loggia Gartenseite · 11,40 × 2,47 m (28,16 m²)",
+      "sortOrder": 1,
+      "metadata": {
+        "blueprintName": "LOGGIA",
+        "labeledAreaM2": 28.16,
+        "measuredWidthM": 11.4,
+        "measuredDepthM": 2.47,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-zimmer-nw",
+      "floorId": "og",
+      "name": "Zimmer 1 (Büro West)",
+      "zoneCode": "OG-Z1",
+      "x": 19,
+      "y": 285,
+      "width": 351,
+      "height": 425,
+      "points": [
+        {
+          "x": 19,
+          "y": 285
+        },
+        {
+          "x": 370,
+          "y": 285
+        },
+        {
+          "x": 370,
+          "y": 710
+        },
+        {
+          "x": 19,
+          "y": 710
+        }
+      ],
+      "wallThickness": 25,
+      "tempEntityId": "sensor.shellyhtg3_e4b32331dde0_temperatur",
+      "humidityEntityId": "sensor.shellyhtg3_e4b32331dde0_luftfeuchtigkeit",
+      "notes": "Planmaß 3,30 × 4,00 m · Planfläche 13,20 m²",
+      "sortOrder": 2,
+      "metadata": {
+        "blueprintName": "ZIMMER 1",
+        "labeledAreaM2": 13.2,
+        "measuredWidthM": 3.3,
+        "measuredDepthM": 4,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-zimmer-nm",
+      "floorId": "og",
+      "name": "Zimmer 2 (Garten Mitte)",
+      "zoneCode": "OG-Z2",
+      "x": 370,
+      "y": 285,
+      "width": 375,
+      "height": 425,
+      "points": [
+        {
+          "x": 370,
+          "y": 285
+        },
+        {
+          "x": 745,
+          "y": 285
+        },
+        {
+          "x": 745,
+          "y": 710
+        },
+        {
+          "x": 370,
+          "y": 710
+        }
+      ],
+      "wallThickness": 10,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 3,60 × 4,00 m · Planfläche 14,40 m²",
+      "sortOrder": 3,
+      "metadata": {
+        "blueprintName": "ZIMMER 2",
+        "labeledAreaM2": 14.4,
+        "measuredWidthM": 3.6,
+        "measuredDepthM": 4,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-zimmer-ne",
+      "floorId": "og",
+      "name": "Zimmer 3 (Garten Ost)",
+      "zoneCode": "OG-Z3",
+      "x": 745,
+      "y": 285,
+      "width": 426,
+      "height": 425,
+      "points": [
+        {
+          "x": 745,
+          "y": 285
+        },
+        {
+          "x": 1171,
+          "y": 285
+        },
+        {
+          "x": 1171,
+          "y": 710
+        },
+        {
+          "x": 745,
+          "y": 710
+        }
+      ],
+      "wallThickness": 25,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 4,16 × 4,00 m · Planfläche 16,60 m²",
+      "sortOrder": 4,
+      "metadata": {
+        "blueprintName": "ZIMMER 3",
+        "labeledAreaM2": 16.6,
+        "measuredWidthM": 4.16,
+        "measuredDepthM": 4,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-wc",
+      "floorId": "og",
+      "name": "WC",
+      "zoneCode": "OG-WC",
+      "x": 19,
+      "y": 710,
+      "width": 231,
+      "height": 115,
+      "points": [
+        {
+          "x": 19,
+          "y": 710
+        },
+        {
+          "x": 250,
+          "y": 710
+        },
+        {
+          "x": 250,
+          "y": 825
+        },
+        {
+          "x": 19,
+          "y": 825
+        }
+      ],
+      "wallThickness": 10,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 2,10 × 1,00 m · Planfläche 2,10 m²",
+      "sortOrder": 5,
+      "metadata": {
+        "blueprintName": "WC",
+        "labeledAreaM2": 2.1,
+        "measuredWidthM": 2.1,
+        "measuredDepthM": 1,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-bad",
+      "floorId": "og",
+      "name": "Bad",
+      "zoneCode": "OG-BAD",
+      "x": 19,
+      "y": 825,
+      "width": 231,
+      "height": 250,
+      "points": [
+        {
+          "x": 19,
+          "y": 825
+        },
+        {
+          "x": 250,
+          "y": 825
+        },
+        {
+          "x": 250,
+          "y": 1075
+        },
+        {
+          "x": 19,
+          "y": 1075
+        }
+      ],
+      "wallThickness": 10,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 2,30 × 2,33 m · Planfläche 4,70 m²",
+      "sortOrder": 6,
+      "metadata": {
+        "blueprintName": "BAD",
+        "labeledAreaM2": 4.7,
+        "measuredWidthM": 2.3,
+        "measuredDepthM": 2.33,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-diele",
+      "floorId": "og",
+      "name": "Diele",
+      "zoneCode": "OG-DIE",
+      "x": 250,
+      "y": 710,
+      "width": 464,
+      "height": 365,
+      "points": [
+        {
+          "x": 250,
+          "y": 710
+        },
+        {
+          "x": 714,
+          "y": 710
+        },
+        {
+          "x": 714,
+          "y": 1075
+        },
+        {
+          "x": 250,
+          "y": 1075
+        }
+      ],
+      "wallThickness": 12,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Zentrale Diele OG · Breite 4,50 m · Planfläche 10,80 m²",
+      "sortOrder": 7,
+      "metadata": {
+        "blueprintName": "DIELE",
+        "labeledAreaM2": 10.8,
+        "measuredWidthM": 4.5,
+        "measuredDepthM": 3.4,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-vorraum",
+      "floorId": "og",
+      "name": "Vorraum & Stiegenhaus OG",
+      "zoneCode": "OG-VOR",
+      "x": 714,
+      "y": 710,
+      "width": 457,
+      "height": 365,
+      "points": [
+        {
+          "x": 714,
+          "y": 710
+        },
+        {
+          "x": 1171,
+          "y": 710
+        },
+        {
+          "x": 1171,
+          "y": 1075
+        },
+        {
+          "x": 714,
+          "y": 1075
+        }
+      ],
+      "wallThickness": 25,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Vorraum & Stiegenaufgang · Breite 4,45 m",
+      "sortOrder": 8,
+      "metadata": {
+        "blueprintName": "VORRAUM",
+        "labeledAreaM2": 15.1,
+        "measuredWidthM": 4.45,
+        "measuredDepthM": 3.4,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-wohnzimmer",
+      "floorId": "og",
+      "name": "Wohnzimmer",
+      "zoneCode": "OG-WOH",
+      "x": 19,
+      "y": 1075,
+      "width": 545,
+      "height": 596,
+      "points": [
+        {
+          "x": 19,
+          "y": 1075
+        },
+        {
+          "x": 564,
+          "y": 1075
+        },
+        {
+          "x": 564,
+          "y": 1671
+        },
+        {
+          "x": 19,
+          "y": 1671
+        }
+      ],
+      "wallThickness": 38,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 5,20 × 5,65 m · Planfläche 29,40 m²",
+      "sortOrder": 9,
+      "metadata": {
+        "blueprintName": "WOHNZ.",
+        "labeledAreaM2": 29.4,
+        "measuredWidthM": 5.2,
+        "measuredDepthM": 5.65,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-kueche",
+      "floorId": "og",
+      "name": "Küche",
+      "zoneCode": "OG-KUE",
+      "x": 564,
+      "y": 1075,
+      "width": 297,
+      "height": 596,
+      "points": [
+        {
+          "x": 564,
+          "y": 1075
+        },
+        {
+          "x": 861,
+          "y": 1075
+        },
+        {
+          "x": 861,
+          "y": 1671
+        },
+        {
+          "x": 564,
+          "y": 1671
+        }
+      ],
+      "wallThickness": 12,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 2,85 × 5,65 m · Planfläche 16,10 m²",
+      "sortOrder": 10,
+      "metadata": {
+        "blueprintName": "KÜCHE",
+        "labeledAreaM2": 16.1,
+        "measuredWidthM": 2.85,
+        "measuredDepthM": 5.65,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "og-zimmer-se",
+      "floorId": "og",
+      "name": "Zimmer 4 (Straße Ost)",
+      "zoneCode": "OG-Z4",
+      "x": 861,
+      "y": 1075,
+      "width": 310,
+      "height": 596,
+      "points": [
+        {
+          "x": 861,
+          "y": 1075
+        },
+        {
+          "x": 1171,
+          "y": 1075
+        },
+        {
+          "x": 1171,
+          "y": 1671
+        },
+        {
+          "x": 861,
+          "y": 1671
+        }
+      ],
+      "wallThickness": 38,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 2,95 × 5,65 m · Planfläche 16,20 m²",
+      "sortOrder": 11,
+      "metadata": {
+        "blueprintName": "ZIMMER 4",
+        "labeledAreaM2": 16.2,
+        "measuredWidthM": 2.95,
+        "measuredDepthM": 5.65,
+        "clearHeightM": 2.6
+      }
+    },
+    {
+      "id": "eg-backstube",
+      "floorId": "eg",
+      "name": "Backstube",
+      "zoneCode": "EG-BACK",
+      "x": 25,
+      "y": 19,
+      "width": 617,
+      "height": 601,
+      "points": [
+        {
+          "x": 25,
+          "y": 19
+        },
+        {
+          "x": 642,
+          "y": 19
+        },
+        {
+          "x": 642,
+          "y": 620
+        },
+        {
+          "x": 25,
+          "y": 620
+        }
+      ],
+      "wallThickness": 38,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 5,85 × 5,60 m (32,76 m²)",
+      "sortOrder": 12,
+      "metadata": {
+        "blueprintName": "BACKST.",
+        "labeledAreaM2": 32.76,
+        "measuredWidthM": 5.85,
+        "measuredDepthM": 5.6,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-hofgang",
+      "floorId": "eg",
+      "name": "Hofdurchgang",
+      "zoneCode": "EG-GANG",
+      "x": 642,
+      "y": 19,
+      "width": 212,
+      "height": 691,
+      "points": [
+        {
+          "x": 642,
+          "y": 19
+        },
+        {
+          "x": 854,
+          "y": 19
+        },
+        {
+          "x": 854,
+          "y": 710
+        },
+        {
+          "x": 642,
+          "y": 710
+        }
+      ],
+      "wallThickness": 35,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Durchgang Hof / Garten · Breite 1,76 m",
+      "sortOrder": 13,
+      "metadata": {
+        "blueprintName": "GANG",
+        "labeledAreaM2": 10.56,
+        "measuredWidthM": 1.76,
+        "measuredDepthM": 6,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-zimmer-ne",
+      "floorId": "eg",
+      "name": "Zimmer (Hof Ost)",
+      "zoneCode": "EG-ZIM",
+      "x": 854,
+      "y": 19,
+      "width": 314,
+      "height": 691,
+      "points": [
+        {
+          "x": 854,
+          "y": 19
+        },
+        {
+          "x": 1168,
+          "y": 19
+        },
+        {
+          "x": 1168,
+          "y": 710
+        },
+        {
+          "x": 854,
+          "y": 710
+        }
+      ],
+      "wallThickness": 35,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 2,84 × 7,00 m (19,88 m²)",
+      "sortOrder": 14,
+      "metadata": {
+        "blueprintName": "ZIMMER EG",
+        "labeledAreaM2": 19.88,
+        "measuredWidthM": 2.84,
+        "measuredDepthM": 7,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-mittelraum",
+      "floorId": "eg",
+      "name": "Vorbereitungsraum (Mitte)",
+      "zoneCode": "EG-MIT",
+      "x": 25,
+      "y": 620,
+      "width": 617,
+      "height": 400,
+      "points": [
+        {
+          "x": 25,
+          "y": 620
+        },
+        {
+          "x": 642,
+          "y": 620
+        },
+        {
+          "x": 642,
+          "y": 1020
+        },
+        {
+          "x": 25,
+          "y": 1020
+        }
+      ],
+      "wallThickness": 45,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 5,78 × 3,46 m (20,00 m²)",
+      "sortOrder": 15,
+      "metadata": {
+        "blueprintName": "MITTELRAUM",
+        "labeledAreaM2": 20,
+        "measuredWidthM": 5.78,
+        "measuredDepthM": 3.46,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-diele",
+      "floorId": "eg",
+      "name": "Diele & Stiegenhaus EG",
+      "zoneCode": "EG-DIE",
+      "x": 642,
+      "y": 710,
+      "width": 526,
+      "height": 526,
+      "points": [
+        {
+          "x": 642,
+          "y": 710
+        },
+        {
+          "x": 1168,
+          "y": 710
+        },
+        {
+          "x": 1168,
+          "y": 1236
+        },
+        {
+          "x": 642,
+          "y": 1236
+        }
+      ],
+      "wallThickness": 35,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Zentrale Diele mit Hauptstiege ins OG",
+      "sortOrder": 16,
+      "metadata": {
+        "blueprintName": "DIELE EG",
+        "labeledAreaM2": 27.52,
+        "measuredWidthM": 4.94,
+        "measuredDepthM": 5.57,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-verkaufsraum",
+      "floorId": "eg",
+      "name": "Verkaufsraum",
+      "zoneCode": "EG-VERK",
+      "x": 25,
+      "y": 1020,
+      "width": 617,
+      "height": 651,
+      "points": [
+        {
+          "x": 25,
+          "y": 1020
+        },
+        {
+          "x": 642,
+          "y": 1020
+        },
+        {
+          "x": 642,
+          "y": 1671
+        },
+        {
+          "x": 25,
+          "y": 1671
+        }
+      ],
+      "wallThickness": 50,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 5,53 × 6,38 m (35,28 m²)",
+      "sortOrder": 17,
+      "metadata": {
+        "blueprintName": "VERKAUFSR.",
+        "labeledAreaM2": 35.28,
+        "measuredWidthM": 5.53,
+        "measuredDepthM": 6.38,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-lager",
+      "floorId": "eg",
+      "name": "Lager",
+      "zoneCode": "EG-LAG",
+      "x": 642,
+      "y": 1236,
+      "width": 312,
+      "height": 435,
+      "points": [
+        {
+          "x": 642,
+          "y": 1236
+        },
+        {
+          "x": 954,
+          "y": 1236
+        },
+        {
+          "x": 954,
+          "y": 1671
+        },
+        {
+          "x": 642,
+          "y": 1671
+        }
+      ],
+      "wallThickness": 25,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Planmaß 2,10 × 4,10 m (8,61 m²)",
+      "sortOrder": 18,
+      "metadata": {
+        "blueprintName": "LAGER",
+        "labeledAreaM2": 8.61,
+        "measuredWidthM": 2.1,
+        "measuredDepthM": 4.1,
+        "clearHeightM": 3
+      }
+    },
+    {
+      "id": "eg-vorraum",
+      "floorId": "eg",
+      "name": "Vorraum (Hauseingang)",
+      "zoneCode": "EG-VOR",
+      "x": 954,
+      "y": 1236,
+      "width": 214,
+      "height": 435,
+      "points": [
+        {
+          "x": 954,
+          "y": 1236
+        },
+        {
+          "x": 1168,
+          "y": 1236
+        },
+        {
+          "x": 1168,
+          "y": 1671
+        },
+        {
+          "x": 954,
+          "y": 1671
+        }
+      ],
+      "wallThickness": 44,
+      "tempEntityId": "",
+      "humidityEntityId": "",
+      "notes": "Straßenseitiger Hauseingang · Breite 1,70 m",
+      "sortOrder": 19,
+      "metadata": {
+        "blueprintName": "VORR.",
+        "labeledAreaM2": 6.97,
+        "measuredWidthM": 1.7,
+        "measuredDepthM": 4.1,
+        "clearHeightM": 3
+      }
+    }
+  ],
+  "walls": [
+    {
+      "id": "og-w-north-parapet",
+      "floorId": "og",
+      "x1": 0,
+      "y1": 12,
+      "x2": 1190,
+      "y2": 12,
+      "thicknessCm": 25,
+      "heightM": 1.05,
+      "material": "existing",
+      "label": "Loggia Brüstung Nord"
+    },
+    {
+      "id": "og-w-west",
+      "floorId": "og",
+      "x1": 19,
+      "y1": 0,
+      "x2": 19,
+      "y2": 1690,
+      "thicknessCm": 38,
+      "heightM": 2.6,
+      "material": "existing",
+      "label": "Außenwand West OG"
+    },
+    {
+      "id": "og-w-east",
+      "floorId": "og",
+      "x1": 1171,
+      "y1": 0,
+      "x2": 1171,
+      "y2": 1690,
+      "thicknessCm": 38,
+      "heightM": 2.6,
+      "material": "existing",
+      "label": "Außenwand Ost OG"
+    },
+    {
+      "id": "og-w-south",
+      "floorId": "og",
+      "x1": 0,
+      "y1": 1671,
+      "x2": 1190,
+      "y2": 1671,
+      "thicknessCm": 38,
+      "heightM": 2.6,
+      "material": "existing",
+      "label": "Straßenfassade Süd OG"
+    },
+    {
+      "id": "og-w-loggia",
+      "floorId": "og",
+      "x1": 19,
+      "y1": 285,
+      "x2": 1171,
+      "y2": 285,
+      "thicknessCm": 25,
+      "heightM": 2.6,
+      "material": "new",
+      "label": "Loggiawand Nord"
+    },
+    {
+      "id": "og-w-north-spine",
+      "floorId": "og",
+      "x1": 19,
+      "y1": 710,
+      "x2": 1171,
+      "y2": 710,
+      "thicknessCm": 25,
+      "heightM": 2.6,
+      "material": "new",
+      "label": "Mitteltragwand Nord OG"
+    },
+    {
+      "id": "og-w-south-spine",
+      "floorId": "og",
+      "x1": 19,
+      "y1": 1075,
+      "x2": 1171,
+      "y2": 1075,
+      "thicknessCm": 25,
+      "heightM": 2.6,
+      "material": "new",
+      "label": "Mitteltragwand Süd OG"
+    },
+    {
+      "id": "og-w-z1-z2",
+      "floorId": "og",
+      "x1": 370,
+      "y1": 285,
+      "x2": 370,
+      "y2": 710,
+      "thicknessCm": 10,
+      "heightM": 2.6,
+      "material": "partition",
+      "label": "Trennwand Zimmer 1 / 2"
+    },
+    {
+      "id": "og-w-z2-z3",
+      "floorId": "og",
+      "x1": 745,
+      "y1": 285,
+      "x2": 745,
+      "y2": 710,
+      "thicknessCm": 10,
+      "heightM": 2.6,
+      "material": "partition",
+      "label": "Trennwand Zimmer 2 / 3"
+    },
+    {
+      "id": "og-w-wc-bad",
+      "floorId": "og",
+      "x1": 19,
+      "y1": 825,
+      "x2": 250,
+      "y2": 825,
+      "thicknessCm": 10,
+      "heightM": 2.6,
+      "material": "partition",
+      "label": "Trennwand WC / Bad"
+    },
+    {
+      "id": "og-w-bad-diele",
+      "floorId": "og",
+      "x1": 250,
+      "y1": 710,
+      "x2": 250,
+      "y2": 1075,
+      "thicknessCm": 12,
+      "heightM": 2.6,
+      "material": "partition",
+      "label": "Wand Bad & WC / Diele"
+    },
+    {
+      "id": "og-w-diele-vorraum",
+      "floorId": "og",
+      "x1": 714,
+      "y1": 710,
+      "x2": 714,
+      "y2": 1075,
+      "thicknessCm": 12,
+      "heightM": 2.6,
+      "material": "new",
+      "label": "Wand Diele / Vorraum"
+    },
+    {
+      "id": "og-w-wohnz-kueche",
+      "floorId": "og",
+      "x1": 564,
+      "y1": 1075,
+      "x2": 564,
+      "y2": 1671,
+      "thicknessCm": 12,
+      "heightM": 2.6,
+      "material": "new",
+      "label": "Wand Wohnzimmer / Küche"
+    },
+    {
+      "id": "og-w-kueche-z4",
+      "floorId": "og",
+      "x1": 861,
+      "y1": 1075,
+      "x2": 861,
+      "y2": 1671,
+      "thicknessCm": 12,
+      "heightM": 2.6,
+      "material": "new",
+      "label": "Wand Küche / Zimmer 4"
+    },
+    {
+      "id": "eg-w-north",
+      "floorId": "eg",
+      "x1": 0,
+      "y1": 19,
+      "x2": 1190,
+      "y2": 19,
+      "thicknessCm": 38,
+      "heightM": 3,
+      "material": "new",
+      "label": "Außenwand Nord EG (Hof)"
+    },
+    {
+      "id": "eg-w-west",
+      "floorId": "eg",
+      "x1": 25,
+      "y1": 0,
+      "x2": 25,
+      "y2": 1690,
+      "thicknessCm": 50,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Außenwand West EG"
+    },
+    {
+      "id": "eg-w-east",
+      "floorId": "eg",
+      "x1": 1168,
+      "y1": 0,
+      "x2": 1168,
+      "y2": 1690,
+      "thicknessCm": 44,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Außenwand Ost EG"
+    },
+    {
+      "id": "eg-w-south",
+      "floorId": "eg",
+      "x1": 0,
+      "y1": 1671,
+      "x2": 1190,
+      "y2": 1671,
+      "thicknessCm": 38,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Straßenfassade Süd EG"
+    },
+    {
+      "id": "eg-w-west-spine",
+      "floorId": "eg",
+      "x1": 642,
+      "y1": 19,
+      "x2": 642,
+      "y2": 1671,
+      "thicknessCm": 38,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Längstragwand Mitte EG"
+    },
+    {
+      "id": "eg-w-back-mid",
+      "floorId": "eg",
+      "x1": 25,
+      "y1": 620,
+      "x2": 642,
+      "y2": 620,
+      "thicknessCm": 38,
+      "heightM": 3,
+      "material": "new",
+      "label": "Wand Backstube / Mittelraum (Unterzug)"
+    },
+    {
+      "id": "eg-w-mid-verkauf",
+      "floorId": "eg",
+      "x1": 25,
+      "y1": 1020,
+      "x2": 642,
+      "y2": 1020,
+      "thicknessCm": 45,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Tragwand Mittelraum / Verkaufsraum"
+    },
+    {
+      "id": "eg-w-gang-zimmer",
+      "floorId": "eg",
+      "x1": 854,
+      "y1": 19,
+      "x2": 854,
+      "y2": 710,
+      "thicknessCm": 35,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Wand Hofgang / Zimmer EG"
+    },
+    {
+      "id": "eg-w-zimmer-diele",
+      "floorId": "eg",
+      "x1": 642,
+      "y1": 710,
+      "x2": 1168,
+      "y2": 710,
+      "thicknessCm": 35,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Wand Zimmer / Diele EG"
+    },
+    {
+      "id": "eg-w-diele-lager",
+      "floorId": "eg",
+      "x1": 642,
+      "y1": 1236,
+      "x2": 1168,
+      "y2": 1236,
+      "thicknessCm": 25,
+      "heightM": 3,
+      "material": "existing",
+      "label": "Wand Diele / Lager & Vorraum"
+    },
+    {
+      "id": "eg-w-lager-vorraum",
+      "floorId": "eg",
+      "x1": 954,
+      "y1": 1236,
+      "x2": 954,
+      "y2": 1671,
+      "thicknessCm": 12,
+      "heightM": 3,
+      "material": "partition",
+      "label": "Trennwand Lager / Vorraum"
+    }
+  ],
+  "openings": [
+    {
+      "id": "og-door-loggia-1",
+      "floorId": "og",
+      "roomId": "og-zimmer-nw",
+      "kind": "door",
+      "wall": "top",
+      "x": 190,
+      "y": 285,
+      "length": 100,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Loggiatür 100/210",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-loggia",
+        "heightCm": 210,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-loggia-2",
+      "floorId": "og",
+      "roomId": "og-zimmer-nm",
+      "kind": "door",
+      "wall": "top",
+      "x": 555,
+      "y": 285,
+      "length": 100,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Loggiatür 100/210",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-loggia",
+        "heightCm": 210,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-loggia-3",
+      "floorId": "og",
+      "roomId": "og-zimmer-ne",
+      "kind": "door",
+      "wall": "top",
+      "x": 955,
+      "y": 285,
+      "length": 100,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Loggiatür 100/210",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-loggia",
+        "heightCm": 210,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-z1-diele",
+      "floorId": "og",
+      "roomId": "og-zimmer-nw",
+      "kind": "door",
+      "wall": "bottom",
+      "x": 310,
+      "y": 710,
+      "length": 85,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Zimmertür 1 (85/194)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-north-spine",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-z2-diele",
+      "floorId": "og",
+      "roomId": "og-zimmer-nm",
+      "kind": "door",
+      "wall": "bottom",
+      "x": 455,
+      "y": 710,
+      "length": 85,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_right",
+      "label": "Zimmertür 2 (85/194)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-north-spine",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-z3-vorraum",
+      "floorId": "og",
+      "roomId": "og-zimmer-ne",
+      "kind": "door",
+      "wall": "bottom",
+      "x": 825,
+      "y": 710,
+      "length": 85,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_right",
+      "label": "Zimmertür 3 (85/194)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-north-spine",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-wc",
+      "floorId": "og",
+      "roomId": "og-wc",
+      "kind": "door",
+      "wall": "right",
+      "x": 250,
+      "y": 768,
+      "length": 70,
+      "orientation": "vertical",
+      "angleDeg": 90,
+      "swingDir": "out_left",
+      "label": "WC-Tür 70/194",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-bad-diele",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-bad",
+      "floorId": "og",
+      "roomId": "og-bad",
+      "kind": "door",
+      "wall": "right",
+      "x": 250,
+      "y": 935,
+      "length": 70,
+      "orientation": "vertical",
+      "angleDeg": 90,
+      "swingDir": "in_left",
+      "label": "Badtür 70/194",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-bad-diele",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-vorraum-diele",
+      "floorId": "og",
+      "roomId": "og-diele",
+      "kind": "door",
+      "wall": "right",
+      "x": 714,
+      "y": 810,
+      "length": 90,
+      "orientation": "vertical",
+      "angleDeg": 90,
+      "swingDir": "in_right",
+      "label": "Diele Zwischentür 90/194",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-diele-vorraum",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-wohnz",
+      "floorId": "og",
+      "roomId": "og-wohnzimmer",
+      "kind": "door",
+      "wall": "top",
+      "x": 425,
+      "y": 1075,
+      "length": 85,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Wohnzimmertür 85/194",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-south-spine",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-kueche",
+      "floorId": "og",
+      "roomId": "og-kueche",
+      "kind": "door",
+      "wall": "top",
+      "x": 645,
+      "y": 1075,
+      "length": 85,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_right",
+      "label": "Küchentür 85/194",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-south-spine",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-door-z4",
+      "floorId": "og",
+      "roomId": "og-zimmer-se",
+      "kind": "door",
+      "wall": "left",
+      "x": 861,
+      "y": 1185,
+      "length": 85,
+      "orientation": "vertical",
+      "angleDeg": 90,
+      "swingDir": "in_right",
+      "label": "Zimmertür 4 (85/194)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-kueche-z4",
+        "heightCm": 194,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "og-win-street-1",
+      "floorId": "og",
+      "roomId": "og-wohnzimmer",
+      "kind": "window",
+      "wall": "bottom",
+      "x": 210,
+      "y": 1671,
+      "length": 120,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Straßenfenster 1 (120/140)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-south",
+        "heightCm": 140,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "og-win-street-2",
+      "floorId": "og",
+      "roomId": "og-wohnzimmer",
+      "kind": "window",
+      "wall": "bottom",
+      "x": 480,
+      "y": 1671,
+      "length": 120,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Straßenfenster 2 (120/140)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-south",
+        "heightCm": 140,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "og-win-street-3",
+      "floorId": "og",
+      "roomId": "og-kueche",
+      "kind": "window",
+      "wall": "bottom",
+      "x": 750,
+      "y": 1671,
+      "length": 120,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Küchenfenster (120/140)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-south",
+        "heightCm": 140,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "og-win-street-4",
+      "floorId": "og",
+      "roomId": "og-zimmer-se",
+      "kind": "window",
+      "wall": "bottom",
+      "x": 1020,
+      "y": 1671,
+      "length": 120,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Straßenfenster 4 (120/140)",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "og-w-south",
+        "heightCm": 140,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "eg-portal-verkauf",
+      "floorId": "eg",
+      "roomId": "eg-verkaufsraum",
+      "kind": "sliding_door",
+      "wall": "bottom",
+      "x": 210,
+      "y": 1671,
+      "length": 210,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Geschäftsportal 210 cm",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-south",
+        "heightCm": 220,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "eg-win-verkauf",
+      "floorId": "eg",
+      "roomId": "eg-verkaufsraum",
+      "kind": "window",
+      "wall": "bottom",
+      "x": 480,
+      "y": 1671,
+      "length": 150,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Schaufenster 150/150",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-south",
+        "heightCm": 150,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "eg-win-lager",
+      "floorId": "eg",
+      "roomId": "eg-lager",
+      "kind": "window",
+      "wall": "bottom",
+      "x": 780,
+      "y": 1671,
+      "length": 150,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Lagerfenster 150/150",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-south",
+        "heightCm": 150,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "eg-door-haupteingang",
+      "floorId": "eg",
+      "roomId": "eg-vorraum",
+      "kind": "door",
+      "wall": "bottom",
+      "x": 1055,
+      "y": 1671,
+      "length": 115,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_right",
+      "label": "Hauseingangstür 115/210",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-south",
+        "heightCm": 210,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "eg-win-backstube-nord",
+      "floorId": "eg",
+      "roomId": "eg-backstube",
+      "kind": "window",
+      "wall": "top",
+      "x": 310,
+      "y": 19,
+      "length": 220,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Fenster Backstube Nord",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-north",
+        "heightCm": 150,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "eg-win-zimmer-nord",
+      "floorId": "eg",
+      "roomId": "eg-zimmer-ne",
+      "kind": "window",
+      "wall": "top",
+      "x": 1010,
+      "y": 19,
+      "length": 130,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Fenster Zimmer Nord",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-north",
+        "heightCm": 140,
+        "sillCm": 90
+      }
+    },
+    {
+      "id": "eg-passage-backstube",
+      "floorId": "eg",
+      "roomId": "eg-backstube",
+      "kind": "passage",
+      "wall": "bottom",
+      "x": 330,
+      "y": 620,
+      "length": 380,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Wanddurchbruch / Unterzug",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-back-mid",
+        "heightCm": 230,
+        "sillCm": 0
+      }
+    },
+    {
+      "id": "eg-door-mid-verkauf",
+      "floorId": "eg",
+      "roomId": "eg-verkaufsraum",
+      "kind": "door",
+      "wall": "top",
+      "x": 465,
+      "y": 1020,
+      "length": 90,
+      "orientation": "horizontal",
+      "angleDeg": 0,
+      "swingDir": "in_left",
+      "label": "Tür Verkauf ↔ Mittelraum",
+      "contactEntityId": "",
+      "metadata": {
+        "wallId": "eg-w-mid-verkauf",
+        "heightCm": 200,
+        "sillCm": 0
+      }
+    }
+  ],
+  "checks": [
+    {
+      "id": "chk-og-depth",
+      "category": "chain_y",
+      "title": "Längskette Obergeschoss (Nord → Süd)",
+      "formula": "0,25 + 2,47 (Loggia) + 0,25 + 4,00 (Zimmer) + 0,25 + 3,40 (Bad/WC) + 0,25 + 5,65 (Wohnz.) + 0,38",
+      "expected": "16,90 m",
+      "measured": "16,90 m",
+      "deviationCm": 0,
+      "passed": true
+    },
+    {
+      "id": "chk-eg-depth",
+      "category": "chain_y",
+      "title": "Längskette Erdgeschoss (Nord → Süd)",
+      "formula": "0,38 + 5,60 (Backstube) + 0,45 + 3,46 (Mittelraum) + 0,65 + 5,98 (Verkaufsr.) + 0,38",
+      "expected": "16,90 m",
+      "measured": "16,90 m",
+      "deviationCm": 0,
+      "passed": true
+    },
+    {
+      "id": "chk-street-width",
+      "category": "chain_x",
+      "title": "Querkette Straßenfassade (EG & OG)",
+      "formula": "2,10 + 2,70 + 2,70 + 2,70 + 1,70 (Fensterachsen)",
+      "expected": "11,90 m",
+      "measured": "11,90 m",
+      "deviationCm": 0,
+      "passed": true
+    },
+    {
+      "id": "chk-loggia-width",
+      "category": "chain_x",
+      "title": "Querkette Loggia & Stützenraster (Nord)",
+      "formula": "0,25 (Wand) + 3,80 + 3,80 + 3,80 (3 Felder) + 0,25 (Wand)",
+      "expected": "11,90 m",
+      "measured": "11,90 m",
+      "deviationCm": 0,
+      "passed": true
+    },
+    {
+      "id": "chk-eg-north-width",
+      "category": "chain_x",
+      "title": "Querkette Erdgeschoss Hofseite (Nord)",
+      "formula": "2,90 + 3,70 (Backstube 6,60) + 1,76 (Gang) + 1,77 + 1,77 (Zimmer 3,54)",
+      "expected": "11,90 m",
+      "measured": "11,90 m",
+      "deviationCm": 0,
+      "passed": true
+    },
+    {
+      "id": "chk-og-area-sum",
+      "category": "area",
+      "title": "Wohnflächen-Kontrollsumme Obergeschoss",
+      "formula": "13,20 + 14,40 + 16,60 + 2,10 + 4,70 + 10,80 + 29,40 + 16,10 + 16,20",
+      "expected": "123,40 m² (Plankote)",
+      "measured": "123,50 m²",
+      "deviationCm": 1,
+      "passed": true
+    },
+    {
+      "id": "chk-section-elevation",
+      "category": "elevation",
+      "title": "Höhenkette Schnitt & Straßenansicht",
+      "formula": "EG 3,00 m + Decke 0,35 m + OG 2,60 m + Decke 0,30 m + Dachstuhl 3,00 m (73° Welleternit)",
+      "expected": "9,25 m Firsthöhe",
+      "measured": "9,25 m",
+      "deviationCm": 0,
+      "passed": true
+    },
+    {
+      "id": "chk-structural-alignment",
+      "category": "structural",
+      "title": "Einwand-Topologie (Keine Doppelwände)",
+      "formula": "14 Einzelwände OG + 11 Einzelwände EG · Jede Öffnung exakt 1× geschnitten",
+      "expected": "25 Einzelwände",
+      "measured": "25 Einzelwände (0 Duplikate)",
+      "deviationCm": 0,
+      "passed": true
+    }
+  ],
+  "triangleCount": 1758
+}

@@ -5,9 +5,11 @@ using System.Drawing.Imaging;
 using System.Net.Http.Headers;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -29,6 +31,7 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddSingleton<AntigravityBridgeService>();
 builder.Services.AddSingleton<PcTelemetryService>();
 builder.Services.AddHostedService<HaSyncBackgroundService>();
 
@@ -567,6 +570,44 @@ app.MapGet("/api/google/callback", async (HttpContext ctx) =>
 </html>", "text/html");
 });
 
+// ============================================================================
+// 7. ANTIGRAVITY IDE / AGENT BRIDGE (Direct ConnectRPC + DevTools Navigation)
+// ============================================================================
+app.MapGet("/api/antigravity/status", async (AntigravityBridgeService agy) =>
+{
+    var st = await agy.GetStatusAsync(forceRefresh: true);
+    return Results.Ok(st);
+});
+
+app.MapPost("/api/antigravity/status", async (AntigravityBridgeService agy) =>
+{
+    var st = await agy.GetStatusAsync(forceRefresh: true);
+    return Results.Ok(st);
+});
+
+app.MapPost("/api/antigravity/prompt", async (AntigravityPromptRequest req, AntigravityBridgeService agy) =>
+{
+    var promptText = (req.Prompt ?? "").Trim();
+    if (string.IsNullOrEmpty(promptText))
+    {
+        return Results.BadRequest(new { ok = false, error = "Missing 'prompt' text." });
+    }
+
+    var result = await agy.SendPromptAsync(
+        prompt: promptText,
+        newChat: req.NewChat ?? string.IsNullOrWhiteSpace(req.CascadeId),
+        explicitCascadeId: req.CascadeId,
+        projectName: string.IsNullOrWhiteSpace(req.ProjectName) ? "thassi" : req.ProjectName.Trim(),
+        focusWindow: req.FocusWindow ?? true
+    );
+
+    if (!result.Ok)
+    {
+        return Results.Json(result, statusCode: 500);
+    }
+    return Results.Ok(result);
+});
+
 app.MapGet("/kvm", () => Results.Content(WebKvmUi.Html, "text/html; charset=utf-8"));
 app.MapGet("/", () => Results.Redirect("/kvm"));
 
@@ -580,6 +621,7 @@ public record SessionLoginRequest(string? Mode, string? Username, string? Domain
 public record PowerShellExecRequest(string? Command, string? WorkingDirectory, int? TimeoutSeconds);
 public record MediaControlRequest(string? Action, int? VolumePercent);
 public record ScreenInputRequest(string? Type, string? Monitor, double? NormalizedX, double? NormalizedY, int? DeltaY, string? Text, string? Key);
+public record AntigravityPromptRequest(string? Prompt, bool? NewChat, string? CascadeId, string? ProjectName, bool? FocusWindow);
 
 public record PcStatusSnapshot(
     string Hostname,
@@ -597,6 +639,7 @@ public record PcStatusSnapshot(
     int DisplayCount,
     List<MonitorInfoDto> Displays,
     MediaStatusDto Media,
+    AntigravityStatusDto Antigravity,
     string KvmUrl,
     string MjpegStreamUrl
 );
@@ -604,14 +647,569 @@ public record PcStatusSnapshot(
 public record MonitorInfoDto(int Index, string DeviceName, bool Primary, int Width, int Height, int X, int Y);
 public record MediaStatusDto(string State, string Title, string AppName, int VolumePercent, bool Muted);
 
+public record AntigravityChatSummaryDto(
+    string CascadeId,
+    string Summary,
+    string Status,
+    string LastModifiedTime,
+    int StepCount
+);
+
+public record AntigravityStatusDto(
+    bool Running,
+    int LanguageServerPid,
+    int HttpPort,
+    int HttpsPort,
+    string ThassiProjectId,
+    string ActiveCascadeId,
+    List<AntigravityChatSummaryDto> Conversations
+);
+
+public record AntigravityPromptResultDto(
+    bool Ok,
+    string? Error,
+    string CascadeId,
+    bool IsNewChat,
+    string ProjectId,
+    string ProjectName,
+    string Prompt,
+    string ChatUrl,
+    string Message
+);
+
+// ============================================================================
+// ANTIGRAVITY 2.0 CONNECT-RPC & DEVTOOLS BRIDGE SERVICE
+// ============================================================================
+public class AntigravityBridgeService
+{
+    private const string DefaultThassiProjectId = "46ea4c16-40f0-4e54-b958-912fd811e98d";
+    private const string DefaultThassiFolderUri = "file:///c%3A/Users/thoma/source/repos/thassi";
+
+    private readonly HttpClient _http;
+    private readonly SemaphoreSlim _lock = new(1, 1);
+
+    private int _cachedLsPid;
+    private int _cachedHttpPort;
+    private int _cachedHttpsPort;
+    private int _cachedDevToolsPort;
+    private string _cachedCsrfToken = "";
+    private string _cachedThassiProjectId = DefaultThassiProjectId;
+    private string _cachedActiveCascadeId = "";
+    private string _cachedWsDebuggerUrl = "";
+    private DateTime _lastDiscoveryUtc = DateTime.MinValue;
+    private AntigravityStatusDto _cachedStatus = new(
+        Running: false,
+        LanguageServerPid: 0,
+        HttpPort: 0,
+        HttpsPort: 0,
+        ThassiProjectId: DefaultThassiProjectId,
+        ActiveCascadeId: "",
+        Conversations: new()
+    );
+
+    public AntigravityBridgeService()
+    {
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
+        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
+    }
+
+    public AntigravityStatusDto GetCachedStatusSnapshot()
+    {
+        if ((DateTime.UtcNow - _lastDiscoveryUtc).TotalSeconds > 6)
+        {
+            _ = Task.Run(() => GetStatusAsync(forceRefresh: false));
+        }
+        return _cachedStatus;
+    }
+
+    public async Task<AntigravityStatusDto> GetStatusAsync(bool forceRefresh)
+    {
+        if (!forceRefresh && (DateTime.UtcNow - _lastDiscoveryUtc).TotalSeconds < 4 && _cachedStatus.Running)
+        {
+            return _cachedStatus;
+        }
+
+        await _lock.WaitAsync();
+        try
+        {
+            await EnsureConnectedAsync(forceRefresh);
+            if (_cachedHttpPort <= 0 || string.IsNullOrEmpty(_cachedCsrfToken))
+            {
+                _cachedStatus = new AntigravityStatusDto(
+                    Running: false,
+                    LanguageServerPid: _cachedLsPid,
+                    HttpPort: 0,
+                    HttpsPort: 0,
+                    ThassiProjectId: _cachedThassiProjectId,
+                    ActiveCascadeId: "",
+                    Conversations: new()
+                );
+                return _cachedStatus;
+            }
+
+            var conversations = await FetchThassiConversationsAsync();
+            _cachedStatus = new AntigravityStatusDto(
+                Running: true,
+                LanguageServerPid: _cachedLsPid,
+                HttpPort: _cachedHttpPort,
+                HttpsPort: _cachedHttpsPort,
+                ThassiProjectId: _cachedThassiProjectId,
+                ActiveCascadeId: _cachedActiveCascadeId,
+                Conversations: conversations
+            );
+            _lastDiscoveryUtc = DateTime.UtcNow;
+            return _cachedStatus;
+        }
+        catch
+        {
+            return _cachedStatus;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<AntigravityPromptResultDto> SendPromptAsync(
+        string prompt,
+        bool newChat,
+        string? explicitCascadeId,
+        string projectName,
+        bool focusWindow)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            await EnsureConnectedAsync(forceRefresh: true);
+            if (_cachedHttpPort <= 0 || string.IsNullOrEmpty(_cachedCsrfToken))
+            {
+                // Launch Antigravity if not running
+                var exePath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    @"Programs\antigravity\Antigravity.exe");
+                if (File.Exists(exePath))
+                {
+                    Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+                    for (int attempt = 0; attempt < 12; attempt++)
+                    {
+                        await Task.Delay(1000);
+                        await EnsureConnectedAsync(forceRefresh: true);
+                        if (_cachedHttpPort > 0 && !string.IsNullOrEmpty(_cachedCsrfToken))
+                            break;
+                    }
+                }
+            }
+
+            if (_cachedHttpPort <= 0 || string.IsNullOrEmpty(_cachedCsrfToken))
+            {
+                return new AntigravityPromptResultDto(
+                    Ok: false,
+                    Error: "Antigravity language_server is not running or unreachable on DESKTOP-M8TJERB.",
+                    CascadeId: "",
+                    IsNewChat: false,
+                    ProjectId: _cachedThassiProjectId,
+                    ProjectName: projectName,
+                    Prompt: prompt,
+                    ChatUrl: "",
+                    Message: "Antigravity offline"
+                );
+            }
+
+            var projectId = await ResolveProjectIdAsync(projectName);
+            string targetCascadeId;
+            bool createdNewChat;
+
+            if (!newChat && !string.IsNullOrWhiteSpace(explicitCascadeId) && !string.Equals(explicitCascadeId, "new", StringComparison.OrdinalIgnoreCase))
+            {
+                targetCascadeId = explicitCascadeId.Trim();
+                createdNewChat = false;
+            }
+            else if (!newChat && !string.IsNullOrWhiteSpace(_cachedActiveCascadeId))
+            {
+                targetCascadeId = _cachedActiveCascadeId;
+                createdNewChat = false;
+            }
+            else
+            {
+                targetCascadeId = Guid.NewGuid().ToString();
+                createdNewChat = true;
+
+                // 1. StartCascade inside the thassi project
+                var startPayload = new
+                {
+                    cascadeId = targetCascadeId,
+                    source = "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT",
+                    requestedModel = "MODEL_PLACEHOLDER_M418",
+                    projectEnvConfig = new
+                    {
+                        projectId = projectId,
+                        defaultProjectEnvironment = new { }
+                    }
+                };
+                var (startOk, startBody) = await CallConnectRpcAsync("StartCascade", startPayload);
+                if (!startOk)
+                {
+                    return new AntigravityPromptResultDto(
+                        Ok: false,
+                        Error: $"StartCascade failed: {startBody}",
+                        CascadeId: targetCascadeId,
+                        IsNewChat: true,
+                        ProjectId: projectId,
+                        ProjectName: projectName,
+                        Prompt: prompt,
+                        ChatUrl: "",
+                        Message: "StartCascade RPC failed"
+                    );
+                }
+
+                // 2. UpdateConversationAnnotations
+                var annotPayload = new
+                {
+                    cascadeId = targetCascadeId,
+                    annotations = new
+                    {
+                        lastUserViewTime = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                    },
+                    mergeAnnotations = true
+                };
+                await CallConnectRpcAsync("UpdateConversationAnnotations", annotPayload);
+            }
+
+            // 3. SendUserCascadeMessage
+            var sendPayload = new
+            {
+                cascadeId = targetCascadeId,
+                items = new object[]
+                {
+                    new { text = prompt }
+                },
+                deliveryStrategy = "MESSAGE_DELIVERY_STRATEGY_WHEN_IDLE",
+                cascadeConfig = new
+                {
+                    plannerConfig = new
+                    {
+                        supportsLatexRendering = true,
+                        planModel = "MODEL_PLACEHOLDER_M418",
+                        toolConfig = new
+                        {
+                            runCommand = new
+                            {
+                                autoCommandConfig = new
+                                {
+                                    autoExecutionPolicy = "CASCADE_COMMANDS_AUTO_EXECUTION_EAGER"
+                                }
+                            },
+                            notifyUser = new
+                            {
+                                artifactReviewMode = "ARTIFACT_REVIEW_MODE_TURBO"
+                            },
+                            permissionConfig = new
+                            {
+                                defaultGrants = new
+                                {
+                                    allow = Array.Empty<string>(),
+                                    deny = Array.Empty<string>(),
+                                    ask = new[] { "read_url(*)" }
+                                }
+                            }
+                        }
+                    },
+                    executorConfig = new
+                    {
+                        useCoreDirect = true
+                    }
+                }
+            };
+
+            var (sendOk, sendBody) = await CallConnectRpcAsync("SendUserCascadeMessage", sendPayload);
+            if (!sendOk)
+            {
+                return new AntigravityPromptResultDto(
+                    Ok: false,
+                    Error: $"SendUserCascadeMessage failed: {sendBody}",
+                    CascadeId: targetCascadeId,
+                    IsNewChat: createdNewChat,
+                    ProjectId: projectId,
+                    ProjectName: projectName,
+                    Prompt: prompt,
+                    ChatUrl: "",
+                    Message: "SendUserCascadeMessage RPC failed"
+                );
+            }
+
+            var chatUrl = $"/c/{targetCascadeId}?section={projectId}";
+
+            // 4. Optional UI Navigation in Antigravity Electron Renderer via DevTools WebSocket
+            if (focusWindow && !string.IsNullOrEmpty(_cachedWsDebuggerUrl))
+            {
+                _cachedActiveCascadeId = targetCascadeId;
+                _ = Task.Run(() => NavigateElectronWindowAsync(_cachedWsDebuggerUrl, chatUrl));
+            }
+
+            // Refresh cached conversation list asynchronously
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(350);
+                await GetStatusAsync(forceRefresh: true);
+            });
+
+            return new AntigravityPromptResultDto(
+                Ok: true,
+                Error: null,
+                CascadeId: targetCascadeId,
+                IsNewChat: createdNewChat,
+                ProjectId: projectId,
+                ProjectName: projectName,
+                Prompt: prompt,
+                ChatUrl: chatUrl,
+                Message: createdNewChat
+                    ? $"Neuer Antigravity-Chat im Projekt '{projectName}' erstellt ({targetCascadeId[..8]}) & Prompt gestartet."
+                    : $"Prompt an Antigravity-Chat ({targetCascadeId[..8]}) gesendet."
+            );
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private async Task EnsureConnectedAsync(bool forceRefresh)
+    {
+        var lsProc = Process.GetProcessesByName("language_server").FirstOrDefault();
+        if (lsProc == null)
+        {
+            _cachedLsPid = 0;
+            _cachedHttpPort = 0;
+            _cachedHttpsPort = 0;
+            _cachedCsrfToken = "";
+            return;
+        }
+
+        bool pidChanged = lsProc.Id != _cachedLsPid;
+        _cachedLsPid = lsProc.Id;
+
+        // 1. Inspect DevToolsActivePort to discover live Renderer URL, HTTPS/HTTP ports, active cascade, and WS URL
+        var devToolsFile = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            @"Antigravity\DevToolsActivePort");
+        if (File.Exists(devToolsFile))
+        {
+            try
+            {
+                var lines = await File.ReadAllLinesAsync(devToolsFile);
+                if (lines.Length > 0 && int.TryParse(lines[0].Trim(), out var dtPort) && dtPort > 0)
+                {
+                    _cachedDevToolsPort = dtPort;
+                    var targetsJson = await _http.GetStringAsync($"http://127.0.0.1:{dtPort}/json");
+                    using var doc = JsonDocument.Parse(targetsJson);
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        var type = el.TryGetProperty("type", out var tEl) ? tEl.GetString() : "";
+                        var url = el.TryGetProperty("url", out var uEl) ? uEl.GetString() ?? "" : "";
+                        if (type == "page" && url.Contains("127.0.0.1:"))
+                        {
+                            if (el.TryGetProperty("webSocketDebuggerUrl", out var wsEl))
+                            {
+                                _cachedWsDebuggerUrl = wsEl.GetString() ?? "";
+                            }
+                            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                            {
+                                _cachedHttpsPort = uri.Port;
+                                _cachedHttpPort = uri.Port + 1;
+                                var cMatch = Regex.Match(uri.AbsolutePath, @"/c/([0-9a-fA-F\-]{36})");
+                                if (cMatch.Success)
+                                {
+                                    _cachedActiveCascadeId = cMatch.Groups[1].Value;
+                                }
+                                var sMatch = Regex.Match(uri.Query, @"section=([0-9a-fA-F\-]{36})");
+                                if (sMatch.Success)
+                                {
+                                    _cachedThassiProjectId = sMatch.Groups[1].Value;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        if (!pidChanged && !forceRefresh && _cachedHttpPort > 0 && !string.IsNullOrEmpty(_cachedCsrfToken))
+        {
+            return;
+        }
+
+        // 2. Fetch CSRF token from the local workbench HTML
+        if (_cachedHttpsPort > 0 || _cachedHttpPort > 0)
+        {
+            var candidateUrls = new List<string>();
+            if (_cachedHttpPort > 0) candidateUrls.Add($"http://127.0.0.1:{_cachedHttpPort}/");
+            if (_cachedHttpsPort > 0) candidateUrls.Add($"https://127.0.0.1:{_cachedHttpsPort}/");
+
+            foreach (var url in candidateUrls)
+            {
+                try
+                {
+                    var html = await _http.GetStringAsync(url);
+                    var m = Regex.Match(html, @"""csrfToken""\s*:\s*""([0-9a-fA-F\-]{36})""");
+                    if (m.Success)
+                    {
+                        _cachedCsrfToken = m.Groups[1].Value;
+                        break;
+                    }
+                }
+                catch { }
+            }
+        }
+    }
+
+    private async Task<string> ResolveProjectIdAsync(string projectName)
+    {
+        try
+        {
+            var (ok, body) = await CallConnectRpcAsync("ListProjects", new { });
+            if (ok && !string.IsNullOrEmpty(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("projects", out var projs) && projs.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var p in projs.EnumerateArray())
+                    {
+                        var name = p.TryGetProperty("name", out var nEl) ? nEl.GetString() ?? "" : "";
+                        var id = p.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                        if (!string.IsNullOrEmpty(id) && string.Equals(name, projectName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _cachedThassiProjectId = id;
+                            return id;
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+        return _cachedThassiProjectId;
+    }
+
+    private async Task<List<AntigravityChatSummaryDto>> FetchThassiConversationsAsync()
+    {
+        var list = new List<AntigravityChatSummaryDto>();
+        try
+        {
+            var (ok, body) = await CallConnectRpcAsync("GetAllCascadeTrajectories", new { });
+            if (!ok || string.IsNullOrEmpty(body)) return list;
+
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("trajectorySummaries", out var summaries) ||
+                summaries.ValueKind != JsonValueKind.Object)
+            {
+                return list;
+            }
+
+            foreach (var prop in summaries.EnumerateObject())
+            {
+                var cascadeId = prop.Name;
+                var val = prop.Value;
+
+                bool isThassi = false;
+                if (val.TryGetProperty("workspaces", out var wsArr) && wsArr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var ws in wsArr.EnumerateArray())
+                    {
+                        var folder = ws.TryGetProperty("workspaceFolderAbsoluteUri", out var fEl) ? fEl.GetString() ?? "" : "";
+                        if (folder.EndsWith("/thassi", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(folder, DefaultThassiFolderUri, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isThassi = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!isThassi) continue;
+
+                var summary = val.TryGetProperty("summary", out var sEl) ? sEl.GetString() ?? "Neuer Chat (thassi)" : "Neuer Chat (thassi)";
+                var status = val.TryGetProperty("status", out var stEl) ? stEl.GetString() ?? "" : "";
+                var lastMod = val.TryGetProperty("lastModifiedTime", out var lmEl) ? lmEl.GetString() ?? "" : "";
+                var steps = val.TryGetProperty("stepCount", out var scEl) && scEl.TryGetInt32(out var sc) ? sc : 0;
+
+                list.Add(new AntigravityChatSummaryDto(
+                    CascadeId: cascadeId,
+                    Summary: summary,
+                    Status: status.Replace("CASCADE_RUN_STATUS_", ""),
+                    LastModifiedTime: lastMod,
+                    StepCount: steps
+                ));
+            }
+        }
+        catch { }
+
+        return list
+            .OrderByDescending(c => c.LastModifiedTime)
+            .Take(10)
+            .ToList();
+    }
+
+    private async Task<(bool ok, string body)> CallConnectRpcAsync(string method, object payload)
+    {
+        var baseUrl = _cachedHttpPort > 0
+            ? $"http://127.0.0.1:{_cachedHttpPort}"
+            : $"https://127.0.0.1:{_cachedHttpsPort}";
+        var url = $"{baseUrl}/exa.language_server_pb.LanguageServerService/{method}";
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        req.Headers.Add("Connect-Protocol-Version", "1");
+        req.Headers.Add("x-codeium-csrf-token", _cachedCsrfToken);
+        req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var res = await _http.SendAsync(req);
+        var resBody = await res.Content.ReadAsStringAsync();
+        return (res.IsSuccessStatusCode, resBody);
+    }
+
+    private static async Task NavigateElectronWindowAsync(string wsUrl, string targetPath)
+    {
+        try
+        {
+            using var ws = new ClientWebSocket();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await ws.ConnectAsync(new Uri(wsUrl), cts.Token);
+
+            var jsExpr = $"window.history.pushState({{}}, '', '{targetPath}'); window.dispatchEvent(new PopStateEvent('popstate'));";
+            var cdpMsg = JsonSerializer.Serialize(new
+            {
+                id = 1,
+                method = "Runtime.evaluate",
+                @params = new
+                {
+                    expression = jsExpr
+                }
+            });
+            var bytes = Encoding.UTF8.GetBytes(cdpMsg);
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token);
+            await Task.Delay(120, cts.Token);
+            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
+        }
+        catch { }
+    }
+}
+
 // ============================================================================
 // TELEMETRY & MEDIA SERVICE
 // ============================================================================
 public class PcTelemetryService
 {
+    private readonly AntigravityBridgeService _antigravity;
     private TimeSpan _lastTotalProcessorTime = TimeSpan.Zero;
     private DateTime _lastCpuSampleTime = DateTime.MinValue;
     private double _cachedCpuPct = 4.0;
+
+    public PcTelemetryService(AntigravityBridgeService antigravity)
+    {
+        _antigravity = antigravity;
+    }
 
     public PcStatusSnapshot CollectSnapshot()
     {
@@ -638,6 +1236,7 @@ public class PcTelemetryService
             DisplayCount: screens.Count,
             Displays: screens,
             Media: GetMediaStatus(),
+            Antigravity: _antigravity.GetCachedStatusSnapshot(),
             KvmUrl: $"http://{ip}:5185/kvm",
             MjpegStreamUrl: $"http://{ip}:5185/api/screen/stream?monitor=0&fps=8"
         );

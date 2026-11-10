@@ -86,42 +86,85 @@ export interface ApiCredentialsStatus {
   haUrl: string;
 }
 
+export interface AxonFieldSchema {
+  key: string;
+  label: string;
+  type: 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'json';
+  placeholder?: string;
+  options?: string[];
+  required?: boolean;
+  defaultValue?: string;
+}
+
+export interface AxonDescriptor {
+  id: string;
+  name: string;
+  domainCode: string;
+  category: IntegrationCategory | string;
+  icon: string;
+  description: string;
+  fields: AxonFieldSchema[];
+  defaultInput: Record<string, string>;
+  lastStatus?: 'success' | 'error' | 'idle';
+  lastDurationMs?: number | null;
+  lastExecutedAt?: string | null;
+  lastSummary?: string | null;
+  totalRuns?: number;
+}
+
+export interface AxonExecutionResult {
+  axonId: string;
+  actionId?: string;
+  ok: boolean;
+  status?: 'success' | 'error';
+  durationMs: number;
+  executedAt: string;
+  summary: string;
+  data: unknown;
+  error?: string;
+  errorCode?: string;
+  remediationHint?: string;
+}
+
+export type WorkflowNode = CanvasWorkflowNode;
+export type WorkflowEdge = CanvasWorkflowEdge;
+
 export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
   // 1. Triggers
   {
     typeId: 'trigger.manual',
     category: 'trigger',
-    categoryLabel: 'Triggers',
-    name: 'Manual / Webhook Trigger',
-    subtitle: 'Starts workflow on click or webhook',
+    categoryLabel: 'Auslöser',
+    name: 'Manueller / Webhook-Auslöser',
+    subtitle: 'Startet den Ablauf per Klick oder Webhook',
     icon: '⚡',
     accentColor: '#f59e0b',
     n8nType: 'n8n-nodes-base.webhook',
     defaultConfig: {
       webhookPath: '/webhook/run',
-      payloadHint: 'Trigger event',
+      payloadHint: 'Manueller Start',
     },
     fields: [
       {
         key: 'webhookPath',
-        label: 'Webhook Path',
+        label: 'Webhook-Pfad',
         type: 'text',
         placeholder: '/webhook/run',
       },
       {
         key: 'payloadHint',
-        label: 'Initial Input Text / JSON',
+        label: 'Start-Eingabetext / JSON',
         type: 'textarea',
-        placeholder: 'Optional test input passed to next node...',
+        placeholder: 'Optionale Testdaten für den nächsten Schritt...',
       },
     ],
   },
   {
     typeId: 'trigger.schedule',
     category: 'trigger',
-    categoryLabel: 'Triggers',
-    name: 'Schedule Timer',
-    subtitle: 'Runs on a recurring cron / interval',
+    categoryLabel: 'Auslöser',
+    name: 'Zeitplan-Timer',
+    subtitle: 'Wiederkehrende Ausführung per Cron / Intervall',
     icon: '⏰',
     accentColor: '#f59e0b',
     n8nType: 'n8n-nodes-base.scheduleTrigger',
@@ -132,15 +175,57 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     fields: [
       {
         key: 'cron',
-        label: 'Cron Schedule',
+        label: 'Cron-Zeitplan',
         type: 'text',
-        placeholder: '30 7 * * * (Every day at 07:30)',
+        placeholder: '30 7 * * * (Täglich um 07:30 Uhr)',
       },
       {
         key: 'timezone',
-        label: 'Timezone',
+        label: 'Zeitzone',
         type: 'text',
         placeholder: 'Europe/Vienna',
+      },
+    ],
+  },
+  {
+    typeId: 'trigger.vision_object',
+    category: 'trigger',
+    categoryLabel: 'Auslöser',
+    name: 'Kamera-Objekt-Auslöser',
+    subtitle: 'Startet bei Objekt X >= p% Wahrscheinlichkeit',
+    icon: '🎥',
+    accentColor: '#10b981',
+    n8nType: 'n8n-nodes-base.webhook',
+    defaultConfig: {
+      cameraId: 'camera.cam_eg_vz_eingang',
+      objectClass: 'person',
+      minConfidencePct: '65',
+    },
+    fields: [
+      {
+        key: 'cameraId',
+        label: 'Kamera-ID (* für alle)',
+        type: 'text',
+        placeholder: 'camera.cam_eg_vz_eingang',
+      },
+      {
+        key: 'objectClass',
+        label: 'Ziel-Objektklasse',
+        type: 'select',
+        options: [
+          { label: 'Person (person)', value: 'person' },
+          { label: 'Auto (car)', value: 'car' },
+          { label: 'Beliebiges Fahrzeug (any_vehicle)', value: 'any_vehicle' },
+          { label: 'Paket / Rucksack (backpack)', value: 'backpack' },
+          { label: 'Hund / Katze (any_animal)', value: 'any_animal' },
+          { label: 'Reine Bewegung (motion_only)', value: 'motion_only' },
+        ],
+      },
+      {
+        key: 'minConfidencePct',
+        label: 'Mindest-Wahrscheinlichkeit (%)',
+        type: 'text',
+        placeholder: '65',
       },
     ],
   },
@@ -149,51 +234,51 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
   {
     typeId: 'gemini.generate',
     category: 'gemini',
-    categoryLabel: 'Gemini AI',
-    name: 'Gemini Generate',
-    subtitle: 'Prompt Gemini 2.5 Flash / Pro',
+    categoryLabel: 'Gemini KI',
+    name: 'Gemini Analyse & Text',
+    subtitle: 'Prompt an Gemini 2.5 Flash / Pro senden',
     icon: '✨',
     accentColor: '#8b5cf6',
     n8nType: 'n8n-nodes-base.googleGemini',
     defaultConfig: {
       model: 'gemini-2.5-flash',
-      prompt: 'Summarize the incoming data in 3 concise bullet points:\n\n{{$input}}',
+      prompt: 'Fasse die eingehenden Daten in 3 präzisen Punkten auf Deutsch zusammen:\n\n{{$input}}',
     },
     fields: [
       {
         key: 'model',
-        label: 'Gemini Model',
+        label: 'Gemini-Modell',
         type: 'select',
         options: [
-          { label: 'gemini-2.5-flash (Fast)', value: 'gemini-2.5-flash' },
-          { label: 'gemini-2.5-pro (Reasoning)', value: 'gemini-2.5-pro' },
+          { label: 'gemini-2.5-flash (Schnell)', value: 'gemini-2.5-flash' },
+          { label: 'gemini-2.5-pro (Tiefenanalyse)', value: 'gemini-2.5-pro' },
         ],
       },
       {
         key: 'prompt',
-        label: 'Prompt (use {{$input}} for previous node data)',
+        label: 'Prompt ({{$input}} für Daten des vorherigen Knotens)',
         type: 'textarea',
-        placeholder: 'Analyze {{$input}} and return recommendations...',
+        placeholder: 'Analysiere {{$input}} und gib Empfehlungen aus...',
       },
     ],
   },
   {
     typeId: 'gemini.decide',
     category: 'gemini',
-    categoryLabel: 'Gemini AI',
-    name: 'Gemini AI Classifier',
-    subtitle: 'Extract structured JSON / decision',
+    categoryLabel: 'Gemini KI',
+    name: 'Gemini KI-Klassifizierer',
+    subtitle: 'Strukturierte JSON-Entscheidung ableiten',
     icon: '🧠',
     accentColor: '#8b5cf6',
     n8nType: 'n8n-nodes-base.googleGemini',
     defaultConfig: {
       model: 'gemini-2.5-flash',
-      prompt: 'Classify urgency (HIGH / NORMAL / LOW) and suggest next action for:\n{{$input}}',
+      prompt: 'Klassifiziere die Dringlichkeit (HOCH / NORMAL / NIEDRIG) und schlage die nächste Aktion vor:\n{{$input}}',
     },
     fields: [
       {
         key: 'model',
-        label: 'Gemini Model',
+        label: 'Gemini-Modell',
         type: 'select',
         options: [
           { label: 'gemini-2.5-flash', value: 'gemini-2.5-flash' },
@@ -202,7 +287,7 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
       },
       {
         key: 'prompt',
-        label: 'Classification Prompt',
+        label: 'Klassifizierungs-Prompt',
         type: 'textarea',
       },
     ],
@@ -213,8 +298,8 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     typeId: 'gmail.list_unread',
     category: 'gmail',
     categoryLabel: 'Gmail',
-    name: 'Gmail Fetch Emails',
-    subtitle: 'Read unread messages matching query',
+    name: 'Gmail E-Mails abrufen',
+    subtitle: 'Ungelesene Nachrichten per Suchfilter lesen',
     icon: '📧',
     accentColor: '#ef4444',
     n8nType: 'n8n-nodes-base.gmail',
@@ -225,13 +310,13 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     fields: [
       {
         key: 'query',
-        label: 'Gmail Search Query',
+        label: 'Gmail-Suchfilter',
         type: 'text',
         placeholder: 'is:unread from:alerts@...',
       },
       {
         key: 'maxResults',
-        label: 'Max Emails',
+        label: 'Max. E-Mails',
         type: 'text',
         placeholder: '5',
       },
@@ -241,32 +326,32 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     typeId: 'gmail.send',
     category: 'gmail',
     categoryLabel: 'Gmail',
-    name: 'Gmail Send Email',
-    subtitle: 'Send email with workflow output',
+    name: 'Gmail E-Mail senden',
+    subtitle: 'E-Mail mit Workflow-Ergebnis versenden',
     icon: '📨',
     accentColor: '#ef4444',
     n8nType: 'n8n-nodes-base.gmail',
     defaultConfig: {
       to: 'thomas@example.com',
-      subject: '[Thassi Workflow] Automated Report',
-      body: 'Here is your automated workflow summary:\n\n{{$input}}',
+      subject: '[Thassi Workflow] Automatischer Bericht',
+      body: 'Hier ist die automatische Zusammenfassung:\n\n{{$input}}',
     },
     fields: [
       {
         key: 'to',
-        label: 'To (Recipient Email)',
+        label: 'Empfänger (An)',
         type: 'text',
-        placeholder: 'you@gmail.com',
+        placeholder: 'du@gmail.com',
       },
       {
         key: 'subject',
-        label: 'Subject',
+        label: 'Betreff',
         type: 'text',
-        placeholder: 'Workflow Notification',
+        placeholder: 'Workflow-Benachrichtigung',
       },
       {
         key: 'body',
-        label: 'Email Body (supports {{$input}})',
+        label: 'Nachrichtentext ({{$input}} möglich)',
         type: 'textarea',
       },
     ],
@@ -276,9 +361,9 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
   {
     typeId: 'gcal.upcoming',
     category: 'gcal',
-    categoryLabel: 'Google Calendar',
-    name: 'Calendar Upcoming Events',
-    subtitle: 'Fetch today / next 7d schedule',
+    categoryLabel: 'Google Kalender',
+    name: 'Kalender: Kommende Termine',
+    subtitle: 'Termine für heute / nächste 7 Tage laden',
     icon: '📅',
     accentColor: '#3b82f6',
     n8nType: 'n8n-nodes-base.googleCalendar',
@@ -289,18 +374,18 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     fields: [
       {
         key: 'calendarId',
-        label: 'Calendar ID',
+        label: 'Kalender-ID',
         type: 'text',
         placeholder: 'primary',
       },
       {
         key: 'windowHours',
-        label: 'Lookahead Window (Hours)',
+        label: 'Zeitfenster (Stunden)',
         type: 'select',
         options: [
-          { label: 'Next 24 Hours (Today)', value: '24' },
-          { label: 'Next 48 Hours', value: '48' },
-          { label: 'Next 7 Days (168h)', value: '168' },
+          { label: 'Nächste 24 Stunden (Heute)', value: '24' },
+          { label: 'Nächste 48 Stunden', value: '48' },
+          { label: 'Nächste 7 Tage (168h)', value: '168' },
         ],
       },
     ],
@@ -308,9 +393,9 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
   {
     typeId: 'gcal.create_event',
     category: 'gcal',
-    categoryLabel: 'Google Calendar',
-    name: 'Calendar Create Event',
-    subtitle: 'Add a new event or reminder',
+    categoryLabel: 'Google Kalender',
+    name: 'Kalender: Termin erstellen',
+    subtitle: 'Neuen Kalendereintrag oder Erinnerung anlegen',
     icon: '🗓️',
     accentColor: '#3b82f6',
     n8nType: 'n8n-nodes-base.googleCalendar',
@@ -322,19 +407,19 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     fields: [
       {
         key: 'calendarId',
-        label: 'Calendar ID',
+        label: 'Kalender-ID',
         type: 'text',
         placeholder: 'primary',
       },
       {
         key: 'summary',
-        label: 'Event Title',
+        label: 'Termin-Titel',
         type: 'text',
-        placeholder: 'Smart Home Maintenance',
+        placeholder: 'Smart Home Wartung',
       },
       {
         key: 'durationMinutes',
-        label: 'Duration (minutes)',
+        label: 'Dauer (Minuten)',
         type: 'text',
         placeholder: '30',
       },
@@ -346,8 +431,8 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     typeId: 'github.list_issues',
     category: 'github',
     categoryLabel: 'GitHub',
-    name: 'GitHub Fetch Issues',
-    subtitle: 'List issues & PRs from repository',
+    name: 'GitHub Issues abrufen',
+    subtitle: 'Issues & PRs eines Repositories auflisten',
     icon: '🐙',
     accentColor: '#10b981',
     n8nType: 'n8n-nodes-base.github',
@@ -371,12 +456,12 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
       },
       {
         key: 'state',
-        label: 'Issue State',
+        label: 'Issue-Status',
         type: 'select',
         options: [
-          { label: 'Open Issues', value: 'open' },
-          { label: 'All Issues (Open + Closed)', value: 'all' },
-          { label: 'Closed Issues', value: 'closed' },
+          { label: 'Offene Issues', value: 'open' },
+          { label: 'Alle Issues (Offen + Geschlossen)', value: 'all' },
+          { label: 'Geschlossene Issues', value: 'closed' },
         ],
       },
     ],
@@ -385,15 +470,15 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     typeId: 'github.create_issue',
     category: 'github',
     categoryLabel: 'GitHub',
-    name: 'GitHub Create Issue',
-    subtitle: 'Open a new issue in a repository',
+    name: 'GitHub Issue erstellen',
+    subtitle: 'Neues Issue in einem Repository eröffnen',
     icon: '🎯',
     accentColor: '#10b981',
     n8nType: 'n8n-nodes-base.github',
     defaultConfig: {
       repo: 'tsimhofer/thassi',
-      title: '[Automated] Follow-up Task',
-      body: 'Created automatically by Thassi Workflows:\n\n{{$input}}',
+      title: '[Automatisch] Folgeaufgabe',
+      body: 'Automatisch erstellt durch Thassi Axons:\n\n{{$input}}',
     },
     fields: [
       {
@@ -411,12 +496,12 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
       },
       {
         key: 'title',
-        label: 'Issue Title',
+        label: 'Issue-Titel',
         type: 'text',
       },
       {
         key: 'body',
-        label: 'Issue Body (supports {{$input}})',
+        label: 'Beschreibung ({{$input}} möglich)',
         type: 'textarea',
       },
     ],
@@ -427,8 +512,8 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     typeId: 'ha.get_state',
     category: 'homeassistant',
     categoryLabel: 'Home Assistant',
-    name: 'HA Read Sensor / State',
-    subtitle: 'Fetch live state from Home Assistant',
+    name: 'HA Sensor / Zustand lesen',
+    subtitle: 'Aktuellen Live-Status aus Home Assistant lesen',
     icon: '🏠',
     accentColor: '#06b6d4',
     n8nType: 'n8n-nodes-base.homeAssistant',
@@ -438,7 +523,7 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     fields: [
       {
         key: 'entityId',
-        label: 'Entity ID',
+        label: 'Entitäts-ID',
         type: 'text',
         placeholder: 'sensor.shellyhtg3_e4b32331dde0_temperatur',
       },
@@ -448,8 +533,8 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     typeId: 'ha.call_service',
     category: 'homeassistant',
     categoryLabel: 'Home Assistant',
-    name: 'HA Call Service / Notify',
-    subtitle: 'Trigger switch, light, or notification',
+    name: 'HA Dienst / Benachrichtigung',
+    subtitle: 'Schalter, Licht oder Benachrichtigung auslösen',
     icon: '🔔',
     accentColor: '#06b6d4',
     n8nType: 'n8n-nodes-base.homeAssistant',
@@ -461,26 +546,26 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
     fields: [
       {
         key: 'domain',
-        label: 'Service Domain',
+        label: 'Dienst-Domäne',
         type: 'select',
         options: [
-          { label: 'persistent_notification (HA UI Notification)', value: 'persistent_notification' },
-          { label: 'switch (Turn On / Off)', value: 'switch' },
-          { label: 'light (Turn On / Off)', value: 'light' },
-          { label: 'script (Run Script)', value: 'script' },
+          { label: 'persistent_notification (HA Benachrichtigung)', value: 'persistent_notification' },
+          { label: 'switch (Schalter Ein / Aus)', value: 'switch' },
+          { label: 'light (Licht Ein / Aus)', value: 'light' },
+          { label: 'script (Skript starten)', value: 'script' },
         ],
       },
       {
         key: 'service',
-        label: 'Service Action',
+        label: 'Dienst-Aktion',
         type: 'text',
         placeholder: 'create / turn_on / turn_off',
       },
       {
         key: 'targetOrMessage',
-        label: 'Message or Entity ID (supports {{$input}})',
+        label: 'Nachricht oder Entitäts-ID ({{$input}} möglich)',
         type: 'textarea',
-        placeholder: 'Message text or entity_id...',
+        placeholder: 'Nachrichtentext oder entity_id...',
       },
     ],
   },
@@ -489,17 +574,17 @@ export const STARTER_NODE_PALETTE: NodePaletteTemplate[] = [
 export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
   {
     id: 'wf-morning-briefing',
-    name: 'Morning Smart Home & Calendar Briefing',
+    name: 'Morgen-Briefing: Smart Home & Kalender',
     description:
-      'Reads upcoming Google Calendar events, unread Gmail messages, and Home Assistant room temperature, then summarizes them with Gemini AI and sends a Home Assistant notification.',
+      'Liest anstehende Google-Kalendertermine, ungelesene Gmail-Nachrichten und die Raumtemperatur aus Home Assistant, fasst alles mit Gemini KI zusammen und sendet eine Benachrichtigung.',
     updatedAt: new Date().toISOString(),
     nodes: [
       {
         id: 'node-1',
         typeId: 'trigger.schedule',
         category: 'trigger',
-        name: '07:30 Morning Trigger',
-        subtitle: 'Runs daily at 07:30',
+        name: '07:30 Morgen-Auslöser',
+        subtitle: 'Täglich um 07:30 Uhr',
         icon: '⏰',
         accentColor: '#f59e0b',
         n8nType: 'n8n-nodes-base.scheduleTrigger',
@@ -511,8 +596,8 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         id: 'node-2',
         typeId: 'gcal.upcoming',
         category: 'gcal',
-        name: "Today's Calendar",
-        subtitle: 'Next 24h events',
+        name: 'Heutiger Kalender',
+        subtitle: 'Termine der nächsten 24 Std.',
         icon: '📅',
         accentColor: '#3b82f6',
         n8nType: 'n8n-nodes-base.googleCalendar',
@@ -524,8 +609,8 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         id: 'node-3',
         typeId: 'gmail.list_unread',
         category: 'gmail',
-        name: 'Unread Gmail Inbox',
-        subtitle: 'Top 5 unread emails',
+        name: 'Ungelesene E-Mails',
+        subtitle: 'Top 5 ungelesene Nachrichten',
         icon: '📧',
         accentColor: '#ef4444',
         n8nType: 'n8n-nodes-base.gmail',
@@ -537,8 +622,8 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         id: 'node-4',
         typeId: 'ha.get_state',
         category: 'homeassistant',
-        name: 'HA Living Room Temp',
-        subtitle: 'Read Shelly H&T Gen3',
+        name: 'HA Wohnzimmer-Temperatur',
+        subtitle: 'Shelly H&T Gen3 auslesen',
         icon: '🏠',
         accentColor: '#06b6d4',
         n8nType: 'n8n-nodes-base.homeAssistant',
@@ -550,8 +635,8 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         id: 'node-5',
         typeId: 'gemini.generate',
         category: 'gemini',
-        name: 'Gemini Daily Briefing',
-        subtitle: 'Synthesize schedule + home state',
+        name: 'Gemini Tages-Briefing',
+        subtitle: 'Termine + Hausstatus zusammenfassen',
         icon: '✨',
         accentColor: '#8b5cf6',
         n8nType: 'n8n-nodes-base.googleGemini',
@@ -560,15 +645,15 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         config: {
           model: 'gemini-2.5-flash',
           prompt:
-            'Create a friendly German morning briefing from Calendar, Gmail, and Home Assistant sensor data:\n\n{{$input}}',
+            'Erstelle ein kompaktes deutsches Morgen-Briefing aus Kalender-, Gmail- und Home-Assistant-Sensordaten:\n\n{{$input}}',
         },
       },
       {
         id: 'node-6',
         typeId: 'ha.call_service',
         category: 'homeassistant',
-        name: 'HA Push Briefing',
-        subtitle: 'Show persistent notification',
+        name: 'HA Briefing-Benachrichtigung',
+        subtitle: 'Persistente Benachrichtigung senden',
         icon: '🔔',
         accentColor: '#06b6d4',
         n8nType: 'n8n-nodes-base.homeAssistant',
@@ -593,29 +678,29 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
   },
   {
     id: 'wf-github-gemini-digest',
-    name: 'GitHub Issue Triage -> Gemini -> Gmail',
+    name: 'GitHub Issue-Triage -> Gemini -> Gmail',
     description:
-      'Fetches open GitHub issues from tsimhofer/taskassistant, prioritizes them with Gemini AI, and sends an email digest via Gmail.',
+      'Lädt offene GitHub-Issues aus tsimhofer/taskassistant, priorisiert sie mit Gemini KI und versendet eine Zusammenfassung per Gmail.',
     updatedAt: new Date().toISOString(),
     nodes: [
       {
         id: 'gh-1',
         typeId: 'trigger.manual',
         category: 'trigger',
-        name: 'Manual Start',
-        subtitle: 'On-demand trigger',
+        name: 'Manueller Start',
+        subtitle: 'Start auf Abruf',
         icon: '⚡',
         accentColor: '#f59e0b',
         n8nType: 'n8n-nodes-base.webhook',
         x: 70,
         y: 180,
-        config: { webhookPath: '/webhook/github-triage', payloadHint: 'Start GitHub issue triage' },
+        config: { webhookPath: '/webhook/github-triage', payloadHint: 'GitHub Issue-Triage starten' },
       },
       {
         id: 'gh-2',
         typeId: 'github.list_issues',
         category: 'github',
-        name: 'Fetch GitHub Issues',
+        name: 'GitHub Issues laden',
         subtitle: 'tsimhofer/taskassistant',
         icon: '🐙',
         accentColor: '#10b981',
@@ -628,8 +713,8 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         id: 'gh-3',
         typeId: 'gemini.generate',
         category: 'gemini',
-        name: 'Gemini Prioritize Issues',
-        subtitle: 'Summarize & rank open PRs/issues',
+        name: 'Gemini Issue-Priorisierung',
+        subtitle: 'Offene PRs/Issues bewerten & reihen',
         icon: '✨',
         accentColor: '#8b5cf6',
         n8nType: 'n8n-nodes-base.googleGemini',
@@ -638,15 +723,15 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         config: {
           model: 'gemini-2.5-flash',
           prompt:
-            'Review these open GitHub issues/PRs and recommend which ones to merge or fix first:\n\n{{$input}}',
+            'Analysiere diese offenen GitHub-Issues/PRs auf Deutsch und empfehle, welche zuerst umgesetzt werden sollten:\n\n{{$input}}',
         },
       },
       {
         id: 'gh-4',
         typeId: 'gmail.send',
         category: 'gmail',
-        name: 'Send Gmail Digest',
-        subtitle: 'Email summary to maintainer',
+        name: 'Gmail-Zusammenfassung senden',
+        subtitle: 'Bericht per E-Mail versenden',
         icon: '📨',
         accentColor: '#ef4444',
         n8nType: 'n8n-nodes-base.gmail',
@@ -654,7 +739,7 @@ export const DEFAULT_STARTER_WORKFLOWS: SavedWorkflow[] = [
         y: 180,
         config: {
           to: 'tsimhofer@gmail.com',
-          subject: '[GitHub Triage] Prioritized Open Issues',
+          subject: '[GitHub Triage] Priorisierte offene Issues',
           body: '{{$input}}',
         },
       },
