@@ -141,15 +141,15 @@ var DEFAULT_TILES = [
   {
     entity_id: "switch.buro_og_bewasserung_pumpe",
     sub_entity_id: "sensor.schalter_neu_power",
-    custom_label: "Bew\xE4sserung Pumpe",
+    custom_label: "Home Assistant PC (Watchdog .100)",
     zone: "B\xFCro OG",
     col_span: 1,
     row_span: 1,
     sort_order: 4,
     pos_x: 760,
     pos_y: 40,
-    accent_color: "#4ade80",
-    icon: "\u{1F331}"
+    accent_color: "#10b981",
+    icon: "\u{1F5A5}\uFE0F"
   },
   {
     entity_id: "sensor.shellyhtg3_e4b32331dde0_temperatur",

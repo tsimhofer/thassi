@@ -706,7 +706,7 @@ export class ThassiActionRegistry {
               buildDev('light.buro_og_grosses_licht', 'Großes Licht', 'sensor.links_power'),
               buildDev('switch.buro_og_regal_lichter', 'Regal Lichter', 'sensor.shellyplugsg3_e4b063e4bfd8_power'),
               buildDev('switch.buro_og_plug_90', 'Schreibtisch Plug .90', 'sensor.kleines_licht_pumpe_power'),
-              buildDev('switch.buro_og_bewasserung_pumpe', 'Bewässerung Pumpe', 'sensor.schalter_neu_power'),
+              buildDev('switch.buro_og_bewasserung_pumpe', 'Home Assistant PC (Watchdog .100)', 'sensor.schalter_neu_power'),
               buildDev('light.thomasbuero_2pm_oben_output_1', 'Schalter Oben Rechts', 'sensor.thomasbuero_2pm_oben_switch_1_power'),
             ],
           },

@@ -9785,7 +9785,7 @@ ${yamlBlock}`, "utf-8");
     hostRebootThreshold: 6,
     memShedThresholdPct: 88,
     memRebootThresholdPct: 97,
-    shellyPlugIp: "",
+    shellyPlugIp: "192.168.188.100",
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const inMemWatchdogEvents = [];
@@ -9798,10 +9798,13 @@ ${yamlBlock}`, "utf-8");
           `INSERT OR IGNORE INTO watchdog_config
            (id, enabled, auto_core_restart, auto_host_reboot, auto_load_shedding, enforce_supervisor_watchdogs,
             core_fail_threshold, host_reboot_threshold, mem_shed_threshold_pct, mem_reboot_threshold_pct, shelly_plug_ip, updated_at)
-           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '', ?)`,
+           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '192.168.188.100', ?)`,
           [now]
         );
         row = ctx.db.queryOne("SELECT * FROM watchdog_config WHERE id = 1") || {};
+      } else if (!row.shelly_plug_ip) {
+        ctx.db.execute(`UPDATE watchdog_config SET shelly_plug_ip = '192.168.188.100' WHERE id = 1`);
+        row.shelly_plug_ip = "192.168.188.100";
       }
       inMemWatchdogConfig = {
         enabled: Boolean(row.enabled ?? 1),
@@ -9813,7 +9816,7 @@ ${yamlBlock}`, "utf-8");
         hostRebootThreshold: Number(row.host_reboot_threshold || 6),
         memShedThresholdPct: Number(row.mem_shed_threshold_pct || 88),
         memRebootThresholdPct: Number(row.mem_reboot_threshold_pct || 97),
-        shellyPlugIp: String(row.shelly_plug_ip || ""),
+        shellyPlugIp: String(row.shelly_plug_ip || "192.168.188.100"),
         updatedAt: String(row.updated_at || (/* @__PURE__ */ new Date()).toISOString())
       };
     } catch {
@@ -10220,22 +10223,22 @@ ${yamlBlock}`, "utf-8");
       }
     }
   }
-  function generateShellyWatchdogScript(haHostIp = "192.168.188.92") {
+  function generateShellyWatchdogScript(haHostIp = "192.168.188.92", targetPlugIp = "192.168.188.100") {
     return [
       `// ============================================================================`,
       `// THASSI AUTONOMOUS HARDWARE WATCHDOG SCRIPT (Shelly Gen2 / Gen3 / Gen4 mJS)`,
-      `// Runs 100% locally on the Shelly Smart Plug ESP32 chip.`,
+      `// Runs 100% locally on the Shelly Smart Plug ESP32 chip (192.168.188.117).`,
       `// Checks Home Assistant OS Observer (:4357) & HA Core (:8123) every 60 seconds.`,
-      `// Detects both full CPU freezes AND SATA/SSD (/dev/sda EIO) disconnects where`,
-      `// :4357 dies and :8123 returns HTTP 500. Uses Shelly hardware toggle_after`,
-      `// timer so power is guaranteed to turn back ON after 15 seconds.`,
+      `// Cold power-cycles the Home Assistant PC Shelly Plug S (${targetPlugIp}) for 15s`,
+      `// after 4 consecutive failed checks (4 minutes).`,
       `// ============================================================================`,
       `let CONFIG = {`,
       `  targetUrlObserver: "http://${haHostIp}:4357/",`,
       `  targetUrlCore: "http://${haHostIp}:8123/manifest.json",`,
+      `  pcPlugOffUrl: "http://${targetPlugIp}/relay/0?turn=off&timer=15",`,
+      `  pcPlugOnUrl: "http://${targetPlugIp}/relay/0?turn=on",`,
       `  checkIntervalMs: 60000,       // Check every 60 seconds`,
       `  maxConsecutiveFailures: 4,    // Cold power-cycle after 4 failed checks (4 min)`,
-      `  powerOffSec: 15,              // Cut 230V AC for 15 seconds (hardware toggle_after)`,
       `  bootGracePeriodMs: 300000     // Wait 5 minutes after power-cycle before checking again`,
       `};`,
       ``,
@@ -10243,10 +10246,13 @@ ${yamlBlock}`, "utf-8");
       `let inBootGrace = false;`,
       ``,
       `function triggerPowerCycle() {`,
-      `  print("[Thassi-Watchdog] CRITICAL: HA PC dead/EIO for " + failCount + " checks! 15s cold power-cycle...");`,
+      `  print("[Thassi-Watchdog] CRITICAL: HA PC dead/EIO for " + failCount + " checks! 15s cold power-cycle on ${targetPlugIp}...");`,
       `  failCount = 0;`,
       `  inBootGrace = true;`,
-      `  Shelly.call("Switch.Set", { id: 0, on: false, toggle_after: CONFIG.powerOffSec }, function() {`,
+      `  Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOffUrl, timeout: 8 }, function() {`,
+      `    Timer.set(20000, false, function() {`,
+      `      Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOnUrl, timeout: 8 });`,
+      `    });`,
       `    Timer.set(CONFIG.bootGracePeriodMs, false, function() {`,
       `      inBootGrace = false;`,
       `    });`,
@@ -10278,7 +10284,7 @@ ${yamlBlock}`, "utf-8");
       `}`,
       ``,
       `Timer.set(CONFIG.checkIntervalMs, true, checkHaHost);`,
-      `print("[Thassi-Watchdog] Armed for " + CONFIG.targetUrlObserver);`
+      `print("[Thassi-Watchdog] Armed: monitoring " + CONFIG.targetUrlObserver + " -> plug ${targetPlugIp}");`
     ].join("\n");
   }
   function checkBlockStorageHealthy() {
@@ -10311,10 +10317,16 @@ ${yamlBlock}`, "utf-8");
     } catch {
     }
     if (shellyPlugIp) {
-      await fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
-        signal: AbortSignal.timeout(3e3)
-      }).catch(() => {
-      });
+      await Promise.all([
+        fetch(`http://${shellyPlugIp}/relay/0?turn=off&timer=15`, {
+          signal: AbortSignal.timeout(3e3)
+        }).catch(() => {
+        }),
+        fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
+          signal: AbortSignal.timeout(3e3)
+        }).catch(() => {
+        })
+      ]);
     }
     const gState2 = globalThis;
     if (typeof gState2.__thassiSysrqFd === "number") {
@@ -10368,6 +10380,13 @@ ${yamlBlock}`, "utf-8");
   if (gWatchdog.__thassiSataKeepaliveTimer) {
     clearInterval(gWatchdog.__thassiSataKeepaliveTimer);
   }
+  if (gWatchdog.__thassiBayTrailAntiCstateTimer) {
+    clearInterval(gWatchdog.__thassiBayTrailAntiCstateTimer);
+  }
+  let antiCstateTick = 0;
+  gWatchdog.__thassiBayTrailAntiCstateTimer = setInterval(() => {
+    antiCstateTick = antiCstateTick + 1 & 65535;
+  }, 15);
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
   void ensureWatchdogRebootAutomation();
   if (!gWatchdog.__thassiWatchdogState) {
@@ -10693,23 +10712,29 @@ ${yamlBlock}`, "utf-8");
       return { ok: true, state: gWatchdog.__thassiWatchdogState };
     }
     if (action === "deploy_shelly_script") {
-      const plugIp = String(body.shellyPlugIp || getWatchdogConfig().shellyPlugIp || "").trim();
+      const plugIp = String(body.shellyPlugIp || getWatchdogConfig().shellyPlugIp || "192.168.188.100").trim();
       if (!plugIp) {
-        return { ok: false, error: "Bitte die IP-Adresse des Shelly Smart Plugs angeben (z.B. 192.168.188.xx)." };
+        return { ok: false, error: "Bitte die IP-Adresse des Shelly Smart Plugs angeben (z.B. 192.168.188.100)." };
       }
-      const code = generateShellyWatchdogScript("192.168.188.92");
+      await fetch(
+        `http://${plugIp}/settings/relay/0?default_state=on&auto_on=15&auto_off=0&schedule=false&name=HomeAssistant_Server_PC`,
+        { signal: AbortSignal.timeout(3500) }
+      ).catch(() => {
+      });
+      const scriptHostIp = plugIp === "192.168.188.100" ? "192.168.188.117" : plugIp;
+      const code = generateShellyWatchdogScript("192.168.188.92", plugIp);
       try {
-        const listRes = await fetch(`http://${plugIp}/rpc/Script.List`, {
+        const listRes = await fetch(`http://${scriptHostIp}/rpc/Script.List`, {
           signal: AbortSignal.timeout(4e3)
         });
         if (!listRes.ok) {
-          return { ok: false, error: `Shelly unter ${plugIp} antwortet nicht auf Gen2/Gen3 RPC (${listRes.status}).` };
+          return { ok: false, error: `Shelly unter ${scriptHostIp} antwortet nicht auf Gen2/Gen3 RPC (${listRes.status}).` };
         }
         const listJson = await listRes.json();
         const existing = (listJson.scripts || []).find((s) => s.name === "thassi_ha_watchdog");
         let scriptId = existing?.id;
         if (scriptId) {
-          await fetch(`http://${plugIp}/rpc/Script.Stop`, {
+          await fetch(`http://${scriptHostIp}/rpc/Script.Stop`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: scriptId }),
@@ -10717,7 +10742,7 @@ ${yamlBlock}`, "utf-8");
           }).catch(() => {
           });
         } else {
-          const createRes = await fetch(`http://${plugIp}/rpc/Script.Create`, {
+          const createRes = await fetch(`http://${scriptHostIp}/rpc/Script.Create`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: "thassi_ha_watchdog" }),
@@ -10732,7 +10757,7 @@ ${yamlBlock}`, "utf-8");
         const chunkSize = 900;
         for (let offset = 0; offset < code.length; offset += chunkSize) {
           const chunk = code.slice(offset, offset + chunkSize);
-          await fetch(`http://${plugIp}/rpc/Script.PutCode`, {
+          await fetch(`http://${scriptHostIp}/rpc/Script.PutCode`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -10743,13 +10768,13 @@ ${yamlBlock}`, "utf-8");
             signal: AbortSignal.timeout(4e3)
           });
         }
-        await fetch(`http://${plugIp}/rpc/Script.SetConfig`, {
+        await fetch(`http://${scriptHostIp}/rpc/Script.SetConfig`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: scriptId, config: { name: "thassi_ha_watchdog", enable: true } }),
           signal: AbortSignal.timeout(4e3)
         });
-        await fetch(`http://${plugIp}/rpc/Script.Start`, {
+        await fetch(`http://${scriptHostIp}/rpc/Script.Start`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: scriptId }),
@@ -10758,10 +10783,10 @@ ${yamlBlock}`, "utf-8");
         logWatchdogEvent(
           "nominal",
           "SHELLY-PLUG",
-          `Autonomer Shelly Hardware-Watchdog installiert (${plugIp})`,
-          `Shelly Script #${scriptId} (thassi_ha_watchdog) l\xE4uft nun autark auf ${plugIp} und f\xFChrt bei 5 Min. Totalausfall einen 15s Power-Cycle durch.`
+          `Autonomer Shelly Hardware-Watchdog installiert (Plug ${plugIp} via ${scriptHostIp})`,
+          `Shelly Plug ${plugIp} auf auto_on=15s geh\xE4rtet & Watchdog Script #${scriptId} auf ${scriptHostIp} aktiviert.`
         );
-        return { ok: true, scriptId, plugIp };
+        return { ok: true, scriptId, plugIp, scriptHostIp };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }

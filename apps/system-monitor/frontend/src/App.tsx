@@ -309,7 +309,7 @@ function getSemanticStatusColor(pct: number, warnAt = 65, critAt = 85): string {
 export default function App({ embedded = false }: { embedded?: boolean }) {
   const [snapshot, setSnapshot] = useState<PerformanceSnapshot | null>(null);
   const [watchdogData, setWatchdogData] = useState<WatchdogTelemetry | null>(null);
-  const [shellyIpInput, setShellyIpInput] = useState<string>('');
+  const [shellyIpInput, setShellyIpInput] = useState<string>('192.168.188.100');
   const [watchdogNotice, setWatchdogNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

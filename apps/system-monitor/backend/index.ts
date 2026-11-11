@@ -2334,7 +2334,7 @@ export default defineThassiApp((ctx) => {
     hostRebootThreshold: 6,
     memShedThresholdPct: 88.0,
     memRebootThresholdPct: 97.0,
-    shellyPlugIp: '',
+    shellyPlugIp: '192.168.188.100',
     updatedAt: new Date().toISOString(),
   };
 
@@ -2356,10 +2356,13 @@ export default defineThassiApp((ctx) => {
           `INSERT OR IGNORE INTO watchdog_config
            (id, enabled, auto_core_restart, auto_host_reboot, auto_load_shedding, enforce_supervisor_watchdogs,
             core_fail_threshold, host_reboot_threshold, mem_shed_threshold_pct, mem_reboot_threshold_pct, shelly_plug_ip, updated_at)
-           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '', ?)`,
+           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '192.168.188.100', ?)`,
           [now]
         );
         row = ctx.db.queryOne<Record<string, any>>('SELECT * FROM watchdog_config WHERE id = 1') || {};
+      } else if (!row.shelly_plug_ip) {
+        ctx.db.execute(`UPDATE watchdog_config SET shelly_plug_ip = '192.168.188.100' WHERE id = 1`);
+        row.shelly_plug_ip = '192.168.188.100';
       }
       inMemWatchdogConfig = {
         enabled: Boolean(row.enabled ?? 1),
@@ -2371,7 +2374,7 @@ export default defineThassiApp((ctx) => {
         hostRebootThreshold: Number(row.host_reboot_threshold || 6),
         memShedThresholdPct: Number(row.mem_shed_threshold_pct || 88.0),
         memRebootThresholdPct: Number(row.mem_reboot_threshold_pct || 97.0),
-        shellyPlugIp: String(row.shelly_plug_ip || ''),
+        shellyPlugIp: String(row.shelly_plug_ip || '192.168.188.100'),
         updatedAt: String(row.updated_at || new Date().toISOString()),
       };
     } catch {
@@ -2854,22 +2857,22 @@ export default defineThassiApp((ctx) => {
     }
   }
 
-  function generateShellyWatchdogScript(haHostIp = '192.168.188.92'): string {
+  function generateShellyWatchdogScript(haHostIp = '192.168.188.92', targetPlugIp = '192.168.188.100'): string {
     return [
       `// ============================================================================`,
       `// THASSI AUTONOMOUS HARDWARE WATCHDOG SCRIPT (Shelly Gen2 / Gen3 / Gen4 mJS)`,
-      `// Runs 100% locally on the Shelly Smart Plug ESP32 chip.`,
+      `// Runs 100% locally on the Shelly Smart Plug ESP32 chip (192.168.188.117).`,
       `// Checks Home Assistant OS Observer (:4357) & HA Core (:8123) every 60 seconds.`,
-      `// Detects both full CPU freezes AND SATA/SSD (/dev/sda EIO) disconnects where`,
-      `// :4357 dies and :8123 returns HTTP 500. Uses Shelly hardware toggle_after`,
-      `// timer so power is guaranteed to turn back ON after 15 seconds.`,
+      `// Cold power-cycles the Home Assistant PC Shelly Plug S (${targetPlugIp}) for 15s`,
+      `// after 4 consecutive failed checks (4 minutes).`,
       `// ============================================================================`,
       `let CONFIG = {`,
       `  targetUrlObserver: "http://${haHostIp}:4357/",`,
       `  targetUrlCore: "http://${haHostIp}:8123/manifest.json",`,
+      `  pcPlugOffUrl: "http://${targetPlugIp}/relay/0?turn=off&timer=15",`,
+      `  pcPlugOnUrl: "http://${targetPlugIp}/relay/0?turn=on",`,
       `  checkIntervalMs: 60000,       // Check every 60 seconds`,
       `  maxConsecutiveFailures: 4,    // Cold power-cycle after 4 failed checks (4 min)`,
-      `  powerOffSec: 15,              // Cut 230V AC for 15 seconds (hardware toggle_after)`,
       `  bootGracePeriodMs: 300000     // Wait 5 minutes after power-cycle before checking again`,
       `};`,
       ``,
@@ -2877,10 +2880,13 @@ export default defineThassiApp((ctx) => {
       `let inBootGrace = false;`,
       ``,
       `function triggerPowerCycle() {`,
-      `  print("[Thassi-Watchdog] CRITICAL: HA PC dead/EIO for " + failCount + " checks! 15s cold power-cycle...");`,
+      `  print("[Thassi-Watchdog] CRITICAL: HA PC dead/EIO for " + failCount + " checks! 15s cold power-cycle on ${targetPlugIp}...");`,
       `  failCount = 0;`,
       `  inBootGrace = true;`,
-      `  Shelly.call("Switch.Set", { id: 0, on: false, toggle_after: CONFIG.powerOffSec }, function() {`,
+      `  Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOffUrl, timeout: 8 }, function() {`,
+      `    Timer.set(20000, false, function() {`,
+      `      Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOnUrl, timeout: 8 });`,
+      `    });`,
       `    Timer.set(CONFIG.bootGracePeriodMs, false, function() {`,
       `      inBootGrace = false;`,
       `    });`,
@@ -2912,7 +2918,7 @@ export default defineThassiApp((ctx) => {
       `}`,
       ``,
       `Timer.set(CONFIG.checkIntervalMs, true, checkHaHost);`,
-      `print("[Thassi-Watchdog] Armed for " + CONFIG.targetUrlObserver);`,
+      `print("[Thassi-Watchdog] Armed: monitoring " + CONFIG.targetUrlObserver + " -> plug ${targetPlugIp}");`,
     ].join('\n');
   }
 
@@ -2947,11 +2953,17 @@ export default defineThassiApp((ctx) => {
       });
     } catch {}
 
-    // Channel 1: If a Shelly Smart Plug IP is configured, trigger 15s cold power-cycle via toggle_after
+    // Channel 1: If a Shelly Smart Plug IP is configured, trigger 15s cold power-cycle
+    // Supports BOTH Shelly Gen1 (/relay/0?turn=off&timer=15 on 192.168.188.100) AND Gen2/Gen3 (/rpc/Switch.Set)
     if (shellyPlugIp) {
-      await fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => {});
+      await Promise.all([
+        fetch(`http://${shellyPlugIp}/relay/0?turn=off&timer=15`, {
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {}),
+        fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {}),
+      ]);
     }
 
     // Channel 2: Pre-opened RAM sysrq-trigger FD or writable procfs (zero disk I/O required)
@@ -3004,6 +3016,7 @@ export default defineThassiApp((ctx) => {
   const gWatchdog = globalThis as unknown as {
     __thassiWatchdogTimer?: ReturnType<typeof setInterval>;
     __thassiSataKeepaliveTimer?: ReturnType<typeof setInterval>;
+    __thassiBayTrailAntiCstateTimer?: ReturnType<typeof setInterval>;
     __thassiWatchdogState?: {
       consecutiveCoreFailures: number;
       lastCheckAt: string | null;
@@ -3025,6 +3038,15 @@ export default defineThassiApp((ctx) => {
   if (gWatchdog.__thassiSataKeepaliveTimer) {
     clearInterval(gWatchdog.__thassiSataKeepaliveTimer);
   }
+  if (gWatchdog.__thassiBayTrailAntiCstateTimer) {
+    clearInterval(gWatchdog.__thassiBayTrailAntiCstateTimer);
+  }
+
+  // Bay Trail J1900 Anti-C7S Residency Pulse (15ms epoll wakeup prevents 30ms Package C7S MWAIT 0x64 VLI89 freeze)
+  let antiCstateTick = 0;
+  gWatchdog.__thassiBayTrailAntiCstateTimer = setInterval(() => {
+    antiCstateTick = (antiCstateTick + 1) & 0xffff;
+  }, 15);
 
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
   void ensureWatchdogRebootAutomation();
@@ -3398,32 +3420,40 @@ export default defineThassiApp((ctx) => {
     }
 
     if (action === 'deploy_shelly_script') {
-      const plugIp = String(body.shellyPlugIp || getWatchdogConfig().shellyPlugIp || '').trim();
+      const plugIp = String(body.shellyPlugIp || getWatchdogConfig().shellyPlugIp || '192.168.188.100').trim();
       if (!plugIp) {
-        return { ok: false, error: 'Bitte die IP-Adresse des Shelly Smart Plugs angeben (z.B. 192.168.188.xx).' };
+        return { ok: false, error: 'Bitte die IP-Adresse des Shelly Smart Plugs angeben (z.B. 192.168.188.100).' };
       }
-      const code = generateShellyWatchdogScript('192.168.188.92');
+      // Harden the PC Shelly Plug S (Gen1 192.168.188.100) with hardware auto_on=15s & default_state=on
+      await fetch(
+        `http://${plugIp}/settings/relay/0?default_state=on&auto_on=15&auto_off=0&schedule=false&name=HomeAssistant_Server_PC`,
+        { signal: AbortSignal.timeout(3500) }
+      ).catch(() => {});
+
+      // If plugIp is a Gen1 Shelly Plug S (192.168.188.100), deploy the autonomous mJS watchdog onto the Gen3 Shelly (192.168.188.117)
+      const scriptHostIp = plugIp === '192.168.188.100' ? '192.168.188.117' : plugIp;
+      const code = generateShellyWatchdogScript('192.168.188.92', plugIp);
       try {
         // 1. Check if script already exists or create a new one on the Shelly Gen2/Gen3/Gen4 device
-        const listRes = await fetch(`http://${plugIp}/rpc/Script.List`, {
+        const listRes = await fetch(`http://${scriptHostIp}/rpc/Script.List`, {
           signal: AbortSignal.timeout(4000),
         });
         if (!listRes.ok) {
-          return { ok: false, error: `Shelly unter ${plugIp} antwortet nicht auf Gen2/Gen3 RPC (${listRes.status}).` };
+          return { ok: false, error: `Shelly unter ${scriptHostIp} antwortet nicht auf Gen2/Gen3 RPC (${listRes.status}).` };
         }
         const listJson = (await listRes.json()) as { scripts?: Array<{ id: number; name: string; running: boolean }> };
         const existing = (listJson.scripts || []).find((s) => s.name === 'thassi_ha_watchdog');
         let scriptId = existing?.id;
 
         if (scriptId) {
-          await fetch(`http://${plugIp}/rpc/Script.Stop`, {
+          await fetch(`http://${scriptHostIp}/rpc/Script.Stop`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: scriptId }),
             signal: AbortSignal.timeout(3000),
           }).catch(() => {});
         } else {
-          const createRes = await fetch(`http://${plugIp}/rpc/Script.Create`, {
+          const createRes = await fetch(`http://${scriptHostIp}/rpc/Script.Create`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: 'thassi_ha_watchdog' }),
@@ -3441,7 +3471,7 @@ export default defineThassiApp((ctx) => {
         const chunkSize = 900;
         for (let offset = 0; offset < code.length; offset += chunkSize) {
           const chunk = code.slice(offset, offset + chunkSize);
-          await fetch(`http://${plugIp}/rpc/Script.PutCode`, {
+          await fetch(`http://${scriptHostIp}/rpc/Script.PutCode`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3454,13 +3484,13 @@ export default defineThassiApp((ctx) => {
         }
 
         // Enable auto-start on boot and start immediately
-        await fetch(`http://${plugIp}/rpc/Script.SetConfig`, {
+        await fetch(`http://${scriptHostIp}/rpc/Script.SetConfig`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: scriptId, config: { name: 'thassi_ha_watchdog', enable: true } }),
           signal: AbortSignal.timeout(4000),
         });
-        await fetch(`http://${plugIp}/rpc/Script.Start`, {
+        await fetch(`http://${scriptHostIp}/rpc/Script.Start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: scriptId }),
@@ -3470,10 +3500,10 @@ export default defineThassiApp((ctx) => {
         logWatchdogEvent(
           'nominal',
           'SHELLY-PLUG',
-          `Autonomer Shelly Hardware-Watchdog installiert (${plugIp})`,
-          `Shelly Script #${scriptId} (thassi_ha_watchdog) läuft nun autark auf ${plugIp} und führt bei 5 Min. Totalausfall einen 15s Power-Cycle durch.`
+          `Autonomer Shelly Hardware-Watchdog installiert (Plug ${plugIp} via ${scriptHostIp})`,
+          `Shelly Plug ${plugIp} auf auto_on=15s gehärtet & Watchdog Script #${scriptId} auf ${scriptHostIp} aktiviert.`
         );
-        return { ok: true, scriptId, plugIp };
+        return { ok: true, scriptId, plugIp, scriptHostIp };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
