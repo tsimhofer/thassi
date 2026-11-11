@@ -1293,7 +1293,7 @@ var ThassiActionRegistry = class {
               buildDev("light.buro_og_grosses_licht", "Gro\xDFes Licht", "sensor.links_power"),
               buildDev("switch.buro_og_regal_lichter", "Regal Lichter", "sensor.shellyplugsg3_e4b063e4bfd8_power"),
               buildDev("switch.buro_og_plug_90", "Schreibtisch Plug .90", "sensor.kleines_licht_pumpe_power"),
-              buildDev("switch.buro_og_bewasserung_pumpe", "Bew\xE4sserung Pumpe", "sensor.schalter_neu_power"),
+              buildDev("switch.buro_og_bewasserung_pumpe", "Home Assistant PC (Watchdog .100)", "sensor.schalter_neu_power"),
               buildDev("light.thomasbuero_2pm_oben_output_1", "Schalter Oben Rechts", "sensor.thomasbuero_2pm_oben_switch_1_power")
             ]
           },
@@ -13113,7 +13113,7 @@ async function startServer() {
               buildDev("light.buro_og_grosses_licht", "Gro\xDFes Licht", "toggle", "sensor.links_power"),
               buildDev("switch.buro_og_regal_lichter", "Regal Lichter", "toggle", "sensor.shellyplugsg3_e4b063e4bfd8_power"),
               buildDev("switch.buro_og_plug_90", "Schreibtisch Plug .90", "toggle", "sensor.kleines_licht_pumpe_power"),
-              buildDev("switch.buro_og_bewasserung_pumpe", "Bew\xE4sserung Pumpe", "toggle", "sensor.schalter_neu_power"),
+              buildDev("switch.buro_og_bewasserung_pumpe", "Home Assistant PC (Watchdog .100)", "sensor", "sensor.schalter_neu_power"),
               buildDev("light.thomasbuero_2pm_oben_output_1", "Schalter Oben Rechts", "toggle", "sensor.thomasbuero_2pm_oben_switch_1_power")
             ]
           },
@@ -13197,6 +13197,11 @@ async function startServer() {
       if (pathname === "/api/system/device-action" && req.method === "POST") {
         const body = JSON.parse(await readRequestBody(req) || "{}");
         if (!body.entityId) return sendJson(res, 400, { error: "entityId is required" });
+        if (body.entityId === "switch.buro_og_bewasserung_pumpe" && body.action !== "turn_on") {
+          return sendJson(res, 403, {
+            error: "switch.buro_og_bewasserung_pumpe versorgt den Home Assistant Server PC (192.168.188.100) und ist gegen Abschalten gesch\xFCtzt."
+          });
+        }
         const domain = body.entityId.split(".")[0];
         if (!["light", "switch", "media_player", "siren", "camera"].includes(domain)) {
           return sendJson(res, 400, { error: `Unsupported domain ${domain}` });

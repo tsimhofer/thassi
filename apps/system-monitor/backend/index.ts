@@ -2861,56 +2861,55 @@ export default defineThassiApp((ctx) => {
     return [
       `// ============================================================================`,
       `// THASSI AUTONOMOUS HARDWARE WATCHDOG SCRIPT (Shelly Gen2 / Gen3 / Gen4 mJS)`,
-      `// Runs 100% locally on the Shelly Smart Plug ESP32 chip (192.168.188.117).`,
-      `// Checks Home Assistant OS Observer (:4357) & HA Core (:8123) every 60 seconds.`,
-      `// Cold power-cycles the Home Assistant PC Shelly Plug S (${targetPlugIp}) for 15s`,
-      `// after 4 consecutive failed checks (4 minutes).`,
+      `// Low-memory state-machine design (<1KB heap) for ESP32 mJS.`,
+      `// Polls http://${haHostIp}:8123/manifest.json (320 bytes) every 60s.`,
+      `// Arms automatically once HA PC is online; cold power-cycles Shelly Plug S`,
+      `// (${targetPlugIp}) for 20s after 4 consecutive failed checks.`,
+      `// NOTE: PC BIOS must have "Restore on AC Power Loss = Power On" enabled!`,
       `// ============================================================================`,
       `let CONFIG = {`,
-      `  targetUrlObserver: "http://${haHostIp}:4357/",`,
       `  targetUrlCore: "http://${haHostIp}:8123/manifest.json",`,
-      `  pcPlugOffUrl: "http://${targetPlugIp}/relay/0?turn=off&timer=15",`,
+      `  pcPlugOffUrl: "http://${targetPlugIp}/relay/0?turn=off&timer=20",`,
       `  pcPlugOnUrl: "http://${targetPlugIp}/relay/0?turn=on",`,
-      `  checkIntervalMs: 60000,       // Check every 60 seconds`,
-      `  maxConsecutiveFailures: 4,    // Cold power-cycle after 4 failed checks (4 min)`,
-      `  bootGracePeriodMs: 300000     // Wait 5 minutes after power-cycle before checking again`,
+      `  checkIntervalMs: 60000,`,
+      `  maxConsecutiveFailures: 4`,
       `};`,
       ``,
       `let failCount = 0;`,
-      `let inBootGrace = false;`,
+      `let hasSeenOnline = false;`,
+      `let cycling = false;`,
       ``,
       `function triggerPowerCycle() {`,
-      `  print("[Thassi-Watchdog] CRITICAL: HA PC dead/EIO for " + failCount + " checks! 15s cold power-cycle on ${targetPlugIp}...");`,
+      `  print("[Thassi-Watchdog] CRITICAL: HA PC froze after being online! 20s power-cycle on ${targetPlugIp}...");`,
       `  failCount = 0;`,
-      `  inBootGrace = true;`,
+      `  hasSeenOnline = false;`,
+      `  cycling = true;`,
       `  Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOffUrl, timeout: 8 }, function() {`,
-      `    Timer.set(20000, false, function() {`,
-      `      Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOnUrl, timeout: 8 });`,
-      `    });`,
-      `    Timer.set(CONFIG.bootGracePeriodMs, false, function() {`,
-      `      inBootGrace = false;`,
+      `    Timer.set(25000, false, function() {`,
+      `      Shelly.call("HTTP.GET", { url: CONFIG.pcPlugOnUrl, timeout: 8 }, function() {`,
+      `        cycling = false;`,
+      `      });`,
       `    });`,
       `  });`,
       `}`,
       ``,
       `function checkHaHost() {`,
-      `  if (inBootGrace) return;`,
-      `  Shelly.call("HTTP.GET", { url: CONFIG.targetUrlObserver, timeout: 8 }, function(res, errCode) {`,
-      `    if (errCode === 0 && res && res.code === 200) {`,
-      `      // Also verify HA Core :8123 is not throwing HTTP 500 from SATA EIO`,
-      `      Shelly.call("HTTP.GET", { url: CONFIG.targetUrlCore, timeout: 8 }, function(res2, errCode2) {`,
-      `        if (errCode2 === 0 && res2 && res2.code === 200) {`,
-      `          failCount = 0;`,
-      `          return;`,
-      `        }`,
-      `        failCount++;`,
-      `        print("[Thassi-Watchdog] WARNING: HA Core :8123 HTTP 500 / unreachable (" + failCount + "/" + CONFIG.maxConsecutiveFailures + ")");`,
-      `        if (failCount >= CONFIG.maxConsecutiveFailures) triggerPowerCycle();`,
-      `      });`,
+      `  if (cycling) return;`,
+      `  Shelly.call("HTTP.GET", { url: CONFIG.targetUrlCore, timeout: 8 }, function(res, errCode) {`,
+      `    let code = (errCode === 0 && res) ? res.code : 0;`,
+      `    res = null;`,
+      `    if (code === 200) {`,
+      `      if (!hasSeenOnline) print("[Thassi-Watchdog] HA PC is ONLINE -> Watchdog ARMED.");`,
+      `      hasSeenOnline = true;`,
+      `      failCount = 0;`,
+      `      return;`,
+      `    }`,
+      `    if (!hasSeenOnline) {`,
+      `      print("[Thassi-Watchdog] Waiting for HA PC to boot (BIOS/Standby safe mode)...");`,
       `      return;`,
       `    }`,
       `    failCount++;`,
-      `    print("[Thassi-Watchdog] WARNING: HA Observer :4357 unreachable (" + failCount + "/" + CONFIG.maxConsecutiveFailures + ")");`,
+      `    print("[Thassi-Watchdog] WARN: HA :8123 unreachable (" + failCount + "/" + CONFIG.maxConsecutiveFailures + ")");`,
       `    if (failCount >= CONFIG.maxConsecutiveFailures) {`,
       `      triggerPowerCycle();`,
       `    }`,
@@ -2918,7 +2917,7 @@ export default defineThassiApp((ctx) => {
       `}`,
       ``,
       `Timer.set(CONFIG.checkIntervalMs, true, checkHaHost);`,
-      `print("[Thassi-Watchdog] Armed: monitoring " + CONFIG.targetUrlObserver + " -> plug ${targetPlugIp}");`,
+      `checkHaHost();`,
     ].join('\n');
   }
 
@@ -3507,6 +3506,135 @@ export default defineThassiApp((ctx) => {
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
+    }
+
+    if (action === 'hardware_bios_bypass') {
+      const report: Record<string, any> = {
+        timestamp: new Date().toISOString(),
+        cstatesDisabled: [] as string[],
+        grubPatched: false,
+        grubDetail: '',
+        pmcAfterG3Patched: false,
+        pmcDetail: '',
+        wolEnabled: [] as string[],
+      };
+
+      // 1. Mount writable sysfs if /sys is read-only, then disable C6N/C6S/C7/C7S
+      let sysRoot = '/sys';
+      try {
+        fs.writeFileSync('/sys/devices/system/cpu/cpu0/cpuidle/state2/disable', '1');
+      } catch {
+        try {
+          fs.mkdirSync('/tmp/thassi_sysfs', { recursive: true });
+          execFileSync('mount', ['-t', 'sysfs', 'sysfs', '/tmp/thassi_sysfs'], { timeout: 2000 });
+          sysRoot = '/tmp/thassi_sysfs';
+        } catch (e: any) {
+          report.sysfsMountError = e.message;
+        }
+      }
+
+      for (let cpu = 0; cpu < 4; cpu++) {
+        for (const st of ['state2', 'state3', 'state4', 'state5']) {
+          const dp = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
+          const np = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
+          try {
+            if (fs.existsSync(dp)) {
+              fs.writeFileSync(dp, '1');
+              if (cpu === 0 && readSafe(dp) === '1') {
+                report.cstatesDisabled.push(readSafe(np) || st);
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // 2. Patch HAOS boot partition (/dev/sda1) grub.cfg / cmdline.txt with intel_idle.max_cstate=1 processor.max_cstate=1
+      try {
+        if (!fs.existsSync('/dev/sda1')) {
+          try {
+            execFileSync('mknod', ['/dev/sda1', 'b', '8', '1'], { timeout: 1500 });
+          } catch {}
+        }
+        if (fs.existsSync('/dev/sda1')) {
+          fs.mkdirSync('/tmp/hassos_boot', { recursive: true });
+          try {
+            execFileSync('mount', ['/dev/sda1', '/tmp/hassos_boot'], { timeout: 3000 });
+          } catch {}
+          for (const rel of ['EFI/BOOT/grub.cfg', 'cmdline.txt']) {
+            const p = path.join('/tmp/hassos_boot', rel);
+            if (fs.existsSync(p)) {
+              const orig = fs.readFileSync(p, 'utf-8');
+              if (!orig.includes('intel_idle.max_cstate=1')) {
+                const patched = orig.replace(
+                  /(rootwait\b)/g,
+                  '$1 intel_idle.max_cstate=1 processor.max_cstate=1'
+                );
+                if (patched !== orig) {
+                  fs.writeFileSync(p, patched, 'utf-8');
+                  report.grubPatched = true;
+                  report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1`;
+                }
+              } else {
+                report.grubPatched = true;
+                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1`;
+              }
+            }
+          }
+          try {
+            execFileSync('sync', [], { timeout: 2000 });
+            execFileSync('umount', ['/tmp/hassos_boot'], { timeout: 2000 });
+          } catch {}
+        }
+      } catch (e: any) {
+        report.grubError = e.message;
+      }
+
+      // 3. Program Intel Bay Trail PMC GEN_PMCON_1 (PBASE + 0x20) bit 0 (AFTERG3_EN = 0 -> Power ON after AC loss)
+      try {
+        const pciCfgPath = `${sysRoot}/bus/pci/devices/0000:00:1f.0/config`;
+        if (fs.existsSync(pciCfgPath)) {
+          const cfgBuf = fs.readFileSync(pciCfgPath);
+          const pbaseRaw = cfgBuf.readUInt32LE(0x44);
+          const pbase = pbaseRaw & 0xfffffe00;
+          if (pbase > 0) {
+            const pmconAddr = `0x${(pbase + 0x20).toString(16)}`;
+            const curHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
+              encoding: 'utf-8',
+              timeout: 1500,
+            }).trim();
+            const curVal = Number.parseInt(curHex, 16);
+            const newVal = (curVal & ~0x01) >>> 0; // Clear bit 0 (AFTERG3_EN = 0 -> Power ON on AC restore)
+            const newHex = `0x${newVal.toString(16).padStart(8, '0')}`;
+            execFileSync('busybox', ['devmem', pmconAddr, '32', newHex], { timeout: 1500 });
+            const verifyHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
+              encoding: 'utf-8',
+              timeout: 1500,
+            }).trim();
+            report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 0x01) === 0;
+            report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
+          }
+        }
+      } catch (e: any) {
+        report.pmcError = e.message;
+      }
+
+      // 4. Enable Wake-on-LAN on network interfaces in sysfs
+      try {
+        const netRoot = `${sysRoot}/class/net`;
+        if (fs.existsSync(netRoot)) {
+          for (const iface of fs.readdirSync(netRoot)) {
+            const wakePath = `${netRoot}/${iface}/device/power/wakeup`;
+            if (fs.existsSync(wakePath)) {
+              try {
+                fs.writeFileSync(wakePath, 'enabled');
+                report.wolEnabled.push(iface);
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+
+      return { ok: true, report };
     }
 
     return { ok: false, error: 'Unbekannte Aktion' };
