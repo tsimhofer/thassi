@@ -542,28 +542,6 @@ async function loadAppFromDirectory(
 }
 
 async function discoverAllApps(): Promise<void> {
-  const candidateBuiltInDirs = [
-    path.join(__dirname, 'apps'),
-    path.resolve(process.cwd(), 'thassi_host', 'dist', 'apps'),
-    path.resolve(process.cwd(), 'apps'),
-  ];
-
-  for (const baseDir of candidateBuiltInDirs) {
-    if (!fs.existsSync(baseDir)) continue;
-    for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name !== 'data-workbench') {
-        const appDir = path.join(baseDir, entry.name);
-        if (!loadedApps.has(entry.name)) {
-          try {
-            await loadAppFromDirectory(appDir, 'built-in');
-          } catch (err) {
-            console.error(`[Thassi] Error loading built-in app ${entry.name}:`, err);
-          }
-        }
-      }
-    }
-  }
-
   const deployedBase = path.join(DATA_DIR, 'deployed_apps');
   if (fs.existsSync(deployedBase)) {
     for (const entry of fs.readdirSync(deployedBase, { withFileTypes: true })) {
@@ -582,6 +560,28 @@ async function discoverAllApps(): Promise<void> {
           await loadAppFromDirectory(hotDir, 'hot-deployed');
         } catch (err) {
           console.error(`[Thassi] Error loading hot-deployed app ${entry.name}:`, err);
+        }
+      }
+    }
+  }
+
+  const candidateBuiltInDirs = [
+    path.join(__dirname, 'apps'),
+    path.resolve(process.cwd(), 'thassi_host', 'dist', 'apps'),
+    path.resolve(process.cwd(), 'apps'),
+  ];
+
+  for (const baseDir of candidateBuiltInDirs) {
+    if (!fs.existsSync(baseDir)) continue;
+    for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== 'data-workbench') {
+        const appDir = path.join(baseDir, entry.name);
+        if (!loadedApps.has(entry.name)) {
+          try {
+            await loadAppFromDirectory(appDir, 'built-in');
+          } catch (err) {
+            console.error(`[Thassi] Error loading built-in app ${entry.name}:`, err);
+          }
         }
       }
     }
@@ -1298,7 +1298,7 @@ async function startServer() {
         };
 
         const targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
-        if (process.env.THASSI_WRITE_HOST_DISK === '1') {
+        if (process.env.THASSI_RAM_ONLY !== '1') {
           try {
             writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
           } catch (err) {

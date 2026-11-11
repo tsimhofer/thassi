@@ -2346,12 +2346,12 @@ export default defineThassiApp((ctx) => {
 
   let inMemWatchdogConfig = {
     enabled: true,
-    autoCoreRestart: true,
-    autoHostReboot: true,
+    autoCoreRestart: false,
+    autoHostReboot: false,
     autoLoadShedding: true,
     enforceSupervisorWatchdogs: true,
-    coreFailThreshold: 3,
-    hostRebootThreshold: 6,
+    coreFailThreshold: 12,
+    hostRebootThreshold: 24,
     memShedThresholdPct: 88.0,
     memRebootThresholdPct: 97.0,
     shellyPlugIp: '192.168.188.100',
@@ -2367,6 +2367,18 @@ export default defineThassiApp((ctx) => {
     detail: string;
   }> = [];
 
+  // Neutralize any aggressive thresholds from older schema versions on startup
+  try {
+    ctx.db.execute(
+      `UPDATE watchdog_config
+       SET auto_core_restart = 0,
+           auto_host_reboot = 0,
+           core_fail_threshold = CASE WHEN core_fail_threshold < 12 THEN 12 ELSE core_fail_threshold END,
+           host_reboot_threshold = CASE WHEN host_reboot_threshold < 24 THEN 24 ELSE host_reboot_threshold END
+       WHERE id = 1`
+    );
+  } catch {}
+
   function getWatchdogConfig() {
     try {
       let row = ctx.db.queryOne<Record<string, any>>('SELECT * FROM watchdog_config WHERE id = 1');
@@ -2376,7 +2388,7 @@ export default defineThassiApp((ctx) => {
           `INSERT OR IGNORE INTO watchdog_config
            (id, enabled, auto_core_restart, auto_host_reboot, auto_load_shedding, enforce_supervisor_watchdogs,
             core_fail_threshold, host_reboot_threshold, mem_shed_threshold_pct, mem_reboot_threshold_pct, shelly_plug_ip, updated_at)
-           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '192.168.188.100', ?)`,
+           VALUES (1, 1, 0, 0, 1, 1, 12, 24, 88.0, 97.0, '192.168.188.100', ?)`,
           [now]
         );
         row = ctx.db.queryOne<Record<string, any>>('SELECT * FROM watchdog_config WHERE id = 1') || {};
@@ -2386,12 +2398,12 @@ export default defineThassiApp((ctx) => {
       }
       inMemWatchdogConfig = {
         enabled: Boolean(row.enabled ?? 1),
-        autoCoreRestart: Boolean(row.auto_core_restart ?? 1),
-        autoHostReboot: Boolean(row.auto_host_reboot ?? 1),
+        autoCoreRestart: Boolean(row.auto_core_restart ?? 0),
+        autoHostReboot: Boolean(row.auto_host_reboot ?? 0),
         autoLoadShedding: Boolean(row.auto_load_shedding ?? 1),
         enforceSupervisorWatchdogs: Boolean(row.enforce_supervisor_watchdogs ?? 1),
-        coreFailThreshold: Number(row.core_fail_threshold || 3),
-        hostRebootThreshold: Number(row.host_reboot_threshold || 6),
+        coreFailThreshold: Math.max(12, Number(row.core_fail_threshold || 12)),
+        hostRebootThreshold: Math.max(24, Number(row.host_reboot_threshold || 24)),
         memShedThresholdPct: Number(row.mem_shed_threshold_pct || 88.0),
         memRebootThresholdPct: Number(row.mem_reboot_threshold_pct || 97.0),
         shellyPlugIp: String(row.shelly_plug_ip || '192.168.188.100'),
@@ -3000,39 +3012,15 @@ export default defineThassiApp((ctx) => {
     } catch {}
 
     // Channel 1: Ensure Shelly Smart Plug (192.168.188.100) stays ON (never cut AC power in software
-    // because motherboard Super I/O latches Soft-Off 0.99W on AC loss; use warm kernel reboot below).
+    // because motherboard Super I/O latches Soft-Off 0.99W on AC loss, and never use sysrq 'b' / reboot -f
+    // which hang Intel Bay Trail J1900 UEFI in reset vector at 5.82W).
     if (shellyPlugIp) {
       await fetch(`http://${shellyPlugIp}/relay/0?turn=on`, {
         signal: AbortSignal.timeout(2000),
       }).catch(() => {});
     }
 
-    // Channel 2: Pre-opened RAM sysrq-trigger FD or writable procfs (zero disk I/O required)
-    const gState = globalThis as unknown as { __thassiSysrqFd?: number };
-    if (typeof gState.__thassiSysrqFd === 'number') {
-      try {
-        fs.writeSync(gState.__thassiSysrqFd, 's\n');
-        fs.writeSync(gState.__thassiSysrqFd, 'b\n');
-      } catch {}
-    }
-    for (const procBase of ['/tmp/thassi_procfs', '/proc']) {
-      try {
-        if (fs.existsSync(`${procBase}/sys/kernel/sysrq`)) {
-          fs.writeFileSync(`${procBase}/sys/kernel/sysrq`, '1');
-        }
-        if (fs.existsSync(`${procBase}/sysrq-trigger`)) {
-          fs.writeFileSync(`${procBase}/sysrq-trigger`, 's');
-          fs.writeFileSync(`${procBase}/sysrq-trigger`, 'b');
-        }
-      } catch {}
-    }
-
-    // Channel 3: Direct kernel reboot syscall via busybox reboot -f (if CAP_SYS_BOOT active)
-    try {
-      execFileSync('reboot', ['-f'], { timeout: 1500 });
-    } catch {}
-
-    // Channel 4: Supervisor /host/reboot & HA Core hassio.host_reboot API
+    // Channel 2: Clean ACPI/EFI host reboot via Supervisor /host/reboot & HA Core hassio.host_reboot API
     if (supToken) {
       await Promise.all([
         fetch('http://supervisor/host/reboot', {
@@ -3060,6 +3048,7 @@ export default defineThassiApp((ctx) => {
     __thassiBayTrailAntiCstateTimer?: ReturnType<typeof setInterval>;
     __thassiWatchdogState?: {
       consecutiveCoreFailures: number;
+      hasSeenCoreOnlineSinceBoot?: boolean;
       lastCheckAt: string | null;
       lastCoreOkAt: string | null;
       lastSupervisorOkAt: string | null;
@@ -3101,6 +3090,7 @@ export default defineThassiApp((ctx) => {
     const diskCheck = checkBlockStorageHealthy();
     gWatchdog.__thassiWatchdogState = {
       consecutiveCoreFailures: 0,
+      hasSeenCoreOnlineSinceBoot: false,
       lastCheckAt: new Date().toISOString(),
       lastCoreOkAt: new Date().toISOString(),
       lastSupervisorOkAt: new Date().toISOString(),
@@ -3127,6 +3117,7 @@ export default defineThassiApp((ctx) => {
       );
     }
   } else {
+    gWatchdog.__thassiWatchdogState.consecutiveCoreFailures = 0;
     gWatchdog.__thassiWatchdogState.kernelHardening = initialHardening;
   }
 
@@ -3186,7 +3177,7 @@ export default defineThassiApp((ctx) => {
         `SATA/SSD I/O-Ausfall (EIO) auf /dev/sda erkannt (${st.consecutiveCoreFailures})`,
         `Datenträger antwortet mit EIO (${diskCheck.error}). System benötigt Hardware-Reset / Power-Cycle.`
       );
-      if (cfg.autoHostReboot && st.consecutiveCoreFailures >= 2) {
+      if (cfg.autoHostReboot && st.consecutiveCoreFailures >= 4) {
         await triggerMultiChannelHostReboot(
           `SATA/SSD /dev/sda EIO-Disconnect (${diskCheck.error})`,
           supToken,
@@ -3258,6 +3249,7 @@ export default defineThassiApp((ctx) => {
         );
       }
       st.consecutiveCoreFailures = 0;
+      st.hasSeenCoreOnlineSinceBoot = true;
       st.lastCoreOkAt = nowIso;
       try {
         await ctx.ha.publishSensor('watchdog_status', 'armed', {
@@ -3274,6 +3266,9 @@ export default defineThassiApp((ctx) => {
           last_check_at: nowIso,
         });
       } catch {}
+    } else if (curUp < 600 || !st.hasSeenCoreOnlineSinceBoot) {
+      // Boot grace period: never restart HA Core or reboot host while HA Core is still booting after OS start
+      st.consecutiveCoreFailures = 0;
     } else {
       st.consecutiveCoreFailures += 1;
       logWatchdogEvent(

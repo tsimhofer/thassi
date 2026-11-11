@@ -9787,18 +9787,29 @@ ${yamlBlock}`, "utf-8");
   }
   let inMemWatchdogConfig = {
     enabled: true,
-    autoCoreRestart: true,
-    autoHostReboot: true,
+    autoCoreRestart: false,
+    autoHostReboot: false,
     autoLoadShedding: true,
     enforceSupervisorWatchdogs: true,
-    coreFailThreshold: 3,
-    hostRebootThreshold: 6,
+    coreFailThreshold: 12,
+    hostRebootThreshold: 24,
     memShedThresholdPct: 88,
     memRebootThresholdPct: 97,
     shellyPlugIp: "192.168.188.100",
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const inMemWatchdogEvents = [];
+  try {
+    ctx.db.execute(
+      `UPDATE watchdog_config
+       SET auto_core_restart = 0,
+           auto_host_reboot = 0,
+           core_fail_threshold = CASE WHEN core_fail_threshold < 12 THEN 12 ELSE core_fail_threshold END,
+           host_reboot_threshold = CASE WHEN host_reboot_threshold < 24 THEN 24 ELSE host_reboot_threshold END
+       WHERE id = 1`
+    );
+  } catch {
+  }
   function getWatchdogConfig() {
     try {
       let row = ctx.db.queryOne("SELECT * FROM watchdog_config WHERE id = 1");
@@ -9808,7 +9819,7 @@ ${yamlBlock}`, "utf-8");
           `INSERT OR IGNORE INTO watchdog_config
            (id, enabled, auto_core_restart, auto_host_reboot, auto_load_shedding, enforce_supervisor_watchdogs,
             core_fail_threshold, host_reboot_threshold, mem_shed_threshold_pct, mem_reboot_threshold_pct, shelly_plug_ip, updated_at)
-           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '192.168.188.100', ?)`,
+           VALUES (1, 1, 0, 0, 1, 1, 12, 24, 88.0, 97.0, '192.168.188.100', ?)`,
           [now]
         );
         row = ctx.db.queryOne("SELECT * FROM watchdog_config WHERE id = 1") || {};
@@ -9818,12 +9829,12 @@ ${yamlBlock}`, "utf-8");
       }
       inMemWatchdogConfig = {
         enabled: Boolean(row.enabled ?? 1),
-        autoCoreRestart: Boolean(row.auto_core_restart ?? 1),
-        autoHostReboot: Boolean(row.auto_host_reboot ?? 1),
+        autoCoreRestart: Boolean(row.auto_core_restart ?? 0),
+        autoHostReboot: Boolean(row.auto_host_reboot ?? 0),
         autoLoadShedding: Boolean(row.auto_load_shedding ?? 1),
         enforceSupervisorWatchdogs: Boolean(row.enforce_supervisor_watchdogs ?? 1),
-        coreFailThreshold: Number(row.core_fail_threshold || 3),
-        hostRebootThreshold: Number(row.host_reboot_threshold || 6),
+        coreFailThreshold: Math.max(12, Number(row.core_fail_threshold || 12)),
+        hostRebootThreshold: Math.max(24, Number(row.host_reboot_threshold || 24)),
         memShedThresholdPct: Number(row.mem_shed_threshold_pct || 88),
         memRebootThresholdPct: Number(row.mem_reboot_threshold_pct || 97),
         shellyPlugIp: String(row.shelly_plug_ip || "192.168.188.100"),
@@ -10358,30 +10369,6 @@ ${yamlBlock}`, "utf-8");
       }).catch(() => {
       });
     }
-    const gState2 = globalThis;
-    if (typeof gState2.__thassiSysrqFd === "number") {
-      try {
-        fs4.writeSync(gState2.__thassiSysrqFd, "s\n");
-        fs4.writeSync(gState2.__thassiSysrqFd, "b\n");
-      } catch {
-      }
-    }
-    for (const procBase of ["/tmp/thassi_procfs", "/proc"]) {
-      try {
-        if (fs4.existsSync(`${procBase}/sys/kernel/sysrq`)) {
-          fs4.writeFileSync(`${procBase}/sys/kernel/sysrq`, "1");
-        }
-        if (fs4.existsSync(`${procBase}/sysrq-trigger`)) {
-          fs4.writeFileSync(`${procBase}/sysrq-trigger`, "s");
-          fs4.writeFileSync(`${procBase}/sysrq-trigger`, "b");
-        }
-      } catch {
-      }
-    }
-    try {
-      execFileSync("reboot", ["-f"], { timeout: 1500 });
-    } catch {
-    }
     if (supToken) {
       await Promise.all([
         fetch("http://supervisor/host/reboot", {
@@ -10429,6 +10416,7 @@ ${yamlBlock}`, "utf-8");
     const diskCheck = checkBlockStorageHealthy();
     gWatchdog.__thassiWatchdogState = {
       consecutiveCoreFailures: 0,
+      hasSeenCoreOnlineSinceBoot: false,
       lastCheckAt: (/* @__PURE__ */ new Date()).toISOString(),
       lastCoreOkAt: (/* @__PURE__ */ new Date()).toISOString(),
       lastSupervisorOkAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -10455,6 +10443,7 @@ ${yamlBlock}`, "utf-8");
       );
     }
   } else {
+    gWatchdog.__thassiWatchdogState.consecutiveCoreFailures = 0;
     gWatchdog.__thassiWatchdogState.kernelHardening = initialHardening;
   }
   gWatchdog.__thassiSataKeepaliveTimer = setInterval(() => {
@@ -10503,7 +10492,7 @@ ${yamlBlock}`, "utf-8");
         `SATA/SSD I/O-Ausfall (EIO) auf /dev/sda erkannt (${st.consecutiveCoreFailures})`,
         `Datentr\xE4ger antwortet mit EIO (${diskCheck.error}). System ben\xF6tigt Hardware-Reset / Power-Cycle.`
       );
-      if (cfg.autoHostReboot && st.consecutiveCoreFailures >= 2) {
+      if (cfg.autoHostReboot && st.consecutiveCoreFailures >= 4) {
         await triggerMultiChannelHostReboot(
           `SATA/SSD /dev/sda EIO-Disconnect (${diskCheck.error})`,
           supToken,
@@ -10571,6 +10560,7 @@ ${yamlBlock}`, "utf-8");
         );
       }
       st.consecutiveCoreFailures = 0;
+      st.hasSeenCoreOnlineSinceBoot = true;
       st.lastCoreOkAt = nowIso;
       try {
         await ctx.ha.publishSensor("watchdog_status", "armed", {
@@ -10588,6 +10578,8 @@ ${yamlBlock}`, "utf-8");
         });
       } catch {
       }
+    } else if (curUp < 600 || !st.hasSeenCoreOnlineSinceBoot) {
+      st.consecutiveCoreFailures = 0;
     } else {
       st.consecutiveCoreFailures += 1;
       logWatchdogEvent(
