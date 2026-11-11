@@ -2754,7 +2754,7 @@ export default defineThassiApp((ctx) => {
       trigger: [
         {
           platform: 'state',
-          entity_id: 'sensor.thassi_watchdog_status',
+          entity_id: 'sensor.thassi_system_monitor_watchdog_status',
           to: 'critical_reboot_required',
           for: { hours: 0, minutes: 0, seconds: 30 },
         },
@@ -2920,7 +2920,7 @@ export default defineThassiApp((ctx) => {
     logWatchdogEvent('critical', 'HOST-REBOOT', 'Notfall-Host-Reboot ausgelöst', reason);
 
     try {
-      await ctx.ha.setSensor('sensor.thassi_watchdog_status', 'critical_reboot_required', {
+      await ctx.ha.publishSensor('watchdog_status', 'critical_reboot_required', {
         friendly_name: 'Thassi 4-Layer Watchdog & Auto-Reboot',
         icon: 'mdi:restart-alert',
         reason,
@@ -3182,7 +3182,7 @@ export default defineThassiApp((ctx) => {
       st.consecutiveCoreFailures = 0;
       st.lastCoreOkAt = nowIso;
       try {
-        await ctx.ha.setSensor('sensor.thassi_watchdog_status', 'armed', {
+        await ctx.ha.publishSensor('watchdog_status', 'armed', {
           friendly_name: 'Thassi 4-Layer Watchdog & Auto-Reboot',
           icon: 'mdi:shield-check',
           uptime_seconds: curUp,
