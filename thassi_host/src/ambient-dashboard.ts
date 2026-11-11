@@ -1432,6 +1432,20 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     </div>
   </header>
 
+  <!-- HORIZON TOP MENÜLEISTE (Subseiten & Schnellaktionen) -->
+  <nav id="horizon-menubar" style="height:40px; padding:0 24px; border-bottom:1px solid var(--line-hairline); background:var(--bg-canvas); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:20px; height:40px;">
+      <button id="hz-tab-overview" class="thassi-u-tab active" style="height:40px; font-size:12px;" onclick="switchHorizonTab('overview')">Übersicht (Cockpit)</button>
+      <button id="hz-tab-rooms" class="thassi-u-tab" style="height:40px; font-size:12px;" onclick="switchHorizonTab('rooms')">Schnellsteuerung (Räume)</button>
+      <button id="hz-tab-hardware" class="thassi-u-tab" style="height:40px; font-size:12px;" onclick="switchHorizonTab('hardware')">3D-Druck, Kameras &amp; System</button>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button class="w-nav-btn" onclick="toggleEventModal(true)">+ Termin</button>
+      <button class="w-nav-btn" onclick="openQuickImportFlyout(event)">George Sync</button>
+      <button class="w-nav-btn" onclick="openFullService('floorplan', '2D Grundriss')">2D Grundriss ↗</button>
+    </div>
+  </nav>
+
   <!-- ZONE B: 4-COLUMN EXECUTIVE KPI STRIP -->
   <section id="top-right-widgets">
     <!-- 1. HEALTH KPI CELL -->
@@ -1569,8 +1583,29 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     </div>
   </section>
 
-  <!-- ZONE C: PRIMARY HAIRLINE WORKSPACE (SMART HOME MATRIX + HARDWARE/VISION INSPECTOR) -->
-  <main id="devices-dock">
+  <!-- ZONE C1: HORIZON STARTSEITE VISUAL DOMAIN DIAGRAMS (DEFAULT ÜBERSICHT) -->
+  <section id="horizon-overview-stage" style="flex:1; min-height:0; display:grid; grid-template-columns:7fr 5fr; border-bottom:1px solid var(--line-hairline); background:var(--bg-canvas); overflow:hidden;">
+    <div style="padding:16px 24px; border-right:1px solid var(--line-hairline); display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <span class="sh-section-label">HAUS, ENERGIE &amp; RAUM-AKTIVITÄT (LIVE DIAGRAMM)</span>
+        <div style="display:flex; gap:8px;">
+          <button class="w-nav-btn" onclick="switchHorizonTab('rooms')">Raum-Schalter öffnen →</button>
+          <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')">Smart Home ↗</button>
+        </div>
+      </div>
+      <div id="hz-ov-energy-chart" style="flex:1; display:flex; align-items:center; justify-content:center; min-height:130px;"></div>
+    </div>
+    <div style="padding:16px 24px; display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <span class="sh-section-label">SYSTEM, 3D-DRUCK &amp; KAMERA-PULS</span>
+        <button class="w-nav-btn" onclick="switchHorizonTab('hardware')">Hardware-Inspektor →</button>
+      </div>
+      <div id="hz-ov-system-chart" style="flex:1; display:flex; align-items:center; justify-content:center; min-height:130px;"></div>
+    </div>
+  </section>
+
+  <!-- ZONE C2: PRIMARY HAIRLINE WORKSPACE (SMART HOME MATRIX + HARDWARE/VISION INSPECTOR) -->
+  <main id="devices-dock" style="display:none;">
     <div id="timeline-devices-separator"></div>
     <div id="pinned-rooms-tray"></div>
 
@@ -3054,6 +3089,92 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       }
     }
 
+    function renderHorizonOverviewCharts() {
+      try {
+        const energyEl = document.getElementById('hz-ov-energy-chart');
+        const sysEl = document.getElementById('hz-ov-system-chart');
+        if (energyEl) {
+          const roomTabs = (roomsData || []).filter((r) => r.id !== 'kameras_vision');
+          let totalW = 0;
+          let activeDevs = 0;
+          let totalDevs = 0;
+          const bars = roomTabs.map((r) => {
+            const devs = r.devices || [];
+            totalDevs += devs.length;
+            const onCnt = devs.filter((d) => d.isOn).length;
+            activeDevs += onCnt;
+            const rw = devs.reduce((s, d) => s + (Number(d.powerW) || 0), 0);
+            totalW += rw;
+            return { name: r.name, w: rw, on: onCnt, total: devs.length };
+          });
+          const maxVal = Math.max(10, ...bars.map((b) => (b.w > 0 ? b.w : b.on * 20 + 5)));
+          const barsHtml = bars.map((b) => {
+            const v = b.w > 0 ? b.w : b.on * 20 + 5;
+            const pct = Math.min(100, Math.max(6, Math.round((v / maxVal) * 100)));
+            const col = b.on > 0 ? '#10b981' : '#3f3f46';
+            return '<div style="display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; min-width:0;">' +
+              '<div style="height:82px; width:100%; max-width:44px; background:rgba(255,255,255,0.03); border:1px solid var(--line-hairline); border-radius:3px; display:flex; align-items:flex-end; padding:2px;">' +
+                '<div style="width:100%; height:' + pct + '%; background:' + col + '; border-radius:2px; transition:height 0.3s ease;"></div>' +
+              '</div>' +
+              '<span style="font-size:11px; color:var(--text-primary); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">' + b.name + '</span>' +
+              '<span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">' + (b.w > 0 ? b.w.toFixed(1) + 'W' : b.on + '/' + b.total + ' an') + '</span>' +
+            '</div>';
+          }).join('');
+          energyEl.innerHTML =
+            '<div style="display:flex; align-items:center; justify-content:space-between; gap:24px; width:100%;">' +
+              '<div style="display:flex; flex-direction:column; gap:4px; min-width:130px;">' +
+                '<span style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted);">Gesamtlast</span>' +
+                '<span style="font-family:var(--font-mono); font-size:26px; color:var(--text-primary);">' + totalW.toFixed(1) + ' W</span>' +
+                '<span style="font-family:var(--font-mono); font-size:11px; color:#10b981;">' + activeDevs + ' / ' + totalDevs + ' Geräte aktiv</span>' +
+              '</div>' +
+              '<div style="display:flex; align-items:flex-end; gap:12px; flex:1;">' + barsHtml + '</div>' +
+            '</div>';
+        }
+        if (sysEl) {
+          const p3d = mini3dState.printer || {};
+          const pct3d = Math.round(Number(p3d.progressPercent || 0));
+          const camCount = 4;
+          const evCount = (calendarEvents || []).length;
+          sysEl.innerHTML =
+            '<div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; width:100%;">' +
+              '<div onclick="openFullService(\'3d-print\', \'3D Druck Studio\')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
+                '<span style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">3D Druck P1S</span>' +
+                '<span style="font-family:var(--font-mono); font-size:18px; color:var(--text-primary);">' + pct3d + '% · ' + (p3d.status || 'IDLE') + '</span>' +
+                '<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">' + Math.round(p3d.nozzleTemp || 24) + '°C / ' + Math.round(p3d.bedTemp || 24) + '°C</span>' +
+              '</div>' +
+              '<div onclick="openFullService(\'camera-vision\', \'Kameras & Vision\')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
+                '<span style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Kameras &amp; Vision</span>' +
+                '<span style="font-family:var(--font-mono); font-size:18px; color:#10b981;">' + camCount + ' Online</span>' +
+                '<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">KI-Erkennung aktiv</span>' +
+              '</div>' +
+              '<div onclick="openFullService(\'google-calendar\', \'Kalender & Zeit\')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
+                '<span style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Tages-Agenda</span>' +
+                '<span style="font-family:var(--font-mono); font-size:18px; color:var(--text-primary);">' + evCount + ' Termine</span>' +
+                '<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">24h Horizon unten</span>' +
+              '</div>' +
+            '</div>';
+        }
+      } catch (_e) {}
+    }
+
+    function switchHorizonTab(tabId) {
+      ['overview', 'rooms', 'hardware'].forEach((id) => {
+        const btn = document.getElementById('hz-tab-' + id);
+        if (btn) btn.classList.toggle('active', id === tabId);
+      });
+      const ovStage = document.getElementById('horizon-overview-stage');
+      const devDock = document.getElementById('devices-dock');
+      if (tabId === 'overview') {
+        if (ovStage) ovStage.style.display = 'grid';
+        if (devDock) devDock.style.display = 'none';
+        renderHorizonOverviewCharts();
+      } else {
+        if (ovStage) ovStage.style.display = 'none';
+        if (devDock) devDock.style.display = 'grid';
+      }
+    }
+    window.switchHorizonTab = switchHorizonTab;
+
     async function loadRoomsQuickAccess() {
       try {
         const res = await fetch(base + '/api/system/rooms');
@@ -3063,6 +3184,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
         visionSummaryData = data.visionSummary || null;
         renderRoomDockBar();
         renderPinnedRoomsTray();
+        renderHorizonOverviewCharts();
       } catch (e) {
         console.error('Failed loading rooms quick access:', e);
       }
@@ -3074,7 +3196,20 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       });
     }
 
+    const SATELLITE_REDIRECT_MAP = {
+      'floorplan': { parent: 'smart-canvas', title: 'Smart Home', hash: '#subpage=floorplan' },
+      'george-sync': { parent: 'finance-analytics', title: 'Finanzen', hash: '#subpage=george-sync' },
+      'network-monitor': { parent: 'system-monitor', title: 'System & Infra', hash: '#subpage=network-monitor' },
+      'google-usage': { parent: 'system-monitor', title: 'System & Infra', hash: '#subpage=google-usage' }
+    };
+
     function openFullService(appId, title, hash, fromSidebar) {
+      if (SATELLITE_REDIRECT_MAP[appId]) {
+        const mapped = SATELLITE_REDIRECT_MAP[appId];
+        appId = mapped.parent;
+        title = mapped.title;
+        hash = mapped.hash;
+      }
       setLeftNavActive(appId);
       const inHass = Boolean(
         document.body.classList.contains('in-hass-frame') ||
@@ -3095,8 +3230,13 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       document.getElementById('full-app-title').textContent = title || appId;
       const targetSrc = base + '/apps/' + appId + '/' + (hash || '');
       const frameEl = document.getElementById('full-app-frame');
-      if (frameEl.getAttribute('data-current-app') !== appId || frameEl.src === 'about:blank') {
+      if (
+        frameEl.getAttribute('data-current-app') !== appId ||
+        frameEl.getAttribute('data-current-hash') !== (hash || '') ||
+        frameEl.src === 'about:blank'
+      ) {
         frameEl.setAttribute('data-current-app', appId);
+        frameEl.setAttribute('data-current-hash', hash || '');
         frameEl.src = targetSrc;
       }
       document.getElementById('full-app-overlay').style.display = 'flex';
@@ -3105,6 +3245,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     function closeFullService() {
       setLeftNavActive('horizon');
       try {
+        if (window.location.hash && window.location.hash.length > 1) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
         if (window.top) {
           window.top.__thassiActiveSidebarApp = null;
           if (window.top.location.hash && window.top.location.hash.length > 1) {
@@ -3118,6 +3261,7 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       const frameEl = document.getElementById('full-app-frame');
       if (frameEl) {
         frameEl.removeAttribute('data-current-app');
+        frameEl.removeAttribute('data-current-hash');
         frameEl.src = 'about:blank';
       }
       document.getElementById('full-app-overlay').style.display = 'none';
@@ -4943,14 +5087,23 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
     window.addEventListener('focus', () => void refreshHealthWidget());
 
     const SIDEBAR_APP_TITLES = {
-      'contacts': 'Contacts',
-      'floorplan': 'Grundriss 2D',
+      'smart-canvas': 'Smart Home',
       'camera-vision': 'Kameras & Vision',
-      'system-monitor': 'HASS OS Monitor',
+      '3d-print': '3D Druck Studio',
+      'finance-analytics': 'Finanzen',
+      'google-calendar': 'Kalender & Zeit',
+      'google-health': 'Gesundheit',
+      'meal-planner': 'Ernährung & Einkauf',
+      'memo': 'Memo',
+      'contacts': 'Kontakte',
+      'cortex': 'Cortex',
+      'workflows': 'Workflows',
+      'project-workflow': 'Dev-Projekte',
+      'system-monitor': 'System & Infra',
+      'floorplan': 'Grundriss 2D',
       'google-usage': 'Google Usage & AI',
       'network-monitor': 'Netzwerk & Router',
-      'george-sync': 'Erste Bank Sync',
-      '3d-print': '3D Druck Studio'
+      'george-sync': 'Erste Bank Sync'
     };
 
     function checkHashFor3dPrint() {
@@ -4987,14 +5140,24 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
           }
           if (resolvedTitle) {
             if (window.top) window.top.__thassiActiveSidebarApp = rawHash;
-            openFullService(rawHash, resolvedTitle, '', rawHash !== '3d-print');
+            openFullService(rawHash, resolvedTitle, '', true);
+          }
+        } else {
+          const ovEl = document.getElementById('full-app-overlay');
+          if (ovEl && ovEl.style.display === 'flex' && (!window.top || !window.top.__thassiActiveSidebarApp)) {
+            closeFullService();
           }
         }
       } catch (_e) {}
     }
+    renderHorizonOverviewCharts();
     checkHashFor3dPrint();
-    setInterval(checkHashFor3dPrint, 250);
     window.addEventListener('hashchange', checkHashFor3dPrint);
+    try {
+      if (window.top && window.top !== window) {
+        window.top.addEventListener('hashchange', checkHashFor3dPrint);
+      }
+    } catch (_e) {}
   </script>
 </body>
 </html>`;

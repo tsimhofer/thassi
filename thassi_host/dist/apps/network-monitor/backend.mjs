@@ -7,6 +7,7 @@ import net2 from "node:net";
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // packages/sdk/src/actions.ts

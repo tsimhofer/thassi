@@ -1729,7 +1729,16 @@ export default defineThassiApp((ctx) => {
           const standaloneEnv = process.env.THASSI_STANDALONE_APP || '';
           const effectiveStandalone = standaloneHeader || standaloneEnv;
 
-          if (!effectiveStandalone && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+          if (
+            effectiveStandalone &&
+            !pathname.startsWith('/api/') &&
+            !pathname.startsWith('/apps/') &&
+            !pathname.startsWith('/healthz') &&
+            !pathname.startsWith('/download/')
+          ) {
+            const subTarget = pathname === '/' ? '/index.html' : pathname;
+            req.url = `/apps/${encodeURIComponent(effectiveStandalone)}${subTarget}${parsedUrl.search || ''}`;
+          } else if (!effectiveStandalone && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
             const renderFn = gHostPatch.__thassiLatestRenderDashboard;
             if (renderFn) {
               const appsJson = JSON.stringify(readAllDeployedAppManifests());
@@ -1741,7 +1750,7 @@ export default defineThassiApp((ctx) => {
               res.writeHead(200, {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Access-Control-Allow-Origin': '*',
-                'X-Thassi-Live-Host': 'dynamic-nav-v2',
+                'X-Thassi-Live-Host': 'dynamic-nav-v3',
               });
               res.end(html);
               return true;
@@ -1762,9 +1771,10 @@ export default defineThassiApp((ctx) => {
                       rx,
                       () => `window.__THASSI_DEPLOYED_APPS__ = ${appsJson};\n${stylerFn().trim()}`
                     );
-                    if (!patched.includes('thassi-uniform-design-system')) {
-                      patched = patched.replace('<head>', () => `<head>\n${getUniformAppStylesheetTag()}`);
-                    }
+                    patched = patched
+                      .replace(/<style id="thassi-uniform-design-system">[\s\S]*?<\/style>/g, '')
+                      .replace(/<script id="thassi-uniform-app-cockpit">[\s\S]*?<\/script>/g, '');
+                    patched = patched.replace('<head>', () => `<head>\n${getUniformAppStylesheetTag()}`);
                     return origEnd(patched, encodingOrCb, cb);
                   }
                 }
@@ -1790,9 +1800,18 @@ export default defineThassiApp((ctx) => {
       return { ok: true, syncedSidebarOnly: true, updatedAt: new Date().toISOString() };
     }
     const targetPath = '/app/dist/server.mjs';
-    if (fs.existsSync('/app/dist')) {
-      fs.writeFileSync(targetPath, Buffer.from(body.serverMjsBase64, 'base64'));
-      return { ok: true, path: targetPath, updatedAt: new Date().toISOString() };
+    try {
+      if (fs.existsSync('/app/dist')) {
+        fs.writeFileSync(targetPath, Buffer.from(body.serverMjsBase64, 'base64'));
+        return { ok: true, path: targetPath, updatedAt: new Date().toISOString() };
+      }
+    } catch (err) {
+      return {
+        ok: true,
+        inMemoryOnly: true,
+        warning: err instanceof Error ? err.message : String(err),
+        updatedAt: new Date().toISOString(),
+      };
     }
     return { ok: false, reason: '/app/dist not present' };
   });

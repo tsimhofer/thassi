@@ -286,15 +286,27 @@ export function getHassSidebarStylerScript(): string {
             [
               'try {',
               '  var topWin = window.top || window;',
+              '  var satMap = {',
+              '    "floorplan": { parent: "smart-canvas", title: "Smart Home", hash: "#subpage=floorplan" },',
+              '    "george-sync": { parent: "finance-analytics", title: "Finanzen", hash: "#subpage=george-sync" },',
+              '    "network-monitor": { parent: "system-monitor", title: "System & Infra", hash: "#subpage=network-monitor" },',
+              '    "google-usage": { parent: "system-monitor", title: "System & Infra", hash: "#subpage=google-usage" }',
+              '  };',
+              '  var subHash = "";',
+              '  if (satMap[appId]) {',
+              '    subHash = satMap[appId].hash;',
+              '    title = satMap[appId].title;',
+              '    appId = satMap[appId].parent;',
+              '  }',
               '  topWin.__thassiActiveSidebarApp = appId;',
               '  var hw = topWin.__thassiHorizonWin;',
               '  if (topWin.location.pathname === "/44ec3c40_thassi_host" && hw && !hw.closed && typeof hw.openFullService === "function") {',
               '    topWin.history.replaceState(null, "", "/44ec3c40_thassi_host#" + appId);',
-              '    hw.openFullService(appId, title, "", true);',
+              '    hw.openFullService(appId, title, subHash, true);',
               '    if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
               '    return false;',
               '  }',
-              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, fromSidebar: true, ts: Date.now() }));',
+              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, hash: subHash, fromSidebar: true, ts: Date.now() }));',
               '  if (topWin.location.pathname !== "/44ec3c40_thassi_host") {',
               '    topWin.history.pushState(null, "", "/44ec3c40_thassi_host#" + appId);',
               '    topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
@@ -306,20 +318,29 @@ export function getHassSidebarStylerScript(): string {
           );
 
           window.top.__thassiCloseSidebarApp = new window.top.Function(
+            'ev',
             [
               'try {',
               '  var topWin = window.top || window;',
               '  topWin.__thassiActiveSidebarApp = null;',
               '  topWin.sessionStorage.removeItem("thassi_open_app");',
-              '  if (topWin.location.pathname === "/44ec3c40_thassi_host" && topWin.location.hash) {',
-              '    topWin.history.replaceState(null, "", "/44ec3c40_thassi_host");',
-              '  }',
               '  var hw = topWin.__thassiHorizonWin;',
-              '  if (hw && !hw.closed && typeof hw.closeFullService === "function") {',
-              '    hw.closeFullService();',
+              '  if (topWin.location.pathname === "/44ec3c40_thassi_host") {',
+              '    if (ev && ev.preventDefault) { ev.preventDefault(); ev.stopPropagation(); }',
+              '    if (topWin.location.hash) {',
+              '      topWin.history.replaceState(null, "", "/44ec3c40_thassi_host");',
+              '    }',
+              '    if (hw && !hw.closed && typeof hw.closeFullService === "function") {',
+              '      hw.closeFullService();',
+              '    }',
+              '  } else {',
+              '    if (ev && ev.preventDefault) { ev.preventDefault(); ev.stopPropagation(); }',
+              '    topWin.history.pushState(null, "", "/44ec3c40_thassi_host");',
+              '    topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
               '  }',
               '  if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
-              '} catch (_err) {}'
+              '} catch (_err) {}',
+              'return false;'
             ].join(' ')
           );
 
@@ -381,17 +402,43 @@ export function getHassSidebarStylerScript(): string {
               findSidebarPanelItem('44ec3c40_thassi_finance_analytics') ||
               findSidebarPanelItem('44ec3c40_thassi_cortex') ||
               findSidebarPanelItem('44ec3c40_thassi_memo') ||
-              findSidebarPanelItem('44ec3c40_thassi_workflows');
+              findSidebarPanelItem('44ec3c40_thassi_workflows') ||
+              horizonItem;
 
-            function ensureNativeSidebarItem(navId, appId, panelSlug, title, iconName, refAfterEl) {
-              if (findSidebarPanelItem(panelSlug)) return null;
+            const SATELLITE_HIDDEN_IDS = {
+              'floorplan': true,
+              'george-sync': true,
+              'network-monitor': true,
+              'google-usage': true
+            };
+
+            function bindSidebarItemClick(el, appId, title, isHiddenSatellite) {
+              if (!el) return;
+              if (isHiddenSatellite) {
+                el.style.display = 'none';
+              } else {
+                el.style.removeProperty('display');
+              }
+              el.onclick = new window.top.Function(
+                'ev',
+                'if (ev) { ev.preventDefault(); ev.stopPropagation(); } return window.top.__thassiOpenSidebarApp(' +
+                  JSON.stringify(appId) +
+                  ', ' +
+                  JSON.stringify(title) +
+                  ');'
+              );
+            }
+
+            function ensureNativeSidebarItem(navId, appId, panelSlug, title, iconName, refAfterEl, isHiddenSatellite) {
+              const existingNative = findSidebarPanelItem(panelSlug);
+              if (existingNative) {
+                const dupCustom = mdList.querySelector('#' + navId);
+                if (dupCustom) dupCustom.remove();
+                bindSidebarItemClick(existingNative, appId, title, isHiddenSatellite);
+                return existingNative;
+              }
               let item = mdList.querySelector('#' + navId);
-              if (
-                item &&
-                (item.tagName.toLowerCase() !== 'ha-md-list-item' ||
-                  item.getAttribute('style') ||
-                  (horizonItem && item.previousElementSibling === horizonItem))
-              ) {
+              if (item && item.tagName.toLowerCase() !== 'ha-md-list-item') {
                 item.remove();
                 item = null;
               }
@@ -428,7 +475,7 @@ export function getHassSidebarStylerScript(): string {
                 item.appendChild(iconEl);
                 item.appendChild(spanEl);
               }
-              if (refAfterEl && item.previousElementSibling !== refAfterEl) {
+              if (refAfterEl && item !== refAfterEl && item.previousElementSibling !== refAfterEl) {
                 if (refAfterEl.nextSibling) {
                   mdList.insertBefore(item, refAfterEl.nextSibling);
                 } else {
@@ -437,40 +484,30 @@ export function getHassSidebarStylerScript(): string {
               } else if (!item.parentElement) {
                 mdList.appendChild(item);
               }
-              item.onclick = new window.top.Function(
-                'ev',
-                'if (ev) { ev.preventDefault(); ev.stopPropagation(); } return window.top.__thassiOpenSidebarApp(' +
-                  JSON.stringify(appId) +
-                  ', ' +
-                  JSON.stringify(title) +
-                  ');'
-              );
+              bindSidebarItemClick(item, appId, title, isHiddenSatellite);
               return item;
             }
 
             const STATIC_CUSTOM_APPS = [
-              { id: 'contacts', navId: 'thassi-nav-contacts', title: 'Contacts', icon: 'mdi:message-text-outline' },
-              { id: 'floorplan', navId: 'thassi-nav-floorplan', title: 'Grundriss 2D', icon: 'mdi:floor-plan' },
+              { id: 'smart-canvas', navId: 'thassi-nav-smart-canvas', title: 'Smart Home', icon: 'mdi:home-lightning-bolt-outline' },
               { id: 'camera-vision', navId: 'thassi-nav-camera-vision', title: 'Kameras & Vision', icon: 'mdi:cctv' },
-              { id: '3d-print', navId: 'thassi-nav-3d-print', title: '3D Druck', icon: 'mdi:printer-3d-nozzle' },
-              { id: 'system-monitor', navId: 'thassi-nav-system-monitor', title: 'HASS OS Monitor', icon: 'mdi:pulse' },
-              { id: 'google-usage', navId: 'thassi-nav-google-usage', title: 'Google Usage & AI', icon: 'mdi:chart-box-outline' },
-              { id: 'network-monitor', navId: 'thassi-nav-network-monitor', title: 'Netzwerk & Router', icon: 'mdi:router-network' },
-              { id: 'george-sync', navId: 'thassi-nav-george-sync', title: 'Erste Bank Sync', icon: 'mdi:bank-transfer' }
+              { id: '3d-print', navId: 'thassi-nav-3d-print', title: '3D Druck Studio', icon: 'mdi:printer-3d-nozzle' },
+              { id: 'finance-analytics', navId: 'thassi-nav-finance-analytics', title: 'Finanzen', icon: 'mdi:chart-areaspline' },
+              { id: 'google-calendar', navId: 'thassi-nav-google-calendar', title: 'Kalender & Zeit', icon: 'mdi:calendar-clock' },
+              { id: 'google-health', navId: 'thassi-nav-google-health', title: 'Gesundheit', icon: 'mdi:heart-pulse' },
+              { id: 'meal-planner', navId: 'thassi-nav-meal-planner', title: 'Ernährung & Einkauf', icon: 'mdi:silverware-fork-knife' },
+              { id: 'memo', navId: 'thassi-nav-memo', title: 'Memo', icon: 'mdi:notebook-outline' },
+              { id: 'contacts', navId: 'thassi-nav-contacts', title: 'Kontakte', icon: 'mdi:account-multiple-outline' },
+              { id: 'cortex', navId: 'thassi-nav-cortex', title: 'Cortex', icon: 'mdi:brain' },
+              { id: 'workflows', navId: 'thassi-nav-workflows', title: 'Workflows', icon: 'mdi:sitemap-outline' },
+              { id: 'project-workflow', navId: 'thassi-nav-project-workflow', title: 'Dev-Projekte', icon: 'mdi:source-branch-check' },
+              { id: 'system-monitor', navId: 'thassi-nav-system-monitor', title: 'System & Infra', icon: 'mdi:pulse' },
+              // Consolidated satellite apps (integrated as Menüleiste subpages; hidden in main sidebar)
+              { id: 'floorplan', navId: 'thassi-nav-floorplan', title: 'Grundriss 2D', icon: 'mdi:floor-plan', satellite: true },
+              { id: 'george-sync', navId: 'thassi-nav-george-sync', title: 'Erste Bank Sync', icon: 'mdi:bank-transfer', satellite: true },
+              { id: 'network-monitor', navId: 'thassi-nav-network-monitor', title: 'Netzwerk & Router', icon: 'mdi:router-network', satellite: true },
+              { id: 'google-usage', navId: 'thassi-nav-google-usage', title: 'Google Usage & AI', icon: 'mdi:chart-box-outline', satellite: true }
             ];
-
-            const NATIVE_ADDON_APP_IDS = {
-              'workflows': true,
-              'memo': true,
-              'cortex': true,
-              'finance-analytics': true,
-              'google-health': true,
-              'meal-planner': true,
-              'google-calendar': true,
-              'smart-canvas': true,
-              'project-workflow': true,
-              '3d-print': true
-            };
 
             const dynamicApps = Array.isArray(window.top.__thassiDeployedApps)
               ? window.top.__thassiDeployedApps
@@ -481,34 +518,39 @@ export function getHassSidebarStylerScript(): string {
             const mergedCustomApps = STATIC_CUSTOM_APPS.slice();
             for (let dIdx = 0; dIdx < dynamicApps.length; dIdx++) {
               const dApp = dynamicApps[dIdx];
-              if (!dApp || !dApp.id || NATIVE_ADDON_APP_IDS[dApp.id] || dApp.hideFromSidebar) continue;
+              if (!dApp || !dApp.id || dApp.hideFromSidebar) continue;
               if (!mergedCustomApps.some(function(x) { return x.id === dApp.id; })) {
                 mergedCustomApps.push({
                   id: dApp.id,
                   title: dApp.name || dApp.title || dApp.id,
-                  icon: dApp.icon || 'mdi:application-outline'
+                  icon: dApp.icon || 'mdi:application-outline',
+                  satellite: Boolean(SATELLITE_HIDDEN_IDS[dApp.id])
                 });
               }
             }
 
-            let prevInsertedItem = anchorAfterItem;
+            let prevInsertedItem = horizonItem || anchorAfterItem;
             const createdSidebarItems = {};
             const knownCustomIds = {};
             for (let cIdx = 0; cIdx < mergedCustomApps.length; cIdx++) {
               const cfg = mergedCustomApps[cIdx];
               knownCustomIds[cfg.id] = true;
               const slug = '44ec3c40_thassi_' + cfg.id.replace(/[^a-z0-9_]/gi, '_');
+              const isSat = Boolean(cfg.satellite || SATELLITE_HIDDEN_IDS[cfg.id]);
               const navEl = ensureNativeSidebarItem(
                 'thassi-nav-' + cfg.id,
                 cfg.id,
                 slug,
                 cfg.title,
                 cfg.icon,
-                prevInsertedItem || anchorAfterItem
+                prevInsertedItem || anchorAfterItem,
+                isSat
               );
               if (navEl) {
                 createdSidebarItems[cfg.id] = navEl;
-                prevInsertedItem = navEl;
+                if (!isSat) {
+                  prevInsertedItem = navEl;
+                }
               }
             }
 
@@ -549,32 +591,30 @@ export function getHassSidebarStylerScript(): string {
 
         window.top.__thassiSyncSidebarNow = applyThassiChromeToParent;
 
-        // Persist clean sidebar order & hidden panels in localStorage for all browser sessions
+        // Persist clean sidebar order (14 Main Apps) & hidden satellite/default panels in localStorage
         try {
           const hidden = [
             "home","lovelace","light","security","climate","energy",
             "media-browser","logbook","history","todo","calendar",
-            "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy"
+            "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy",
+            "44ec3c40_thassi_floorplan","44ec3c40_thassi_george_sync",
+            "44ec3c40_thassi_network_monitor","44ec3c40_thassi_google_usage"
           ];
           const order = [
             "44ec3c40_thassi_host",
-            "44ec3c40_thassi_cortex",
-            "44ec3c40_thassi_workflows",
             "44ec3c40_thassi_smart_canvas",
-            "44ec3c40_thassi_floorplan",
             "44ec3c40_thassi_camera_vision",
             "44ec3c40_thassi_3d_print",
+            "44ec3c40_thassi_finance_analytics",
             "44ec3c40_thassi_google_calendar",
             "44ec3c40_thassi_google_health",
             "44ec3c40_thassi_meal_planner",
-            "44ec3c40_thassi_finance_analytics",
-            "44ec3c40_thassi_george_sync",
             "44ec3c40_thassi_memo",
             "44ec3c40_thassi_contacts",
-            "44ec3c40_thassi_system_monitor",
-            "44ec3c40_thassi_network_monitor",
-            "44ec3c40_thassi_google_usage",
+            "44ec3c40_thassi_cortex",
+            "44ec3c40_thassi_workflows",
             "44ec3c40_thassi_project_workflow",
+            "44ec3c40_thassi_system_monitor",
             "hacs"
           ];
           window.top.localStorage.setItem('sidebarHiddenPanels', JSON.stringify(hidden));

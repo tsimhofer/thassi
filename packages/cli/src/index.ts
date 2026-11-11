@@ -522,17 +522,18 @@ async function commandDeploy(appId?: string, hostOverride?: string): Promise<voi
   const data = res.json();
   console.log(`✅ Instant deploy complete! "${manifest.name}" is live at ${hostUrl}/apps/${data.appId}/`);
 
-  // Automatically sync host server.mjs & sidebar registration so new pages always appear in HASS Nav
+  // Automatically sync host & sidebar registration in-memory (avoid 3MB disk write on every deploy unless requested)
   try {
-    await buildHostServer();
-    const serverMjsPath = path.join(HOST_DIST_DIR, 'server.mjs');
-    if (fs.existsSync(serverMjsPath)) {
-      const serverMjsBase64 = fs.readFileSync(serverMjsPath).toString('base64');
-      await postJsonLanAware(`${hostUrl}/api/apps/system-monitor/sync-host-bundle`, {
-        serverMjsBase64,
-      });
-      console.log(`🧭 Synced Home Assistant sidebar & host navigation registry.`);
+    const payload: Record<string, string> = {};
+    if (process.env.THASSI_WRITE_HOST_DISK === '1') {
+      await buildHostServer();
+      const serverMjsPath = path.join(HOST_DIST_DIR, 'server.mjs');
+      if (fs.existsSync(serverMjsPath)) {
+        payload.serverMjsBase64 = fs.readFileSync(serverMjsPath).toString('base64');
+      }
     }
+    await postJsonLanAware(`${hostUrl}/api/apps/system-monitor/sync-host-bundle`, payload);
+    console.log(`🧭 Synced Home Assistant sidebar & host navigation registry.`);
   } catch {
     // non-fatal if system-monitor route is not yet initialized
   }

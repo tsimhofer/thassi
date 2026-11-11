@@ -3,6 +3,7 @@ import { createRequire as __thassiCreateRequire } from 'node:module'; const requ
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 function parseCsv(csvText, explicitDelimiter) {
   const normalized = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
@@ -190,6 +191,8 @@ var UNIFORM_DESIGN_TOKENS_CSS = `
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     color-scheme: dark;
+    margin: 0;
+    padding: 0;
   }
 
   ::-webkit-scrollbar {
@@ -212,153 +215,212 @@ var UNIFORM_DESIGN_TOKENS_CSS = `
     font-variant-numeric: tabular-nums;
   }
 
-  /* Canonical Uniform Shell Primitives */
-  .thassi-u-shell {
-    min-height: 100vh;
-    background: var(--bg-canvas);
-    color: var(--text-primary);
-    font-family: var(--font-sans);
-    display: flex;
-    flex-direction: column;
-  }
-
-  .thassi-u-header {
-    min-height: 52px;
-    padding: 0 32px;
+  /* ============================================================================
+   * TOP MEN\xDCLEISTE (48px Sticky Swiss Hairline Navigation & Action Bar)
+   * ============================================================================ */
+  #thassi-menubar {
+    position: sticky;
+    top: 0;
+    z-index: 9990;
+    height: 48px;
+    padding: 0 24px;
+    background: rgba(9, 9, 11, 0.94);
+    backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--line-hairline);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    background: var(--bg-canvas);
-    flex-wrap: wrap;
-  }
-
-  .thassi-u-header-left {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    min-width: 0;
-  }
-
-  .thassi-u-title {
-    font-size: 18px;
-    font-weight: 500;
-    letter-spacing: -0.025em;
-    color: var(--text-primary);
-    margin: 0;
-    white-space: nowrap;
-  }
-
-  .thassi-u-domain-code {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    padding: 2px 6px;
-    border: 1px solid var(--line-hairline);
-    border-radius: 3px;
-    background: var(--bg-elevated);
-  }
-
-  .thassi-u-tabs {
-    display: flex;
-    align-items: center;
-    gap: 22px;
-    height: 52px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .thassi-u-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .thassi-u-tab {
-    height: 52px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid transparent;
-    color: var(--text-muted);
     font-family: var(--font-sans);
-    font-size: 12.5px;
-    font-weight: 500;
-    padding: 0 2px;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-  .thassi-u-tab:hover {
-    color: var(--text-secondary);
-  }
-  .thassi-u-tab.active {
-    color: var(--text-primary);
-    border-bottom-color: var(--text-primary);
+    box-sizing: border-box;
   }
 
-  .thassi-u-freshness {
+  .thassi-mb-left {
     display: flex;
     align-items: center;
     gap: 12px;
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--text-secondary);
-    font-variant-numeric: tabular-nums;
-    flex-wrap: wrap;
+    min-width: 0;
+    flex-shrink: 0;
   }
 
-  .thassi-u-dot {
+  .thassi-mb-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .thassi-mb-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    padding-left: 10px;
+    border-left: 1px solid var(--line-hairline);
+    white-space: nowrap;
+  }
+
+  .thassi-mb-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    display: inline-block;
+    background: #10b981;
     flex-shrink: 0;
   }
-  .thassi-u-dot.ok { background: #10b981; }
-  .thassi-u-dot.warn { background: #f59e0b; }
-  .thassi-u-dot.err { background: #ef4444; }
-  .thassi-u-dot.idle { background: #52525b; }
+  .thassi-mb-dot.warn { background: #f59e0b; }
+  .thassi-mb-dot.err { background: #ef4444; }
 
-  .thassi-u-kpi-strip {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    border-bottom: 1px solid var(--line-hairline);
-    background: var(--bg-canvas);
+  .thassi-mb-tabs {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    height: 48px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex: 1;
+    justify-content: center;
+  }
+  .thassi-mb-tabs::-webkit-scrollbar {
+    display: none;
   }
 
-  .thassi-u-kpi-cell {
-    padding: 14px 32px;
+  .thassi-mb-tab {
+    height: 48px;
+    padding: 0 2px;
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: color 0.14s ease, border-color 0.14s ease;
+  }
+  .thassi-mb-tab:hover {
+    color: var(--text-primary);
+  }
+  .thassi-mb-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
+  }
+  .thassi-mb-tab-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--line-hairline);
+    color: var(--text-muted);
+  }
+
+  .thassi-mb-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .thassi-mb-btn-primary {
+    background: #fafafa;
+    color: #09090b;
+    border: none;
+    border-radius: 4px;
+    height: 28px;
+    padding: 0 11px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background 0.14s ease;
+  }
+  .thassi-mb-btn-primary:hover {
+    background: #e4e4e7;
+  }
+
+  .thassi-mb-btn-ghost {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--line-hairline);
+    border-radius: 4px;
+    height: 28px;
+    padding: 0 10px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: color 0.14s ease, border-color 0.14s ease;
+  }
+  .thassi-mb-btn-ghost:hover {
+    color: var(--text-primary);
+    border-color: var(--line-focus);
+  }
+
+  /* ============================================================================
+   * STARTSEITE (3-Block-Fokus: 1. KPI-Leiste \xB7 2. Diagramme \xB7 3. Fokus-Kurzliste)
+   * ============================================================================ */
+  #thassi-startseite {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 20px 24px 32px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .thassi-ov-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1px solid var(--line-hairline);
+    border-radius: 6px;
+    background: var(--bg-canvas);
+    overflow: hidden;
+  }
+
+  .thassi-ov-kpi {
+    padding: 16px 20px;
     border-right: 1px solid var(--line-hairline);
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    gap: 4px;
+    gap: 6px;
     min-width: 0;
   }
-  .thassi-u-kpi-cell:last-child {
+  .thassi-ov-kpi:last-child {
     border-right: none;
   }
 
-  .thassi-u-kpi-label {
+  .thassi-ov-kpi-label {
     font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.08em;
     text-transform: uppercase;
+    letter-spacing: 0.07em;
     color: var(--text-muted);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
   }
 
-  .thassi-u-kpi-value {
+  .thassi-ov-kpi-val {
     font-family: var(--font-mono);
     font-size: 24px;
-    font-weight: 400;
+    font-weight: 500;
     letter-spacing: -0.03em;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
@@ -367,7 +429,7 @@ var UNIFORM_DESIGN_TOKENS_CSS = `
     text-overflow: ellipsis;
   }
 
-  .thassi-u-kpi-sub {
+  .thassi-ov-kpi-sub {
     font-size: 12px;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
@@ -376,71 +438,251 @@ var UNIFORM_DESIGN_TOKENS_CSS = `
     text-overflow: ellipsis;
   }
 
-  .thassi-u-btn-primary {
-    background: #fafafa;
-    color: #09090b;
-    font-family: var(--font-sans);
-    font-size: 12px;
-    font-weight: 500;
-    padding: 6px 12px;
-    border-radius: 4px;
-    border: none;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  .thassi-u-btn-primary:hover {
-    background: #e4e4e7;
+  .thassi-ov-charts {
+    display: grid;
+    grid-template-columns: 7fr 5fr;
+    gap: 16px;
   }
 
-  .thassi-u-btn-ghost {
-    background: transparent;
+  .thassi-ov-panel {
+    background: var(--bg-canvas);
+    border: 1px solid var(--line-hairline);
+    border-radius: 6px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .thassi-ov-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .thassi-ov-panel-title {
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
     color: var(--text-secondary);
-    font-family: var(--font-sans);
-    font-size: 12px;
-    font-weight: 500;
-    padding: 5px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--line-hairline);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-  }
-  .thassi-u-btn-ghost:hover {
-    color: var(--text-primary);
-    border-color: var(--line-focus);
-    background: var(--bg-elevated);
   }
 
-  .thassi-u-input {
-    background: var(--bg-input);
-    border: 1px solid var(--line-hairline);
-    border-radius: 4px;
-    padding: 6px 10px;
+  .thassi-ov-panel-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .thassi-ov-chart-body {
+    min-height: 210px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  /* Block 3: Kompakte Fokus-Kurzliste (Max 5 Eintr\xE4ge) */
+  .thassi-ov-list {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--line-hairline);
+  }
+
+  .thassi-ov-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--line-hairline);
+    font-size: 13px;
+  }
+  .thassi-ov-row:last-child {
+    border-bottom: none;
+  }
+
+  .thassi-ov-row-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .thassi-ov-row-title {
     color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .thassi-ov-row-sub {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .thassi-ov-row-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
     font-family: var(--font-mono);
     font-size: 12.5px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .thassi-ov-tag {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--line-hairline);
+    color: var(--text-secondary);
+  }
+
+  /* ============================================================================
+   * SATELLITE SUBPAGE EMBED & NATIVE SUBPAGE WORKSPACE
+   * ============================================================================ */
+  #thassi-satellite-container {
+    display: none;
+    width: 100%;
+    height: calc(100vh - 48px);
+    border: none;
+    background: var(--bg-canvas);
+  }
+
+  body.thassi-mode-overview #root,
+  body.thassi-mode-satellite #root {
+    display: none !important;
+  }
+
+  body.thassi-mode-subpage #thassi-startseite,
+  body.thassi-mode-satellite #thassi-startseite {
+    display: none !important;
+  }
+
+  body.thassi-mode-satellite #thassi-satellite-container {
+    display: block !important;
+  }
+
+  /* When embedded as a satellite subpage (?subpage=1), hide the inner duplicate menubar */
+  body.thassi-is-embedded-subpage #thassi-menubar,
+  body.thassi-is-embedded-subpage #thassi-startseite {
+    display: none !important;
+  }
+  body.thassi-is-embedded-subpage #root {
+    display: block !important;
+  }
+
+  /* ============================================================================
+   * SLIDE-OVER ACTION DRAWER (Fokussierte Formulare ohne Seiten-Ballast)
+   * ============================================================================ */
+  #thassi-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9995;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    display: none;
+    justify-content: flex-end;
+  }
+  #thassi-drawer-backdrop.open {
+    display: flex;
+  }
+
+  #thassi-drawer-panel {
+    width: 420px;
+    max-width: 92vw;
+    height: 100%;
+    background: #111113;
+    border-left: 1px solid var(--line-strong);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+
+  .thassi-drw-head {
+    height: 52px;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--line-hairline);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .thassi-drw-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .thassi-drw-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+
+  .thassi-drw-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .thassi-drw-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .thassi-drw-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+  }
+
+  .thassi-drw-input {
+    background: var(--bg-input);
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    padding: 8px 10px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
     outline: none;
   }
-  .thassi-u-input:focus {
-    border-color: var(--line-focus);
+  .thassi-drw-input:focus {
+    border-color: var(--text-primary);
   }
 
   @media (max-width: 960px) {
-    .thassi-u-header {
-      padding: 8px 16px;
-    }
-    .thassi-u-kpi-strip {
+    .thassi-ov-kpis {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .thassi-u-kpi-cell {
-      padding: 12px 16px;
+    .thassi-ov-kpi {
       border-bottom: 1px solid var(--line-hairline);
+    }
+    .thassi-ov-charts {
+      grid-template-columns: 1fr;
+    }
+    #thassi-menubar {
+      padding: 0 12px;
     }
   }
 `;
@@ -723,15 +965,27 @@ function getHassSidebarStylerScript() {
             [
               'try {',
               '  var topWin = window.top || window;',
+              '  var satMap = {',
+              '    "floorplan": { parent: "smart-canvas", title: "Smart Home", hash: "#subpage=floorplan" },',
+              '    "george-sync": { parent: "finance-analytics", title: "Finanzen", hash: "#subpage=george-sync" },',
+              '    "network-monitor": { parent: "system-monitor", title: "System & Infra", hash: "#subpage=network-monitor" },',
+              '    "google-usage": { parent: "system-monitor", title: "System & Infra", hash: "#subpage=google-usage" }',
+              '  };',
+              '  var subHash = "";',
+              '  if (satMap[appId]) {',
+              '    subHash = satMap[appId].hash;',
+              '    title = satMap[appId].title;',
+              '    appId = satMap[appId].parent;',
+              '  }',
               '  topWin.__thassiActiveSidebarApp = appId;',
               '  var hw = topWin.__thassiHorizonWin;',
               '  if (topWin.location.pathname === "/44ec3c40_thassi_host" && hw && !hw.closed && typeof hw.openFullService === "function") {',
               '    topWin.history.replaceState(null, "", "/44ec3c40_thassi_host#" + appId);',
-              '    hw.openFullService(appId, title, "", true);',
+              '    hw.openFullService(appId, title, subHash, true);',
               '    if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
               '    return false;',
               '  }',
-              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, fromSidebar: true, ts: Date.now() }));',
+              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, hash: subHash, fromSidebar: true, ts: Date.now() }));',
               '  if (topWin.location.pathname !== "/44ec3c40_thassi_host") {',
               '    topWin.history.pushState(null, "", "/44ec3c40_thassi_host#" + appId);',
               '    topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
@@ -743,20 +997,29 @@ function getHassSidebarStylerScript() {
           );
 
           window.top.__thassiCloseSidebarApp = new window.top.Function(
+            'ev',
             [
               'try {',
               '  var topWin = window.top || window;',
               '  topWin.__thassiActiveSidebarApp = null;',
               '  topWin.sessionStorage.removeItem("thassi_open_app");',
-              '  if (topWin.location.pathname === "/44ec3c40_thassi_host" && topWin.location.hash) {',
-              '    topWin.history.replaceState(null, "", "/44ec3c40_thassi_host");',
-              '  }',
               '  var hw = topWin.__thassiHorizonWin;',
-              '  if (hw && !hw.closed && typeof hw.closeFullService === "function") {',
-              '    hw.closeFullService();',
+              '  if (topWin.location.pathname === "/44ec3c40_thassi_host") {',
+              '    if (ev && ev.preventDefault) { ev.preventDefault(); ev.stopPropagation(); }',
+              '    if (topWin.location.hash) {',
+              '      topWin.history.replaceState(null, "", "/44ec3c40_thassi_host");',
+              '    }',
+              '    if (hw && !hw.closed && typeof hw.closeFullService === "function") {',
+              '      hw.closeFullService();',
+              '    }',
+              '  } else {',
+              '    if (ev && ev.preventDefault) { ev.preventDefault(); ev.stopPropagation(); }',
+              '    topWin.history.pushState(null, "", "/44ec3c40_thassi_host");',
+              '    topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
               '  }',
               '  if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
-              '} catch (_err) {}'
+              '} catch (_err) {}',
+              'return false;'
             ].join(' ')
           );
 
@@ -818,17 +1081,43 @@ function getHassSidebarStylerScript() {
               findSidebarPanelItem('44ec3c40_thassi_finance_analytics') ||
               findSidebarPanelItem('44ec3c40_thassi_cortex') ||
               findSidebarPanelItem('44ec3c40_thassi_memo') ||
-              findSidebarPanelItem('44ec3c40_thassi_workflows');
+              findSidebarPanelItem('44ec3c40_thassi_workflows') ||
+              horizonItem;
 
-            function ensureNativeSidebarItem(navId, appId, panelSlug, title, iconName, refAfterEl) {
-              if (findSidebarPanelItem(panelSlug)) return null;
+            const SATELLITE_HIDDEN_IDS = {
+              'floorplan': true,
+              'george-sync': true,
+              'network-monitor': true,
+              'google-usage': true
+            };
+
+            function bindSidebarItemClick(el, appId, title, isHiddenSatellite) {
+              if (!el) return;
+              if (isHiddenSatellite) {
+                el.style.display = 'none';
+              } else {
+                el.style.removeProperty('display');
+              }
+              el.onclick = new window.top.Function(
+                'ev',
+                'if (ev) { ev.preventDefault(); ev.stopPropagation(); } return window.top.__thassiOpenSidebarApp(' +
+                  JSON.stringify(appId) +
+                  ', ' +
+                  JSON.stringify(title) +
+                  ');'
+              );
+            }
+
+            function ensureNativeSidebarItem(navId, appId, panelSlug, title, iconName, refAfterEl, isHiddenSatellite) {
+              const existingNative = findSidebarPanelItem(panelSlug);
+              if (existingNative) {
+                const dupCustom = mdList.querySelector('#' + navId);
+                if (dupCustom) dupCustom.remove();
+                bindSidebarItemClick(existingNative, appId, title, isHiddenSatellite);
+                return existingNative;
+              }
               let item = mdList.querySelector('#' + navId);
-              if (
-                item &&
-                (item.tagName.toLowerCase() !== 'ha-md-list-item' ||
-                  item.getAttribute('style') ||
-                  (horizonItem && item.previousElementSibling === horizonItem))
-              ) {
+              if (item && item.tagName.toLowerCase() !== 'ha-md-list-item') {
                 item.remove();
                 item = null;
               }
@@ -865,7 +1154,7 @@ function getHassSidebarStylerScript() {
                 item.appendChild(iconEl);
                 item.appendChild(spanEl);
               }
-              if (refAfterEl && item.previousElementSibling !== refAfterEl) {
+              if (refAfterEl && item !== refAfterEl && item.previousElementSibling !== refAfterEl) {
                 if (refAfterEl.nextSibling) {
                   mdList.insertBefore(item, refAfterEl.nextSibling);
                 } else {
@@ -874,40 +1163,30 @@ function getHassSidebarStylerScript() {
               } else if (!item.parentElement) {
                 mdList.appendChild(item);
               }
-              item.onclick = new window.top.Function(
-                'ev',
-                'if (ev) { ev.preventDefault(); ev.stopPropagation(); } return window.top.__thassiOpenSidebarApp(' +
-                  JSON.stringify(appId) +
-                  ', ' +
-                  JSON.stringify(title) +
-                  ');'
-              );
+              bindSidebarItemClick(item, appId, title, isHiddenSatellite);
               return item;
             }
 
             const STATIC_CUSTOM_APPS = [
-              { id: 'contacts', navId: 'thassi-nav-contacts', title: 'Contacts', icon: 'mdi:message-text-outline' },
-              { id: 'floorplan', navId: 'thassi-nav-floorplan', title: 'Grundriss 2D', icon: 'mdi:floor-plan' },
+              { id: 'smart-canvas', navId: 'thassi-nav-smart-canvas', title: 'Smart Home', icon: 'mdi:home-lightning-bolt-outline' },
               { id: 'camera-vision', navId: 'thassi-nav-camera-vision', title: 'Kameras & Vision', icon: 'mdi:cctv' },
-              { id: '3d-print', navId: 'thassi-nav-3d-print', title: '3D Druck', icon: 'mdi:printer-3d-nozzle' },
-              { id: 'system-monitor', navId: 'thassi-nav-system-monitor', title: 'HASS OS Monitor', icon: 'mdi:pulse' },
-              { id: 'google-usage', navId: 'thassi-nav-google-usage', title: 'Google Usage & AI', icon: 'mdi:chart-box-outline' },
-              { id: 'network-monitor', navId: 'thassi-nav-network-monitor', title: 'Netzwerk & Router', icon: 'mdi:router-network' },
-              { id: 'george-sync', navId: 'thassi-nav-george-sync', title: 'Erste Bank Sync', icon: 'mdi:bank-transfer' }
+              { id: '3d-print', navId: 'thassi-nav-3d-print', title: '3D Druck Studio', icon: 'mdi:printer-3d-nozzle' },
+              { id: 'finance-analytics', navId: 'thassi-nav-finance-analytics', title: 'Finanzen', icon: 'mdi:chart-areaspline' },
+              { id: 'google-calendar', navId: 'thassi-nav-google-calendar', title: 'Kalender & Zeit', icon: 'mdi:calendar-clock' },
+              { id: 'google-health', navId: 'thassi-nav-google-health', title: 'Gesundheit', icon: 'mdi:heart-pulse' },
+              { id: 'meal-planner', navId: 'thassi-nav-meal-planner', title: 'Ern\xE4hrung & Einkauf', icon: 'mdi:silverware-fork-knife' },
+              { id: 'memo', navId: 'thassi-nav-memo', title: 'Memo', icon: 'mdi:notebook-outline' },
+              { id: 'contacts', navId: 'thassi-nav-contacts', title: 'Kontakte', icon: 'mdi:account-multiple-outline' },
+              { id: 'cortex', navId: 'thassi-nav-cortex', title: 'Cortex', icon: 'mdi:brain' },
+              { id: 'workflows', navId: 'thassi-nav-workflows', title: 'Workflows', icon: 'mdi:sitemap-outline' },
+              { id: 'project-workflow', navId: 'thassi-nav-project-workflow', title: 'Dev-Projekte', icon: 'mdi:source-branch-check' },
+              { id: 'system-monitor', navId: 'thassi-nav-system-monitor', title: 'System & Infra', icon: 'mdi:pulse' },
+              // Consolidated satellite apps (integrated as Men\xFCleiste subpages; hidden in main sidebar)
+              { id: 'floorplan', navId: 'thassi-nav-floorplan', title: 'Grundriss 2D', icon: 'mdi:floor-plan', satellite: true },
+              { id: 'george-sync', navId: 'thassi-nav-george-sync', title: 'Erste Bank Sync', icon: 'mdi:bank-transfer', satellite: true },
+              { id: 'network-monitor', navId: 'thassi-nav-network-monitor', title: 'Netzwerk & Router', icon: 'mdi:router-network', satellite: true },
+              { id: 'google-usage', navId: 'thassi-nav-google-usage', title: 'Google Usage & AI', icon: 'mdi:chart-box-outline', satellite: true }
             ];
-
-            const NATIVE_ADDON_APP_IDS = {
-              'workflows': true,
-              'memo': true,
-              'cortex': true,
-              'finance-analytics': true,
-              'google-health': true,
-              'meal-planner': true,
-              'google-calendar': true,
-              'smart-canvas': true,
-              'project-workflow': true,
-              '3d-print': true
-            };
 
             const dynamicApps = Array.isArray(window.top.__thassiDeployedApps)
               ? window.top.__thassiDeployedApps
@@ -918,34 +1197,39 @@ function getHassSidebarStylerScript() {
             const mergedCustomApps = STATIC_CUSTOM_APPS.slice();
             for (let dIdx = 0; dIdx < dynamicApps.length; dIdx++) {
               const dApp = dynamicApps[dIdx];
-              if (!dApp || !dApp.id || NATIVE_ADDON_APP_IDS[dApp.id] || dApp.hideFromSidebar) continue;
+              if (!dApp || !dApp.id || dApp.hideFromSidebar) continue;
               if (!mergedCustomApps.some(function(x) { return x.id === dApp.id; })) {
                 mergedCustomApps.push({
                   id: dApp.id,
                   title: dApp.name || dApp.title || dApp.id,
-                  icon: dApp.icon || 'mdi:application-outline'
+                  icon: dApp.icon || 'mdi:application-outline',
+                  satellite: Boolean(SATELLITE_HIDDEN_IDS[dApp.id])
                 });
               }
             }
 
-            let prevInsertedItem = anchorAfterItem;
+            let prevInsertedItem = horizonItem || anchorAfterItem;
             const createdSidebarItems = {};
             const knownCustomIds = {};
             for (let cIdx = 0; cIdx < mergedCustomApps.length; cIdx++) {
               const cfg = mergedCustomApps[cIdx];
               knownCustomIds[cfg.id] = true;
               const slug = '44ec3c40_thassi_' + cfg.id.replace(/[^a-z0-9_]/gi, '_');
+              const isSat = Boolean(cfg.satellite || SATELLITE_HIDDEN_IDS[cfg.id]);
               const navEl = ensureNativeSidebarItem(
                 'thassi-nav-' + cfg.id,
                 cfg.id,
                 slug,
                 cfg.title,
                 cfg.icon,
-                prevInsertedItem || anchorAfterItem
+                prevInsertedItem || anchorAfterItem,
+                isSat
               );
               if (navEl) {
                 createdSidebarItems[cfg.id] = navEl;
-                prevInsertedItem = navEl;
+                if (!isSat) {
+                  prevInsertedItem = navEl;
+                }
               }
             }
 
@@ -986,32 +1270,30 @@ function getHassSidebarStylerScript() {
 
         window.top.__thassiSyncSidebarNow = applyThassiChromeToParent;
 
-        // Persist clean sidebar order & hidden panels in localStorage for all browser sessions
+        // Persist clean sidebar order (14 Main Apps) & hidden satellite/default panels in localStorage
         try {
           const hidden = [
             "home","lovelace","light","security","climate","energy",
             "media-browser","logbook","history","todo","calendar",
-            "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy"
+            "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy",
+            "44ec3c40_thassi_floorplan","44ec3c40_thassi_george_sync",
+            "44ec3c40_thassi_network_monitor","44ec3c40_thassi_google_usage"
           ];
           const order = [
             "44ec3c40_thassi_host",
-            "44ec3c40_thassi_cortex",
-            "44ec3c40_thassi_workflows",
             "44ec3c40_thassi_smart_canvas",
-            "44ec3c40_thassi_floorplan",
             "44ec3c40_thassi_camera_vision",
             "44ec3c40_thassi_3d_print",
+            "44ec3c40_thassi_finance_analytics",
             "44ec3c40_thassi_google_calendar",
             "44ec3c40_thassi_google_health",
             "44ec3c40_thassi_meal_planner",
-            "44ec3c40_thassi_finance_analytics",
-            "44ec3c40_thassi_george_sync",
             "44ec3c40_thassi_memo",
             "44ec3c40_thassi_contacts",
-            "44ec3c40_thassi_system_monitor",
-            "44ec3c40_thassi_network_monitor",
-            "44ec3c40_thassi_google_usage",
+            "44ec3c40_thassi_cortex",
+            "44ec3c40_thassi_workflows",
             "44ec3c40_thassi_project_workflow",
+            "44ec3c40_thassi_system_monitor",
             "hacs"
           ];
           window.top.localStorage.setItem('sidebarHiddenPanels', JSON.stringify(hidden));

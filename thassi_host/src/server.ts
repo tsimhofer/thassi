@@ -1292,12 +1292,13 @@ async function startServer() {
           return dir;
         };
 
-        let targetDir: string;
+        const targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
         try {
-          targetDir = writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
+          writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
         } catch (err) {
-          console.warn(`[Thassi] Primary deploy dir I/O error (${err instanceof Error ? err.message : err}), falling back to tmpfs`);
-          targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
+          console.warn(
+            `[Thassi] Mirror to persistent deployed_apps skipped (${err instanceof Error ? err.message : err}), running from tmpfs`
+          );
         }
 
         await loadAppFromDirectory(targetDir, 'hot-deployed');

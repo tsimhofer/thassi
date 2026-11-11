@@ -7,6 +7,7 @@ import path3 from "node:path";
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 function parseCsv(csvText, explicitDelimiter) {
   const normalized = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
@@ -90,20 +91,25 @@ var ThassiAppDatabase = class {
   dbPath;
   constructor(dbPath) {
     this.dbPath = dbPath;
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    try {
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    } catch {
+    }
     this.raw = this.openWithAutoRecovery(dbPath);
   }
   isCorruptionError(err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return /malformed|corrupt|not a database|disk I\/O error/i.test(msg);
+    return /malformed|corrupt|not a database|disk I\/O|EIO|not open/i.test(msg);
   }
   recoverCorruptedDatabase() {
     try {
       this.raw.close();
     } catch {
     }
+    const isSharedDb = path.basename(this.dbPath) === "shared.db";
     try {
-      for (const suffix of ["", "-wal", "-shm"]) {
+      const suffixes = isSharedDb ? ["-wal", "-shm"] : ["", "-wal", "-shm"];
+      for (const suffix of suffixes) {
         if (fs.existsSync(this.dbPath + suffix)) {
           fs.rmSync(this.dbPath + suffix, { force: true });
         }
@@ -112,40 +118,42 @@ var ThassiAppDatabase = class {
     }
     this.raw = this.openWithAutoRecovery(this.dbPath);
   }
+  initSchema(db) {
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _thassi_kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    db.prepare("SELECT COUNT(*) FROM _thassi_kv").get();
+    return db;
+  }
   openWithAutoRecovery(dbPath) {
     try {
-      const db = new DatabaseSync(dbPath);
-      db.exec("PRAGMA journal_mode = WAL;");
-      db.exec("PRAGMA foreign_keys = ON;");
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS _thassi_kv (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-      `);
-      db.prepare("SELECT COUNT(*) FROM _thassi_kv").get();
-      return db;
+      return this.initSchema(new DatabaseSync(dbPath));
     } catch {
+      const isSharedDb = path.basename(dbPath) === "shared.db";
       try {
-        for (const suffix of ["", "-wal", "-shm"]) {
+        const suffixes = isSharedDb ? ["-wal", "-shm"] : ["", "-wal", "-shm"];
+        for (const suffix of suffixes) {
           if (fs.existsSync(dbPath + suffix)) {
             fs.rmSync(dbPath + suffix, { force: true });
           }
         }
+        return this.initSchema(new DatabaseSync(dbPath));
       } catch {
+        try {
+          const fallbackDir = path.join(os.tmpdir(), "thassi_db_fallback");
+          fs.mkdirSync(fallbackDir, { recursive: true });
+          const fallbackPath = path.join(fallbackDir, path.basename(dbPath));
+          return this.initSchema(new DatabaseSync(fallbackPath));
+        } catch {
+          return this.initSchema(new DatabaseSync(":memory:"));
+        }
       }
-      const db = new DatabaseSync(dbPath);
-      db.exec("PRAGMA journal_mode = WAL;");
-      db.exec("PRAGMA foreign_keys = ON;");
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS _thassi_kv (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-      `);
-      return db;
     }
   }
   /** Execute raw DDL or multi-statement SQL */
