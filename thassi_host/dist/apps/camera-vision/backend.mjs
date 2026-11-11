@@ -107195,7 +107195,17 @@ var index_default = defineThassiApp((ctx) => {
     }
   } catch {
   }
-  ensureVisionWorker();
+  try {
+    const prevCfg = ctx.db.kvGet("vision_config");
+    if (prevCfg && (prevCfg.cyclicEnabled || prevCfg.highFreqMotionLoopEnabled)) {
+      ctx.db.kvSet("vision_config", {
+        ...prevCfg,
+        cyclicEnabled: false,
+        highFreqMotionLoopEnabled: false
+      });
+    }
+  } catch {
+  }
   function getConfig() {
     const saved = ctx.db.kvGet("vision_config") || {};
     return {

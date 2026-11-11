@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -162,11 +163,8 @@ export default defineThassiApp((ctx) => {
     ];
     let needsRepair = false;
     try {
-      const check = dbInstance.raw.prepare('PRAGMA quick_check').get() as Record<string, any> | undefined;
-      const val = check ? Object.values(check)[0] : 'ok';
-      if (val !== 'ok') needsRepair = true;
+      dbInstance.raw.exec('PRAGMA synchronous = OFF; PRAGMA temp_store = MEMORY;');
       dbInstance.raw.prepare('SELECT COUNT(*) FROM _thassi_kv').get();
-      dbInstance.raw.prepare('SELECT COUNT(*) FROM system_notes').get();
     } catch {
       needsRepair = true;
     }
@@ -2281,7 +2279,7 @@ export default defineThassiApp((ctx) => {
     return result;
   }
 
-  void ensureOfficeShelfSwitchAutomation();
+  // Office switch automation can be triggered on-demand via GET/POST /office-switch-automation
 
   ctx.route('GET', '/office-switch-automation', async () => {
     return await ensureOfficeShelfSwitchAutomation();
@@ -2688,12 +2686,28 @@ export default defineThassiApp((ctx) => {
     let sataAlpmMaxPerf = false;
     const sysctlsApplied: Record<string, string> = {};
     const sysrqPreOpened = fs.existsSync('/proc/sysrq-trigger');
+    let sataQueueDepth = 0;
 
-    // 1. Disable Intel Bay Trail J1900 deep C-states (C6N, C6S, C7, C7S = state2..state5) if sysfs is writable
+    let sysRoot = '/sys';
+    try {
+      fs.writeFileSync('/sys/devices/system/cpu/cpu0/cpuidle/state2/disable', '1');
+    } catch {
+      try {
+        if (!fs.existsSync('/tmp/thassi_sysfs/devices')) {
+          fs.mkdirSync('/tmp/thassi_sysfs', { recursive: true });
+          execFileSync('mount', ['-t', 'sysfs', 'sysfs', '/tmp/thassi_sysfs'], { timeout: 1500 });
+        }
+        if (fs.existsSync('/tmp/thassi_sysfs/devices')) {
+          sysRoot = '/tmp/thassi_sysfs';
+        }
+      } catch {}
+    }
+
+    // 1. Disable Intel Bay Trail J1900 deep C-states (C6N, C6S, C7, C7S = state2..state5)
     for (let cpu = 0; cpu < 4; cpu++) {
       for (const st of ['state2', 'state3', 'state4', 'state5']) {
-        const disablePath = `/sys/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
-        const namePath = `/sys/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
+        const disablePath = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
+        const namePath = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
         try {
           if (fs.existsSync(disablePath)) {
             if (readSafe(disablePath) !== '1') {
@@ -2707,9 +2721,19 @@ export default defineThassiApp((ctx) => {
       }
     }
 
-    // 2. Set SATA Link Power Management to max_performance to prevent /dev/sda EIO disconnects
+    // 2. Disable SATA NCQ (queue_depth = 1) and set ALPM to max_performance to prevent /dev/sda EIO disconnects
     try {
-      const scsiRoot = '/sys/class/scsi_host';
+      const qdPath = `${sysRoot}/block/sda/device/queue_depth`;
+      if (fs.existsSync(qdPath)) {
+        if (readSafe(qdPath) !== '1') {
+          fs.writeFileSync(qdPath, '1');
+        }
+        sataQueueDepth = Number(readSafe(qdPath) || 0);
+      }
+    } catch {}
+
+    try {
+      const scsiRoot = `${sysRoot}/class/scsi_host`;
       if (fs.existsSync(scsiRoot)) {
         for (const host of fs.readdirSync(scsiRoot)) {
           const lpmPath = path.join(scsiRoot, host, 'link_power_management_policy');
@@ -2754,6 +2778,7 @@ export default defineThassiApp((ctx) => {
       cstatesDisabled,
       dmaLatencyLocked,
       sataAlpmMaxPerf,
+      sataQueueDepth,
       sysctlsApplied,
       sysrqPreOpened,
     };
@@ -3048,7 +3073,6 @@ export default defineThassiApp((ctx) => {
   }, 15);
 
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
-  void ensureWatchdogRebootAutomation();
 
   if (!gWatchdog.__thassiWatchdogState) {
     const curUp = Math.round(os.uptime());
@@ -3118,9 +3142,6 @@ export default defineThassiApp((ctx) => {
       );
     }
     st.lastRecordedUptimeSec = curUp;
-    try {
-      ctx.sharedDb.kvSet('thassi_last_host_uptime_sec', curUp);
-    } catch {}
 
     if (!cfg.enabled) return;
 
@@ -3272,12 +3293,7 @@ export default defineThassiApp((ctx) => {
     }
   }
 
-  // Enforce Supervisor watchdogs on startup and run guardian every 30s
-  void enforceSupervisorWatchdogsIfEnabled().then((res) => {
-    if (gWatchdog.__thassiWatchdogState) {
-      gWatchdog.__thassiWatchdogState.supervisorWatchdogs = res;
-    }
-  });
+  // Run guardian every 30s without writing to /homeassistant or Supervisor config on startup
   void runWatchdogGuardianTick();
   gWatchdog.__thassiWatchdogTimer = setInterval(() => {
     void runWatchdogGuardianTick();
@@ -3548,7 +3564,18 @@ export default defineThassiApp((ctx) => {
         }
       }
 
-      // 2. Patch HAOS boot partition (/dev/sda1) grub.cfg / cmdline.txt with intel_idle.max_cstate=1 processor.max_cstate=1
+      // 1b. Disable SATA NCQ (queue_depth = 1) and set ALPM to max_performance
+      try {
+        const qdPath = `${sysRoot}/block/sda/device/queue_depth`;
+        if (fs.existsSync(qdPath)) {
+          fs.writeFileSync(qdPath, '1');
+          report.sataQueueDepth = Number(readSafe(qdPath) || 0);
+        }
+      } catch (e: any) {
+        report.sataQueueDepthError = e.message;
+      }
+
+      // 2. Patch HAOS boot partition (/dev/sda1) grub.cfg / cmdline.txt with intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm
       try {
         if (!fs.existsSync('/dev/sda1')) {
           try {
@@ -3563,20 +3590,26 @@ export default defineThassiApp((ctx) => {
           for (const rel of ['EFI/BOOT/grub.cfg', 'cmdline.txt']) {
             const p = path.join('/tmp/hassos_boot', rel);
             if (fs.existsSync(p)) {
-              const orig = fs.readFileSync(p, 'utf-8');
-              if (!orig.includes('intel_idle.max_cstate=1')) {
-                const patched = orig.replace(
+              let orig = fs.readFileSync(p, 'utf-8');
+              let patched = orig;
+              if (!patched.includes('intel_idle.max_cstate=1')) {
+                patched = patched.replace(
                   /(rootwait\b)/g,
-                  '$1 intel_idle.max_cstate=1 processor.max_cstate=1'
+                  '$1 intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm'
                 );
-                if (patched !== orig) {
-                  fs.writeFileSync(p, patched, 'utf-8');
-                  report.grubPatched = true;
-                  report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1`;
-                }
-              } else {
+              } else if (!patched.includes('libata.force=noncq,nolpm')) {
+                patched = patched.replace(
+                  /(intel_idle\.max_cstate=1\b)/g,
+                  '$1 libata.force=noncq,nolpm'
+                );
+              }
+              if (patched !== orig) {
+                fs.writeFileSync(p, patched, 'utf-8');
                 report.grubPatched = true;
-                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1`;
+                report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm`;
+              } else if (patched.includes('intel_idle.max_cstate=1')) {
+                report.grubPatched = true;
+                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1 libata.force=noncq,nolpm`;
               }
             }
           }
@@ -3589,31 +3622,34 @@ export default defineThassiApp((ctx) => {
         report.grubError = e.message;
       }
 
-      // 3. Program Intel Bay Trail PMC GEN_PMCON_1 (PBASE + 0x20) bit 0 (AFTERG3_EN = 0 -> Power ON after AC loss)
+      // 3. Program Intel Bay Trail PMC GEN_PMCON_1 (PBASE + 0x20, default 0xfed03020) bit 0 (AFTERG3_EN = 0 -> Power ON after AC loss)
       try {
+        let pbase = 0xfed03000;
         const pciCfgPath = `${sysRoot}/bus/pci/devices/0000:00:1f.0/config`;
         if (fs.existsSync(pciCfgPath)) {
           const cfgBuf = fs.readFileSync(pciCfgPath);
-          const pbaseRaw = cfgBuf.readUInt32LE(0x44);
-          const pbase = pbaseRaw & 0xfffffe00;
-          if (pbase > 0) {
-            const pmconAddr = `0x${(pbase + 0x20).toString(16)}`;
-            const curHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
-              encoding: 'utf-8',
-              timeout: 1500,
-            }).trim();
-            const curVal = Number.parseInt(curHex, 16);
-            const newVal = (curVal & ~0x01) >>> 0; // Clear bit 0 (AFTERG3_EN = 0 -> Power ON on AC restore)
-            const newHex = `0x${newVal.toString(16).padStart(8, '0')}`;
-            execFileSync('busybox', ['devmem', pmconAddr, '32', newHex], { timeout: 1500 });
-            const verifyHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
-              encoding: 'utf-8',
-              timeout: 1500,
-            }).trim();
-            report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 0x01) === 0;
-            report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
+          if (cfgBuf.length >= 0x48) {
+            const pbaseRaw = cfgBuf.readUInt32LE(0x44);
+            if ((pbaseRaw & 0xfffffe00) > 0) {
+              pbase = (pbaseRaw & 0xfffffe00) >>> 0;
+            }
           }
         }
+        const pmconAddr = `0x${(pbase + 0x20).toString(16)}`;
+        const curHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
+          encoding: 'utf-8',
+          timeout: 1500,
+        }).trim();
+        const curVal = Number.parseInt(curHex, 16);
+        const newVal = (curVal & ~0x01) >>> 0; // Clear bit 0 (AFTERG3_EN = 0 -> Power ON on AC restore)
+        const newHex = `0x${newVal.toString(16).padStart(8, '0')}`;
+        execFileSync('busybox', ['devmem', pmconAddr, '32', newHex], { timeout: 1500 });
+        const verifyHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
+          encoding: 'utf-8',
+          timeout: 1500,
+        }).trim();
+        report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 0x01) === 0;
+        report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
       } catch (e: any) {
         report.pmcError = e.message;
       }

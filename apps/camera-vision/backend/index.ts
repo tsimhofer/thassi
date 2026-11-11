@@ -1805,7 +1805,7 @@ export default defineThassiApp((ctx) => {
     );
   } catch {}
 
-  // Free any stale main-thread TF.js model tensors from older hot-reloads and warm up background worker thread
+  // Free any stale main-thread TF.js model tensors from older hot-reloads; do NOT spawn TF.js worker on startup
   try {
     const gOld = globalThis as unknown as { __thassiCocoSsdModelPromise?: unknown; __thassiCocoLiteLoaded?: boolean };
     if (gOld.__thassiCocoSsdModelPromise && !gOld.__thassiCocoLiteLoaded) {
@@ -1813,7 +1813,18 @@ export default defineThassiApp((ctx) => {
       tf.disposeVariables();
     }
   } catch {}
-  ensureVisionWorker();
+
+  // Force-disable persisted background loops in SQLite on startup to protect J1900 CPU & /dev/sda SATA bus
+  try {
+    const prevCfg = ctx.db.kvGet<Partial<VisionConfig>>('vision_config');
+    if (prevCfg && (prevCfg.cyclicEnabled || prevCfg.highFreqMotionLoopEnabled)) {
+      ctx.db.kvSet('vision_config', {
+        ...prevCfg,
+        cyclicEnabled: false,
+        highFreqMotionLoopEnabled: false,
+      });
+    }
+  } catch {}
 
   function getConfig(): VisionConfig {
     const saved = ctx.db.kvGet<Partial<VisionConfig>>('vision_config') || {};

@@ -1,6 +1,7 @@
 import { createRequire as __thassiCreateRequire } from 'node:module'; const require = __thassiCreateRequire(import.meta.url);
 
 // apps/system-monitor/backend/index.ts
+import { execFileSync } from "node:child_process";
 import fs4 from "node:fs";
 import http from "node:http";
 import os2 from "node:os";
@@ -7942,11 +7943,8 @@ var index_default = defineThassiApp((ctx) => {
     ];
     let needsRepair = false;
     try {
-      const check = dbInstance.raw.prepare("PRAGMA quick_check").get();
-      const val = check ? Object.values(check)[0] : "ok";
-      if (val !== "ok") needsRepair = true;
+      dbInstance.raw.exec("PRAGMA synchronous = OFF; PRAGMA temp_store = MEMORY;");
       dbInstance.raw.prepare("SELECT COUNT(*) FROM _thassi_kv").get();
-      dbInstance.raw.prepare("SELECT COUNT(*) FROM system_notes").get();
     } catch {
       needsRepair = true;
     }
@@ -9740,7 +9738,6 @@ ${yamlBlock}`, "utf-8");
     }
     return result;
   }
-  void ensureOfficeShelfSwitchAutomation();
   ctx.route("GET", "/office-switch-automation", async () => {
     return await ensureOfficeShelfSwitchAutomation();
   });
@@ -10070,10 +10067,26 @@ ${yamlBlock}`, "utf-8");
     let sataAlpmMaxPerf = false;
     const sysctlsApplied = {};
     const sysrqPreOpened = fs4.existsSync("/proc/sysrq-trigger");
+    let sataQueueDepth = 0;
+    let sysRoot = "/sys";
+    try {
+      fs4.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
+    } catch {
+      try {
+        if (!fs4.existsSync("/tmp/thassi_sysfs/devices")) {
+          fs4.mkdirSync("/tmp/thassi_sysfs", { recursive: true });
+          execFileSync("mount", ["-t", "sysfs", "sysfs", "/tmp/thassi_sysfs"], { timeout: 1500 });
+        }
+        if (fs4.existsSync("/tmp/thassi_sysfs/devices")) {
+          sysRoot = "/tmp/thassi_sysfs";
+        }
+      } catch {
+      }
+    }
     for (let cpu = 0; cpu < 4; cpu++) {
       for (const st of ["state2", "state3", "state4", "state5"]) {
-        const disablePath = `/sys/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
-        const namePath = `/sys/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
+        const disablePath = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
+        const namePath = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
         try {
           if (fs4.existsSync(disablePath)) {
             if (readSafe(disablePath) !== "1") {
@@ -10088,7 +10101,17 @@ ${yamlBlock}`, "utf-8");
       }
     }
     try {
-      const scsiRoot = "/sys/class/scsi_host";
+      const qdPath = `${sysRoot}/block/sda/device/queue_depth`;
+      if (fs4.existsSync(qdPath)) {
+        if (readSafe(qdPath) !== "1") {
+          fs4.writeFileSync(qdPath, "1");
+        }
+        sataQueueDepth = Number(readSafe(qdPath) || 0);
+      }
+    } catch {
+    }
+    try {
+      const scsiRoot = `${sysRoot}/class/scsi_host`;
       if (fs4.existsSync(scsiRoot)) {
         for (const host of fs4.readdirSync(scsiRoot)) {
           const lpmPath = path4.join(scsiRoot, host, "link_power_management_policy");
@@ -10133,6 +10156,7 @@ ${yamlBlock}`, "utf-8");
       cstatesDisabled,
       dmaLatencyLocked,
       sataAlpmMaxPerf,
+      sataQueueDepth,
       sysctlsApplied,
       sysrqPreOpened
     };
@@ -10387,7 +10411,6 @@ ${yamlBlock}`, "utf-8");
     antiCstateTick = antiCstateTick + 1 & 65535;
   }, 15);
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
-  void ensureWatchdogRebootAutomation();
   if (!gWatchdog.__thassiWatchdogState) {
     const curUp = Math.round(os2.uptime());
     let prevSavedUp = 0;
@@ -10454,10 +10477,6 @@ ${yamlBlock}`, "utf-8");
       );
     }
     st.lastRecordedUptimeSec = curUp;
-    try {
-      ctx.sharedDb.kvSet("thassi_last_host_uptime_sec", curUp);
-    } catch {
-    }
     if (!cfg.enabled) return;
     const supToken = process.env.SUPERVISOR_TOKEN || process.env.HASSIO_TOKEN || (() => {
       try {
@@ -10593,11 +10612,6 @@ ${yamlBlock}`, "utf-8");
       }
     }
   }
-  void enforceSupervisorWatchdogsIfEnabled().then((res) => {
-    if (gWatchdog.__thassiWatchdogState) {
-      gWatchdog.__thassiWatchdogState.supervisorWatchdogs = res;
-    }
-  });
   void runWatchdogGuardianTick();
   gWatchdog.__thassiWatchdogTimer = setInterval(() => {
     void runWatchdogGuardianTick();
@@ -10828,6 +10842,15 @@ ${yamlBlock}`, "utf-8");
         }
       }
       try {
+        const qdPath = `${sysRoot}/block/sda/device/queue_depth`;
+        if (fs4.existsSync(qdPath)) {
+          fs4.writeFileSync(qdPath, "1");
+          report.sataQueueDepth = Number(readSafe(qdPath) || 0);
+        }
+      } catch (e) {
+        report.sataQueueDepthError = e.message;
+      }
+      try {
         if (!fs4.existsSync("/dev/sda1")) {
           try {
             execFileSync("mknod", ["/dev/sda1", "b", "8", "1"], { timeout: 1500 });
@@ -10843,20 +10866,26 @@ ${yamlBlock}`, "utf-8");
           for (const rel of ["EFI/BOOT/grub.cfg", "cmdline.txt"]) {
             const p = path4.join("/tmp/hassos_boot", rel);
             if (fs4.existsSync(p)) {
-              const orig = fs4.readFileSync(p, "utf-8");
-              if (!orig.includes("intel_idle.max_cstate=1")) {
-                const patched = orig.replace(
+              let orig = fs4.readFileSync(p, "utf-8");
+              let patched = orig;
+              if (!patched.includes("intel_idle.max_cstate=1")) {
+                patched = patched.replace(
                   /(rootwait\b)/g,
-                  "$1 intel_idle.max_cstate=1 processor.max_cstate=1"
+                  "$1 intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm"
                 );
-                if (patched !== orig) {
-                  fs4.writeFileSync(p, patched, "utf-8");
-                  report.grubPatched = true;
-                  report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1`;
-                }
-              } else {
+              } else if (!patched.includes("libata.force=noncq,nolpm")) {
+                patched = patched.replace(
+                  /(intel_idle\.max_cstate=1\b)/g,
+                  "$1 libata.force=noncq,nolpm"
+                );
+              }
+              if (patched !== orig) {
+                fs4.writeFileSync(p, patched, "utf-8");
                 report.grubPatched = true;
-                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1`;
+                report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm`;
+              } else if (patched.includes("intel_idle.max_cstate=1")) {
+                report.grubPatched = true;
+                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1 libata.force=noncq,nolpm`;
               }
             }
           }
@@ -10870,29 +10899,32 @@ ${yamlBlock}`, "utf-8");
         report.grubError = e.message;
       }
       try {
+        let pbase = 4275056640;
         const pciCfgPath = `${sysRoot}/bus/pci/devices/0000:00:1f.0/config`;
         if (fs4.existsSync(pciCfgPath)) {
           const cfgBuf = fs4.readFileSync(pciCfgPath);
-          const pbaseRaw = cfgBuf.readUInt32LE(68);
-          const pbase = pbaseRaw & 4294966784;
-          if (pbase > 0) {
-            const pmconAddr = `0x${(pbase + 32).toString(16)}`;
-            const curHex = execFileSync("busybox", ["devmem", pmconAddr, "32"], {
-              encoding: "utf-8",
-              timeout: 1500
-            }).trim();
-            const curVal = Number.parseInt(curHex, 16);
-            const newVal = (curVal & ~1) >>> 0;
-            const newHex = `0x${newVal.toString(16).padStart(8, "0")}`;
-            execFileSync("busybox", ["devmem", pmconAddr, "32", newHex], { timeout: 1500 });
-            const verifyHex = execFileSync("busybox", ["devmem", pmconAddr, "32"], {
-              encoding: "utf-8",
-              timeout: 1500
-            }).trim();
-            report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 1) === 0;
-            report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
+          if (cfgBuf.length >= 72) {
+            const pbaseRaw = cfgBuf.readUInt32LE(68);
+            if ((pbaseRaw & 4294966784) > 0) {
+              pbase = (pbaseRaw & 4294966784) >>> 0;
+            }
           }
         }
+        const pmconAddr = `0x${(pbase + 32).toString(16)}`;
+        const curHex = execFileSync("busybox", ["devmem", pmconAddr, "32"], {
+          encoding: "utf-8",
+          timeout: 1500
+        }).trim();
+        const curVal = Number.parseInt(curHex, 16);
+        const newVal = (curVal & ~1) >>> 0;
+        const newHex = `0x${newVal.toString(16).padStart(8, "0")}`;
+        execFileSync("busybox", ["devmem", pmconAddr, "32", newHex], { timeout: 1500 });
+        const verifyHex = execFileSync("busybox", ["devmem", pmconAddr, "32"], {
+          encoding: "utf-8",
+          timeout: 1500
+        }).trim();
+        report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 1) === 0;
+        report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
       } catch (e) {
         report.pmcError = e.message;
       }
