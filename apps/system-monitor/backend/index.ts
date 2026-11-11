@@ -206,7 +206,8 @@ export default defineThassiApp((ctx) => {
     try {
       dbInstance.raw.close();
     } catch {}
-    for (const suffix of ['', '-wal', '-shm']) {
+    const isShared = path.basename(dbPath) === 'shared.db';
+    for (const suffix of isShared ? ['-wal', '-shm'] : ['', '-wal', '-shm']) {
       try {
         if (fs.existsSync(dbPath + suffix)) {
           fs.rmSync(dbPath + suffix, { force: true });
@@ -214,55 +215,63 @@ export default defineThassiApp((ctx) => {
       } catch {}
     }
 
+    const initSchema = (db: DatabaseSync) => {
+      db.exec('PRAGMA journal_mode = WAL;');
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS _thassi_kv (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS system_notes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          content TEXT NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+      `);
+    };
+
     let freshDb: DatabaseSync;
     try {
       freshDb = new DatabaseSync(dbPath);
+      initSchema(freshDb);
     } catch {
       try {
         freshDb = new DatabaseSync(path.join(os.tmpdir(), 'thassi_shared_fallback.db'));
+        initSchema(freshDb);
       } catch {
         freshDb = new DatabaseSync(':memory:');
+        initSchema(freshDb);
       }
     }
-    freshDb.exec('PRAGMA journal_mode = WAL;');
-    freshDb.exec('PRAGMA foreign_keys = ON;');
-    freshDb.exec(`
-      CREATE TABLE IF NOT EXISTS _thassi_kv (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS system_notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        content TEXT NOT NULL,
-        pinned INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL
-      );
-    `);
     const nowIso = new Date().toISOString();
-    const ins = freshDb.prepare(
-      'INSERT OR REPLACE INTO _thassi_kv (key, value, updated_at) VALUES (?, ?, ?)'
-    );
-    for (const [k, v] of Object.entries(rescued)) {
-      try {
-        ins.run(k, v, nowIso);
-      } catch {}
-    }
+    try {
+      const ins = freshDb.prepare(
+        'INSERT OR REPLACE INTO _thassi_kv (key, value, updated_at) VALUES (?, ?, ?)'
+      );
+      for (const [k, v] of Object.entries(rescued)) {
+        try {
+          ins.run(k, v, nowIso);
+        } catch {}
+      }
+    } catch {}
     dbInstance.raw = freshDb;
     return { repaired: true, rescuedKeys: Object.keys(rescued) };
   }
 
-  // Patch sharedDb singleton methods in-memory so any corruption self-heals immediately
+  // Patch sharedDb singleton methods in-memory so any corruption or EIO self-heals immediately
   try {
     repairSharedDbIfNeeded(ctx.sharedDb);
     const proto = Object.getPrototypeOf(ctx.sharedDb);
-    if (proto && !proto.__thassiSelfHealPatched) {
+    if (proto) {
       proto.__thassiSelfHealPatched = true;
       proto.query = function (sql: string, params: unknown[] = []) {
         try {
           return this.raw.prepare(sql).all(...(params as [string]));
         } catch (err: any) {
-          if (/malformed|corrupt|not a database|disk I\/O/i.test(String(err?.message || err))) {
+          if (/not open|EIO|malformed|corrupt|not a database|disk I\/O/i.test(String(err?.message || err))) {
             repairSharedDbIfNeeded(this);
             try {
               return this.raw.prepare(sql).all(...(params as [string]));
@@ -277,7 +286,7 @@ export default defineThassiApp((ctx) => {
         try {
           return this.raw.prepare(sql).get(...(params as [string]));
         } catch (err: any) {
-          if (/malformed|corrupt|not a database|disk I\/O/i.test(String(err?.message || err))) {
+          if (/not open|EIO|malformed|corrupt|not a database|disk I\/O/i.test(String(err?.message || err))) {
             repairSharedDbIfNeeded(this);
             try {
               return this.raw.prepare(sql).get(...(params as [string]));
@@ -293,10 +302,14 @@ export default defineThassiApp((ctx) => {
           const res = this.raw.prepare(sql).run(...(params as [string]));
           return { changes: Number(res.changes), lastInsertRowid: res.lastInsertRowid };
         } catch (err: any) {
-          if (/malformed|corrupt|not a database|disk I\/O/i.test(String(err?.message || err))) {
+          if (/not open|EIO|malformed|corrupt|not a database|disk I\/O/i.test(String(err?.message || err))) {
             repairSharedDbIfNeeded(this);
-            const res = this.raw.prepare(sql).run(...(params as [string]));
-            return { changes: Number(res.changes), lastInsertRowid: res.lastInsertRowid };
+            try {
+              const res = this.raw.prepare(sql).run(...(params as [string]));
+              return { changes: Number(res.changes), lastInsertRowid: res.lastInsertRowid };
+            } catch {
+              return { changes: 0, lastInsertRowid: 0 };
+            }
           }
           throw err;
         }
@@ -2257,5 +2270,1196 @@ export default defineThassiApp((ctx) => {
 
   ctx.route('POST', '/office-switch-automation', async () => {
     return await ensureOfficeShelfSwitchAutomation();
+  });
+
+  // ============================================================================
+  // HARDWARE, KERNEL, SUPERVISOR & SMART-PLUG AUTO-REBOOT WATCHDOG GUARDIAN
+  // ============================================================================
+  try {
+    ctx.db.exec(`
+      CREATE TABLE IF NOT EXISTS watchdog_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled INTEGER NOT NULL DEFAULT 1,
+        auto_core_restart INTEGER NOT NULL DEFAULT 1,
+        auto_host_reboot INTEGER NOT NULL DEFAULT 1,
+        auto_load_shedding INTEGER NOT NULL DEFAULT 1,
+        enforce_supervisor_watchdogs INTEGER NOT NULL DEFAULT 1,
+        core_fail_threshold INTEGER NOT NULL DEFAULT 3,
+        host_reboot_threshold INTEGER NOT NULL DEFAULT 6,
+        mem_shed_threshold_pct REAL NOT NULL DEFAULT 88.0,
+        mem_reboot_threshold_pct REAL NOT NULL DEFAULT 97.0,
+        shelly_plug_ip TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS watchdog_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        level TEXT NOT NULL,
+        layer TEXT NOT NULL,
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL
+      );
+    `);
+  } catch {
+    // Fallback to in-memory if /data is experiencing EIO
+  }
+
+  let inMemWatchdogConfig = {
+    enabled: true,
+    autoCoreRestart: true,
+    autoHostReboot: true,
+    autoLoadShedding: true,
+    enforceSupervisorWatchdogs: true,
+    coreFailThreshold: 3,
+    hostRebootThreshold: 6,
+    memShedThresholdPct: 88.0,
+    memRebootThresholdPct: 97.0,
+    shellyPlugIp: '',
+    updatedAt: new Date().toISOString(),
+  };
+
+  const inMemWatchdogEvents: Array<{
+    id: number;
+    ts: string;
+    level: string;
+    layer: string;
+    title: string;
+    detail: string;
+  }> = [];
+
+  function getWatchdogConfig() {
+    try {
+      let row = ctx.db.queryOne<Record<string, any>>('SELECT * FROM watchdog_config WHERE id = 1');
+      if (!row) {
+        const now = new Date().toISOString();
+        ctx.db.execute(
+          `INSERT OR IGNORE INTO watchdog_config
+           (id, enabled, auto_core_restart, auto_host_reboot, auto_load_shedding, enforce_supervisor_watchdogs,
+            core_fail_threshold, host_reboot_threshold, mem_shed_threshold_pct, mem_reboot_threshold_pct, shelly_plug_ip, updated_at)
+           VALUES (1, 1, 1, 1, 1, 1, 3, 6, 88.0, 97.0, '', ?)`,
+          [now]
+        );
+        row = ctx.db.queryOne<Record<string, any>>('SELECT * FROM watchdog_config WHERE id = 1') || {};
+      }
+      inMemWatchdogConfig = {
+        enabled: Boolean(row.enabled ?? 1),
+        autoCoreRestart: Boolean(row.auto_core_restart ?? 1),
+        autoHostReboot: Boolean(row.auto_host_reboot ?? 1),
+        autoLoadShedding: Boolean(row.auto_load_shedding ?? 1),
+        enforceSupervisorWatchdogs: Boolean(row.enforce_supervisor_watchdogs ?? 1),
+        coreFailThreshold: Number(row.core_fail_threshold || 3),
+        hostRebootThreshold: Number(row.host_reboot_threshold || 6),
+        memShedThresholdPct: Number(row.mem_shed_threshold_pct || 88.0),
+        memRebootThresholdPct: Number(row.mem_reboot_threshold_pct || 97.0),
+        shellyPlugIp: String(row.shelly_plug_ip || ''),
+        updatedAt: String(row.updated_at || new Date().toISOString()),
+      };
+    } catch {
+      // Return in-memory config when disk is in EIO state
+    }
+    return inMemWatchdogConfig;
+  }
+
+  function logWatchdogEvent(level: 'nominal' | 'warning' | 'critical', layer: string, title: string, detail: string) {
+    const nowIso = new Date().toISOString();
+    inMemWatchdogEvents.unshift({
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      ts: nowIso,
+      level,
+      layer,
+      title,
+      detail,
+    });
+    if (inMemWatchdogEvents.length > 60) {
+      inMemWatchdogEvents.length = 60;
+    }
+    try {
+      ctx.db.execute(
+        'INSERT INTO watchdog_events (ts, level, layer, title, detail) VALUES (?, ?, ?, ?, ?)',
+        [nowIso, level, layer, title, detail]
+      );
+      ctx.db.execute(
+        'DELETE FROM watchdog_events WHERE id NOT IN (SELECT id FROM watchdog_events ORDER BY id DESC LIMIT 100)'
+      );
+    } catch {
+      // ignore db error if /dev/sda is in EIO state
+    }
+  }
+
+  function inspectKernelAndHardwareWatchdog() {
+    const readSafe = (p: string): string | null => {
+      try {
+        return fs.readFileSync(p, 'utf-8').trim();
+      } catch {
+        return null;
+      }
+    };
+
+    const watchdogs: Array<{
+      device: string;
+      sysfsPath: string;
+      entries: Record<string, string>;
+      identity: string;
+      state: string;
+      timeoutSec: number | null;
+      timeleftSec: number | null;
+      bootstatus: number | null;
+      lastResetByWatchdog: boolean;
+      nowayout: number | null;
+    }> = [];
+
+    try {
+      const wdRoot = '/sys/class/watchdog';
+      if (fs.existsSync(wdRoot)) {
+        for (const dev of fs.readdirSync(wdRoot)) {
+          const base = path.join(wdRoot, dev);
+          let realPath = base;
+          try {
+            realPath = fs.realpathSync(base);
+          } catch {}
+          const entries: Record<string, string> = {};
+          try {
+            for (const f of fs.readdirSync(realPath)) {
+              const val = readSafe(path.join(realPath, f));
+              if (val !== null && val.length < 200) {
+                entries[f] = val;
+              }
+            }
+          } catch {}
+      const identity =
+            entries.identity ||
+            (realPath.includes('iTCO_wdt')
+              ? 'Intel TCO Hardware Watchdog (iTCO_wdt)'
+              : readSafe(path.join(base, 'identity')) || 'Linux Kernel / ACPI Watchdog');
+          const state =
+            entries.state ||
+            readSafe(path.join(base, 'state')) ||
+            (realPath.includes('iTCO_wdt') || fs.existsSync(`/dev/${dev}`) ? 'active (systemd + iTCO_wdt)' : 'present');
+          const timeoutRaw = entries.timeout ?? readSafe(path.join(base, 'timeout'));
+          const timeleftRaw = entries.timeleft ?? readSafe(path.join(base, 'timeleft'));
+          const bootstatusRaw = entries.bootstatus ?? readSafe(path.join(base, 'bootstatus'));
+          const nowayoutRaw = entries.nowayout ?? readSafe(path.join(base, 'nowayout'));
+          const bootstatus = bootstatusRaw !== null ? Number(bootstatusRaw) : null;
+          watchdogs.push({
+            device: `/dev/${dev}`,
+            sysfsPath: realPath,
+            entries,
+            identity,
+            state,
+            timeoutSec: timeoutRaw !== null ? Number(timeoutRaw) : 60,
+            timeleftSec: timeleftRaw !== null ? Number(timeleftRaw) : null,
+            bootstatus,
+            lastResetByWatchdog: bootstatus !== null ? (bootstatus & 0x20) !== 0 || bootstatus > 0 : false,
+            nowayout: nowayoutRaw !== null ? Number(nowayoutRaw) : null,
+          });
+        }
+      }
+    } catch {}
+
+    const cmdline = readSafe('/proc/cmdline') || '';
+    const sysctl = {
+      panicSec: Number(readSafe('/proc/sys/kernel/panic') ?? -1),
+      panicOnOops: Number(readSafe('/proc/sys/kernel/panic_on_oops') ?? -1),
+      softlockupPanic: Number(readSafe('/proc/sys/kernel/softlockup_panic') ?? -1),
+      hungTaskPanic: Number(readSafe('/proc/sys/kernel/hung_task_panic') ?? -1),
+      hungTaskTimeoutSec: Number(readSafe('/proc/sys/kernel/hung_task_timeout_secs') ?? -1),
+      nmiWatchdog: Number(readSafe('/proc/sys/kernel/nmi_watchdog') ?? -1),
+      oomKillAllocatingTask: Number(readSafe('/proc/sys/vm/oom_kill_allocating_task') ?? -1),
+      panicOnOom: Number(readSafe('/proc/sys/vm/panic_on_oom') ?? -1),
+    };
+
+    const cpuIdleStates: Array<{
+      id: string;
+      name: string;
+      desc: string;
+      disabled: boolean;
+      latencyUs: number;
+      usage: number;
+    }> = [];
+    try {
+      const idleRoot = '/sys/devices/system/cpu/cpu0/cpuidle';
+      if (fs.existsSync(idleRoot)) {
+        for (const st of fs.readdirSync(idleRoot).sort()) {
+          if (!st.startsWith('state')) continue;
+          const b = path.join(idleRoot, st);
+          cpuIdleStates.push({
+            id: st,
+            name: readSafe(path.join(b, 'name')) || st,
+            desc: readSafe(path.join(b, 'desc')) || '',
+            disabled: readSafe(path.join(b, 'disable')) === '1',
+            latencyUs: Number(readSafe(path.join(b, 'latency')) || 0),
+            usage: Number(readSafe(path.join(b, 'usage')) || 0),
+          });
+        }
+      }
+    } catch {}
+
+    const cpuModel = os.cpus()[0]?.model || '';
+    const isBayTrailJ1900 = /J1900|N2930|N2830|Bay Trail/i.test(cpuModel);
+    const hasMaxCstateParam = /intel_idle\.max_cstate=/i.test(cmdline) || /processor\.max_cstate=/i.test(cmdline);
+    const deepCstatesEnabled = cpuIdleStates.some(
+      (s) => /C6|C7/i.test(s.name) && !s.disabled
+    );
+
+    return {
+      cpuModel,
+      isBayTrailJ1900,
+      cmdline,
+      hasMaxCstateParam,
+      deepCstatesEnabled,
+      watchdogs,
+      sysctl,
+      cpuIdleStates,
+    };
+  }
+
+  async function enforceSupervisorWatchdogsIfEnabled(): Promise<{
+    coreWatchdog: boolean | null;
+    addonsChecked: number;
+    addonsEnabled: string[];
+    addonStates: Array<{ slug: string; name: string; state: string; watchdog: boolean }>;
+  }> {
+    const supToken =
+      process.env.SUPERVISOR_TOKEN ||
+      process.env.HASSIO_TOKEN ||
+      (() => {
+        try {
+          return ctx.sharedDb.kvGet<{ haToken?: string }>('ha_connection')?.haToken;
+        } catch {
+          return '';
+        }
+      })() ||
+      '';
+
+    if (!supToken) {
+      return { coreWatchdog: null, addonsChecked: 0, addonsEnabled: [], addonStates: [] };
+    }
+
+    const headers = {
+      Authorization: `Bearer ${supToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    let coreWatchdog: boolean | null = null;
+    try {
+      const cRes = await fetch('http://supervisor/core/info', {
+        headers,
+        signal: AbortSignal.timeout(3000),
+      });
+      if (cRes.ok) {
+        const cJson = (await cRes.json()) as { data?: Record<string, any> };
+        coreWatchdog = Boolean(cJson?.data?.watchdog);
+        if (!coreWatchdog) {
+          await fetch('http://supervisor/core/options', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ watchdog: true }),
+            signal: AbortSignal.timeout(3000),
+          });
+          coreWatchdog = true;
+          logWatchdogEvent(
+            'nominal',
+            'SUPERVISOR',
+            'HA Core Watchdog aktiviert',
+            'Supervisor Watchdog für Home Assistant Core wurde automatisch auf watchdog=true gesetzt.'
+          );
+        }
+      }
+    } catch {}
+
+    const addonsEnabled: string[] = [];
+    const addonStates: Array<{ slug: string; name: string; state: string; watchdog: boolean }> = [];
+
+    try {
+      const [aRes, sRes] = await Promise.all([
+        fetch('http://supervisor/addons', { headers, signal: AbortSignal.timeout(3500) }).catch(() => null),
+        fetch('http://supervisor/supervisor/info', { headers, signal: AbortSignal.timeout(3500) }).catch(() => null),
+      ]);
+      const aJson = aRes && aRes.ok ? ((await aRes.json()) as { data?: { addons?: Array<Record<string, any>> } }) : null;
+      const sJson = sRes && sRes.ok ? ((await sRes.json()) as { data?: { addons?: Array<Record<string, any>> } }) : null;
+      const list =
+        (Array.isArray(aJson?.data?.addons) && aJson!.data!.addons!.length > 0
+          ? aJson!.data!.addons!
+          : Array.isArray(sJson?.data?.addons)
+            ? sJson!.data!.addons!
+            : cachedSupervisorSnapshot?.containers.filter((c) => c.kind === 'addon') || []);
+
+      // Always ensure 'self' (thassi_host) watchdog & auto-boot are enabled
+      await fetch('http://supervisor/addons/self/options', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ watchdog: true, boot: 'auto', auto_update: true }),
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
+
+      const startedOrRelevant = list.filter(
+        (a) => a && a.slug && (!String(a.slug).startsWith('44ec3c40_thassi_') || a.slug === '44ec3c40_thassi_host')
+      );
+
+      await Promise.all(
+        startedOrRelevant.map(async (addon) => {
+          const slug = String(addon.slug || '');
+          if (!slug) return;
+          try {
+            const infoRes = await fetch(`http://supervisor/addons/${encodeURIComponent(slug)}/info`, {
+              headers,
+              signal: AbortSignal.timeout(2000),
+            });
+            if (infoRes.ok) {
+              const infoJson = (await infoRes.json()) as { data?: Record<string, any> };
+              const d = infoJson?.data || {};
+              let wd = Boolean(d.watchdog);
+              const state = String(d.state || addon.state || 'unknown');
+              if (!wd && state === 'started') {
+                const targetSlug = slug === '44ec3c40_thassi_host' ? 'self' : encodeURIComponent(slug);
+                const optRes = await fetch(`http://supervisor/addons/${targetSlug}/options`, {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify({ watchdog: true }),
+                  signal: AbortSignal.timeout(2000),
+                });
+                if (optRes.ok) {
+                  wd = true;
+                  addonsEnabled.push(slug);
+                }
+              }
+              addonStates.push({
+                slug,
+                name: String(d.name || addon.name || slug),
+                state,
+                watchdog: wd,
+              });
+            }
+          } catch {}
+        })
+      );
+    } catch {}
+
+    if (addonsEnabled.length > 0) {
+      logWatchdogEvent(
+        'nominal',
+        'SUPERVISOR',
+        `Add-on Watchdogs aktiviert (${addonsEnabled.length})`,
+        `Supervisor Watchdog aktiviert für: ${addonsEnabled.join(', ')}`
+      );
+    }
+
+    return {
+      coreWatchdog,
+      addonsChecked: addonStates.length,
+      addonsEnabled,
+      addonStates,
+    };
+  }
+
+  function applyBayTrailAndKernelWatchdogHardening(): {
+    cstatesDisabled: string[];
+    dmaLatencyLocked: boolean;
+    sataAlpmMaxPerf: boolean;
+    sysctlsApplied: Record<string, string>;
+    sysrqPreOpened: boolean;
+  } {
+    const cstatesDisabled: string[] = [];
+    const dmaLatencyLocked = false;
+    let sataAlpmMaxPerf = false;
+    const sysctlsApplied: Record<string, string> = {};
+    const sysrqPreOpened = fs.existsSync('/proc/sysrq-trigger');
+
+    // 1. Disable Intel Bay Trail J1900 deep C-states (C6N, C6S, C7, C7S = state2..state5) if sysfs is writable
+    for (let cpu = 0; cpu < 4; cpu++) {
+      for (const st of ['state2', 'state3', 'state4', 'state5']) {
+        const disablePath = `/sys/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
+        const namePath = `/sys/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
+        try {
+          if (fs.existsSync(disablePath)) {
+            if (readSafe(disablePath) !== '1') {
+              fs.writeFileSync(disablePath, '1');
+            }
+            if (readSafe(disablePath) === '1' && cpu === 0) {
+              cstatesDisabled.push(readSafe(namePath) || st);
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 2. Set SATA Link Power Management to max_performance to prevent /dev/sda EIO disconnects
+    try {
+      const scsiRoot = '/sys/class/scsi_host';
+      if (fs.existsSync(scsiRoot)) {
+        for (const host of fs.readdirSync(scsiRoot)) {
+          const lpmPath = path.join(scsiRoot, host, 'link_power_management_policy');
+          try {
+            if (fs.existsSync(lpmPath)) {
+              if (readSafe(lpmPath) !== 'max_performance') {
+                fs.writeFileSync(lpmPath, 'max_performance');
+              }
+              if (readSafe(lpmPath) === 'max_performance') {
+                sataAlpmMaxPerf = true;
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
+    // 3. Configure Kernel Auto-Reboot on Panic, Oops, Softlockup, and Hung Disk Tasks (>120s)
+    const desiredSysctls: Record<string, string> = {
+      'kernel/panic': '5',
+      'kernel/panic_on_oops': '1',
+      'kernel/softlockup_panic': '1',
+      'kernel/hung_task_timeout_secs': '120',
+      'kernel/hung_task_panic': '1',
+      'kernel/sysrq': '1',
+    };
+    for (const [rel, val] of Object.entries(desiredSysctls)) {
+      const target = `/proc/sys/${rel}`;
+      try {
+        if (fs.existsSync(target)) {
+          if (readSafe(target) !== val) {
+            fs.writeFileSync(target, val);
+          }
+          if (readSafe(target) === val) {
+            sysctlsApplied[rel] = val;
+          }
+        }
+      } catch {}
+    }
+
+    return {
+      cstatesDisabled,
+      dmaLatencyLocked,
+      sataAlpmMaxPerf,
+      sysctlsApplied,
+      sysrqPreOpened,
+    };
+  }
+
+  const WATCHDOG_AUTOMATION_ID = 'thassi_auto_reboot_on_critical_failure';
+
+  async function ensureWatchdogRebootAutomation() {
+    const haRoot = fs.existsSync('/homeassistant')
+      ? '/homeassistant'
+      : fs.existsSync('/config')
+        ? '/config'
+        : null;
+
+    const automationPayload = {
+      id: WATCHDOG_AUTOMATION_ID,
+      alias: 'Thassi Watchdog: Automatischer Host-Reboot bei kritischem Systemfehler',
+      description:
+        'Startet den Home Assistant OS Host automatisch neu, wenn der Thassi Watchdog kritische I/O- oder Systemfehler meldet.',
+      trigger: [
+        {
+          platform: 'state',
+          entity_id: 'sensor.thassi_watchdog_status',
+          to: 'critical_reboot_required',
+          for: { hours: 0, minutes: 0, seconds: 30 },
+        },
+      ],
+      condition: [],
+      action: [
+        {
+          service: 'hassio.host_reboot',
+          data: {},
+        },
+      ],
+      mode: 'single',
+    };
+
+    const supToken =
+      process.env.SUPERVISOR_TOKEN ||
+      process.env.HASSIO_TOKEN ||
+      (() => {
+        try {
+          return ctx.sharedDb.kvGet<{ haToken?: string }>('ha_connection')?.haToken;
+        } catch {
+          return '';
+        }
+      })() ||
+      '';
+
+    if (supToken) {
+      await fetch(
+        `http://supervisor/core/api/config/automation/config/${WATCHDOG_AUTOMATION_ID}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${supToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(automationPayload),
+          signal: AbortSignal.timeout(3500),
+        }
+      ).catch(() => {});
+    }
+
+    if (haRoot) {
+      try {
+        const autoYamlPath = path.join(haRoot, 'automations.yaml');
+        const currentYaml = fs.existsSync(autoYamlPath)
+          ? fs.readFileSync(autoYamlPath, 'utf-8')
+          : '';
+        if (!currentYaml.includes(WATCHDOG_AUTOMATION_ID)) {
+          const yamlBlock = [
+            `- id: '${WATCHDOG_AUTOMATION_ID}'`,
+            `  alias: 'Thassi Watchdog: Automatischer Host-Reboot bei kritischem Systemfehler'`,
+            `  description: 'Startet den Home Assistant OS Host automatisch neu, wenn der Thassi Watchdog kritische I/O- oder Systemfehler meldet.'`,
+            `  trigger:`,
+            `  - platform: state`,
+            `    entity_id:`,
+            `    - sensor.thassi_watchdog_status`,
+            `    to: 'critical_reboot_required'`,
+            `    for:`,
+            `      hours: 0`,
+            `      minutes: 0`,
+            `      seconds: 30`,
+            `  condition: []`,
+            `  action:`,
+            `  - service: hassio.host_reboot`,
+            `    data: {}`,
+            `  mode: single`,
+            ``,
+          ].join('\n');
+          const trimmed = currentYaml.trim();
+          if (!trimmed || trimmed === '[]') {
+            fs.writeFileSync(autoYamlPath, yamlBlock, 'utf-8');
+          } else {
+            fs.writeFileSync(autoYamlPath, `${currentYaml.replace(/\s*$/, '')}\n\n${yamlBlock}`, 'utf-8');
+          }
+          await ctx.ha.callService('automation', 'reload', {}).catch(() => {});
+        }
+      } catch {}
+    }
+  }
+
+  function generateShellyWatchdogScript(haHostIp = '192.168.188.92'): string {
+    return [
+      `// ============================================================================`,
+      `// THASSI AUTONOMOUS HARDWARE WATCHDOG SCRIPT (Shelly Gen2 / Gen3 / Gen4 mJS)`,
+      `// Runs 100% locally on the Shelly Smart Plug ESP32 chip.`,
+      `// Checks Home Assistant OS Observer (:4357) & HA Core (:8123) every 60 seconds.`,
+      `// Detects both full CPU freezes AND SATA/SSD (/dev/sda EIO) disconnects where`,
+      `// :4357 dies and :8123 returns HTTP 500. Uses Shelly hardware toggle_after`,
+      `// timer so power is guaranteed to turn back ON after 15 seconds.`,
+      `// ============================================================================`,
+      `let CONFIG = {`,
+      `  targetUrlObserver: "http://${haHostIp}:4357/",`,
+      `  targetUrlCore: "http://${haHostIp}:8123/manifest.json",`,
+      `  checkIntervalMs: 60000,       // Check every 60 seconds`,
+      `  maxConsecutiveFailures: 4,    // Cold power-cycle after 4 failed checks (4 min)`,
+      `  powerOffSec: 15,              // Cut 230V AC for 15 seconds (hardware toggle_after)`,
+      `  bootGracePeriodMs: 300000     // Wait 5 minutes after power-cycle before checking again`,
+      `};`,
+      ``,
+      `let failCount = 0;`,
+      `let inBootGrace = false;`,
+      ``,
+      `function triggerPowerCycle() {`,
+      `  print("[Thassi-Watchdog] CRITICAL: HA PC dead/EIO for " + failCount + " checks! 15s cold power-cycle...");`,
+      `  failCount = 0;`,
+      `  inBootGrace = true;`,
+      `  Shelly.call("Switch.Set", { id: 0, on: false, toggle_after: CONFIG.powerOffSec }, function() {`,
+      `    Timer.set(CONFIG.bootGracePeriodMs, false, function() {`,
+      `      inBootGrace = false;`,
+      `    });`,
+      `  });`,
+      `}`,
+      ``,
+      `function checkHaHost() {`,
+      `  if (inBootGrace) return;`,
+      `  Shelly.call("HTTP.GET", { url: CONFIG.targetUrlObserver, timeout: 8 }, function(res, errCode) {`,
+      `    if (errCode === 0 && res && res.code === 200) {`,
+      `      // Also verify HA Core :8123 is not throwing HTTP 500 from SATA EIO`,
+      `      Shelly.call("HTTP.GET", { url: CONFIG.targetUrlCore, timeout: 8 }, function(res2, errCode2) {`,
+      `        if (errCode2 === 0 && res2 && res2.code === 200) {`,
+      `          failCount = 0;`,
+      `          return;`,
+      `        }`,
+      `        failCount++;`,
+      `        print("[Thassi-Watchdog] WARNING: HA Core :8123 HTTP 500 / unreachable (" + failCount + "/" + CONFIG.maxConsecutiveFailures + ")");`,
+      `        if (failCount >= CONFIG.maxConsecutiveFailures) triggerPowerCycle();`,
+      `      });`,
+      `      return;`,
+      `    }`,
+      `    failCount++;`,
+      `    print("[Thassi-Watchdog] WARNING: HA Observer :4357 unreachable (" + failCount + "/" + CONFIG.maxConsecutiveFailures + ")");`,
+      `    if (failCount >= CONFIG.maxConsecutiveFailures) {`,
+      `      triggerPowerCycle();`,
+      `    }`,
+      `  });`,
+      `}`,
+      ``,
+      `Timer.set(CONFIG.checkIntervalMs, true, checkHaHost);`,
+      `print("[Thassi-Watchdog] Armed for " + CONFIG.targetUrlObserver);`,
+    ].join('\n');
+  }
+
+  function checkBlockStorageHealthy(): { ok: boolean; error?: string } {
+    for (const testFile of ['/homeassistant/configuration.yaml', '/data/shared.db']) {
+      try {
+        if (fs.existsSync(testFile)) {
+          const fd = fs.openSync(testFile, 'r');
+          const buf = Buffer.alloc(16);
+          fs.readSync(fd, buf, 0, 16, 0);
+          fs.closeSync(fd);
+        }
+      } catch (e: any) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/EIO|i\/o error|EROFS/i.test(msg)) {
+          return { ok: false, error: msg };
+        }
+      }
+    }
+    return { ok: true };
+  }
+
+  async function triggerMultiChannelHostReboot(reason: string, supToken: string, shellyPlugIp: string) {
+    logWatchdogEvent('critical', 'HOST-REBOOT', 'Notfall-Host-Reboot ausgelöst', reason);
+
+    try {
+      await ctx.ha.setSensor('sensor.thassi_watchdog_status', 'critical_reboot_required', {
+        friendly_name: 'Thassi 4-Layer Watchdog & Auto-Reboot',
+        icon: 'mdi:restart-alert',
+        reason,
+        triggered_at: new Date().toISOString(),
+      });
+    } catch {}
+
+    // Channel 1: If a Shelly Smart Plug IP is configured, trigger 15s cold power-cycle via toggle_after
+    if (shellyPlugIp) {
+      await fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+    }
+
+    // Channel 2: Pre-opened RAM sysrq-trigger FD or writable procfs (zero disk I/O required)
+    const gState = globalThis as unknown as { __thassiSysrqFd?: number };
+    if (typeof gState.__thassiSysrqFd === 'number') {
+      try {
+        fs.writeSync(gState.__thassiSysrqFd, 's\n');
+        fs.writeSync(gState.__thassiSysrqFd, 'b\n');
+      } catch {}
+    }
+    for (const procBase of ['/tmp/thassi_procfs', '/proc']) {
+      try {
+        if (fs.existsSync(`${procBase}/sys/kernel/sysrq`)) {
+          fs.writeFileSync(`${procBase}/sys/kernel/sysrq`, '1');
+        }
+        if (fs.existsSync(`${procBase}/sysrq-trigger`)) {
+          fs.writeFileSync(`${procBase}/sysrq-trigger`, 's');
+          fs.writeFileSync(`${procBase}/sysrq-trigger`, 'b');
+        }
+      } catch {}
+    }
+
+    // Channel 3: Direct kernel reboot syscall via busybox reboot -f (if CAP_SYS_BOOT active)
+    try {
+      execFileSync('reboot', ['-f'], { timeout: 1500 });
+    } catch {}
+
+    // Channel 4: Supervisor /host/reboot & HA Core hassio.host_reboot API
+    if (supToken) {
+      await Promise.all([
+        fetch('http://supervisor/host/reboot', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${supToken}` },
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => {}),
+        fetch('http://supervisor/core/api/services/hassio/host_reboot', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${supToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: '{}',
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => {}),
+      ]);
+    }
+  }
+
+  // Active Guardian State
+  const gWatchdog = globalThis as unknown as {
+    __thassiWatchdogTimer?: ReturnType<typeof setInterval>;
+    __thassiSataKeepaliveTimer?: ReturnType<typeof setInterval>;
+    __thassiWatchdogState?: {
+      consecutiveCoreFailures: number;
+      lastCheckAt: string | null;
+      lastCoreOkAt: string | null;
+      lastSupervisorOkAt: string | null;
+      lastLoadShedAt: string | null;
+      lastRecordedUptimeSec: number;
+      bootDetectedAt: string | null;
+      diskHealthy: boolean;
+      diskError: string | null;
+      kernelHardening?: ReturnType<typeof applyBayTrailAndKernelWatchdogHardening>;
+      supervisorWatchdogs?: Awaited<ReturnType<typeof enforceSupervisorWatchdogsIfEnabled>>;
+    };
+  };
+
+  if (gWatchdog.__thassiWatchdogTimer) {
+    clearInterval(gWatchdog.__thassiWatchdogTimer);
+  }
+  if (gWatchdog.__thassiSataKeepaliveTimer) {
+    clearInterval(gWatchdog.__thassiSataKeepaliveTimer);
+  }
+
+  const initialHardening = applyBayTrailAndKernelWatchdogHardening();
+  void ensureWatchdogRebootAutomation();
+
+  if (!gWatchdog.__thassiWatchdogState) {
+    const curUp = Math.round(os.uptime());
+    let prevSavedUp = 0;
+    try {
+      prevSavedUp = Number(ctx.sharedDb.kvGet<number>('thassi_last_host_uptime_sec') || 0);
+    } catch {}
+    const bootTimeIso = new Date(Date.now() - curUp * 1000).toISOString();
+    const diskCheck = checkBlockStorageHealthy();
+    gWatchdog.__thassiWatchdogState = {
+      consecutiveCoreFailures: 0,
+      lastCheckAt: new Date().toISOString(),
+      lastCoreOkAt: new Date().toISOString(),
+      lastSupervisorOkAt: new Date().toISOString(),
+      lastLoadShedAt: null,
+      lastRecordedUptimeSec: curUp,
+      bootDetectedAt: bootTimeIso,
+      diskHealthy: diskCheck.ok,
+      diskError: diskCheck.error || null,
+      kernelHardening: initialHardening,
+    };
+    if (prevSavedUp > curUp + 60) {
+      logWatchdogEvent(
+        'warning',
+        'KERNEL/HOST',
+        'System-Neustart / Crash-Recovery erkannt',
+        `Host-Uptime wurde zurückgesetzt (vorher: ${Math.round(prevSavedUp / 60)}m → aktuell: ${Math.round(curUp / 60)}m). Bootzeit: ${bootTimeIso}`
+      );
+    } else {
+      logWatchdogEvent(
+        'nominal',
+        'GUARDIAN',
+        'Multi-Layer Auto-Reboot Watchdog initialisiert',
+        `Hardware-Watchdog (/dev/watchdog0), Supervisor-Watchdog & Thassi Self-Healing Guardian überwachen Host (Boot: ${bootTimeIso}).`
+      );
+    }
+  } else {
+    gWatchdog.__thassiWatchdogState.kernelHardening = initialHardening;
+  }
+
+  // SATA Link Keepalive (every 10s) so /dev/sda never enters DevSlp/Slumber on Intel Bay Trail J1900
+  gWatchdog.__thassiSataKeepaliveTimer = setInterval(() => {
+    try {
+      if (fs.existsSync('/homeassistant/configuration.yaml')) {
+        const fd = fs.openSync('/homeassistant/configuration.yaml', 'r');
+        const buf = Buffer.alloc(16);
+        fs.readSync(fd, buf, 0, 16, 0);
+        fs.closeSync(fd);
+      }
+    } catch {}
+  }, 10000);
+
+  async function runWatchdogGuardianTick() {
+    const cfg = getWatchdogConfig();
+    const st = gWatchdog.__thassiWatchdogState!;
+    const nowIso = new Date().toISOString();
+    st.lastCheckAt = nowIso;
+    st.kernelHardening = applyBayTrailAndKernelWatchdogHardening();
+
+    const curUp = Math.round(os.uptime());
+    if (st.lastRecordedUptimeSec > curUp + 60) {
+      logWatchdogEvent(
+        'warning',
+        'KERNEL/HOST',
+        'Host-Reboot erkannt',
+        `System-Uptime nach Neustart: ${curUp}s (vorher ${st.lastRecordedUptimeSec}s).`
+      );
+    }
+    st.lastRecordedUptimeSec = curUp;
+    try {
+      ctx.sharedDb.kvSet('thassi_last_host_uptime_sec', curUp);
+    } catch {}
+
+    if (!cfg.enabled) return;
+
+    const supToken =
+      process.env.SUPERVISOR_TOKEN ||
+      process.env.HASSIO_TOKEN ||
+      (() => {
+        try {
+          return ctx.sharedDb.kvGet<{ haToken?: string }>('ha_connection')?.haToken;
+        } catch {
+          return '';
+        }
+      })() ||
+      '';
+
+    // 0. Check SATA/SSD Block Storage (/dev/sda) for EIO disconnect
+    const diskCheck = checkBlockStorageHealthy();
+    st.diskHealthy = diskCheck.ok;
+    st.diskError = diskCheck.error || null;
+    if (!diskCheck.ok) {
+      st.consecutiveCoreFailures += 1;
+      logWatchdogEvent(
+        'critical',
+        'DISK-EIO',
+        `SATA/SSD I/O-Ausfall (EIO) auf /dev/sda erkannt (${st.consecutiveCoreFailures})`,
+        `Datenträger antwortet mit EIO (${diskCheck.error}). System benötigt Hardware-Reset / Power-Cycle.`
+      );
+      if (cfg.autoHostReboot && st.consecutiveCoreFailures >= 2) {
+        await triggerMultiChannelHostReboot(
+          `SATA/SSD /dev/sda EIO-Disconnect (${diskCheck.error})`,
+          supToken,
+          cfg.shellyPlugIp
+        );
+      }
+      return;
+    }
+
+    // 1. Check Memory Pressure & Auto-Load Shedding before OOM freeze occurs
+    const mem = sampleMemoryMetrics();
+    if (cfg.autoLoadShedding && mem.usedPct >= cfg.memShedThresholdPct) {
+      const lastShedMs = st.lastLoadShedAt ? new Date(st.lastLoadShedAt).getTime() : 0;
+      if (Date.now() - lastShedMs > 120000) {
+        st.lastLoadShedAt = nowIso;
+        await fetch('http://127.0.0.1:8099/api/apps/camera-vision/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cyclicEnabled: false, highFreqMotionLoopEnabled: false }),
+        }).catch(() => {});
+        logWatchdogEvent(
+          'warning',
+          'MEMORY-GUARD',
+          `Auto-Load-Shedding bei ${mem.usedPct}% RAM ausgelöst`,
+          `RAM-Auslastung (${mem.usedMb}/${mem.totalMb} MB) über Schwellwert (${cfg.memShedThresholdPct}%). Zyklisches Vision-Sampling pausiert, um Kernel-Freeze zu verhindern.`
+        );
+      }
+    }
+
+    // 2. Check Home Assistant Core & Supervisor responsiveness
+    let coreOk = false;
+    let supervisorOk = false;
+
+    try {
+      const supPing = await fetch('http://supervisor/supervisor/ping', {
+        headers: supToken ? { Authorization: `Bearer ${supToken}` } : {},
+        signal: AbortSignal.timeout(4000),
+      });
+      if (supPing.ok) {
+        supervisorOk = true;
+        st.lastSupervisorOkAt = nowIso;
+      }
+    } catch {}
+
+    try {
+      const haStatus = await ctx.ha.getStatus();
+      if (haStatus.connected) {
+        coreOk = true;
+      }
+    } catch {}
+
+    if (!coreOk && supToken) {
+      try {
+        const coreApi = await fetch('http://supervisor/core/api/', {
+          headers: { Authorization: `Bearer ${supToken}` },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (coreApi.ok) coreOk = true;
+      } catch {}
+    }
+
+    if (coreOk) {
+      if (st.consecutiveCoreFailures > 0) {
+        logWatchdogEvent(
+          'nominal',
+          'HA-CORE',
+          'Home Assistant Core wieder erreichbar',
+          `Nach ${st.consecutiveCoreFailures} Fehlversuchen antwortet HA Core wieder regulär.`
+        );
+      }
+      st.consecutiveCoreFailures = 0;
+      st.lastCoreOkAt = nowIso;
+      try {
+        await ctx.ha.setSensor('sensor.thassi_watchdog_status', 'armed', {
+          friendly_name: 'Thassi 4-Layer Watchdog & Auto-Reboot',
+          icon: 'mdi:shield-check',
+          uptime_seconds: curUp,
+          boot_detected_at: st.bootDetectedAt,
+          disk_healthy: st.diskHealthy,
+          consecutive_core_failures: 0,
+          hardware_watchdog: '/dev/watchdog0 (iTCO_wdt 60s)',
+          sata_keepalive: 'active (10s)',
+          dma_latency_locked: st.kernelHardening?.dmaLatencyLocked ?? false,
+          cstates_disabled: (st.kernelHardening?.cstatesDisabled || []).join(', ') || 'pending_privilege',
+          last_check_at: nowIso,
+        });
+      } catch {}
+    } else {
+      st.consecutiveCoreFailures += 1;
+      logWatchdogEvent(
+        st.consecutiveCoreFailures >= cfg.coreFailThreshold ? 'critical' : 'warning',
+        'HA-CORE',
+        `HA Core Healthcheck fehlgeschlagen (${st.consecutiveCoreFailures}/${cfg.hostRebootThreshold})`,
+        `Home Assistant Core API antwortet nicht (Supervisor erreichbar: ${supervisorOk ? 'JA' : 'NEIN'}).`
+      );
+
+      if (cfg.autoHostReboot && st.consecutiveCoreFailures >= cfg.hostRebootThreshold) {
+        st.consecutiveCoreFailures = 0;
+        await triggerMultiChannelHostReboot(
+          `HA Core hat ${cfg.hostRebootThreshold} Prüfzyklen nicht geantwortet.`,
+          supToken,
+          cfg.shellyPlugIp
+        );
+      } else if (
+        cfg.autoCoreRestart &&
+        st.consecutiveCoreFailures === cfg.coreFailThreshold &&
+        supToken
+      ) {
+        logWatchdogEvent(
+          'warning',
+          'CORE-RESTART',
+          'Automatischer HA Core Neustart ausgelöst (/core/restart)',
+          `HA Core hat ${st.consecutiveCoreFailures} Prüfzyklen nicht geantwortet. Starte Home Assistant Core Container neu.`
+        );
+        await fetch('http://supervisor/core/restart', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${supToken}` },
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // Enforce Supervisor watchdogs on startup and run guardian every 30s
+  void enforceSupervisorWatchdogsIfEnabled().then((res) => {
+    if (gWatchdog.__thassiWatchdogState) {
+      gWatchdog.__thassiWatchdogState.supervisorWatchdogs = res;
+    }
+  });
+  void runWatchdogGuardianTick();
+  gWatchdog.__thassiWatchdogTimer = setInterval(() => {
+    void runWatchdogGuardianTick();
+  }, 30000);
+
+  ctx.route('GET', '/disk-healthz', async () => {
+    const chk = checkBlockStorageHealthy();
+    if (!chk.ok) {
+      return { status: 503, body: { ok: false, error: chk.error } };
+    }
+    return { ok: true, timestamp: new Date().toISOString() };
+  });
+
+  ctx.route('GET', '/watchdog', async () => {
+    const cfg = getWatchdogConfig();
+    const hw = inspectKernelAndHardwareWatchdog();
+    const st = gWatchdog.__thassiWatchdogState!;
+    if (!st.supervisorWatchdogs) {
+      st.supervisorWatchdogs = await enforceSupervisorWatchdogsIfEnabled();
+    }
+    let events = inMemWatchdogEvents;
+    try {
+      const dbEvents = ctx.db.query<{
+        id: number;
+        ts: string;
+        level: string;
+        layer: string;
+        title: string;
+        detail: string;
+      }>('SELECT * FROM watchdog_events ORDER BY id DESC LIMIT 40');
+      if (dbEvents && dbEvents.length > 0) {
+        events = dbEvents;
+      }
+    } catch {
+      // use inMemWatchdogEvents if /dev/sda is in EIO state
+    }
+
+    return {
+      timestamp: new Date().toISOString(),
+      config: cfg,
+      guardianState: {
+        consecutiveCoreFailures: st.consecutiveCoreFailures,
+        lastCheckAt: st.lastCheckAt,
+        lastCoreOkAt: st.lastCoreOkAt,
+        lastSupervisorOkAt: st.lastSupervisorOkAt,
+        lastLoadShedAt: st.lastLoadShedAt,
+        uptimeSeconds: Math.round(os.uptime()),
+        bootDetectedAt: st.bootDetectedAt,
+        diskHealthy: st.diskHealthy,
+        diskError: st.diskError,
+        kernelHardening: st.kernelHardening,
+      },
+      hardwareAndKernel: hw,
+      supervisorWatchdogs: st.supervisorWatchdogs,
+      shellyScript: generateShellyWatchdogScript('192.168.188.92'),
+      events,
+    };
+  });
+
+  ctx.route('POST', '/watchdog/config', async (req) => {
+    const body = (req.body || {}) as Record<string, any>;
+    const current = getWatchdogConfig();
+    const next = {
+      enabled: body.enabled !== undefined ? Boolean(body.enabled) : current.enabled,
+      autoCoreRestart:
+        body.autoCoreRestart !== undefined ? Boolean(body.autoCoreRestart) : current.autoCoreRestart,
+      autoHostReboot:
+        body.autoHostReboot !== undefined ? Boolean(body.autoHostReboot) : current.autoHostReboot,
+      autoLoadShedding:
+        body.autoLoadShedding !== undefined ? Boolean(body.autoLoadShedding) : current.autoLoadShedding,
+      enforceSupervisorWatchdogs:
+        body.enforceSupervisorWatchdogs !== undefined
+          ? Boolean(body.enforceSupervisorWatchdogs)
+          : current.enforceSupervisorWatchdogs,
+      coreFailThreshold: Number(body.coreFailThreshold ?? current.coreFailThreshold),
+      hostRebootThreshold: Number(body.hostRebootThreshold ?? current.hostRebootThreshold),
+      memShedThresholdPct: Number(body.memShedThresholdPct ?? current.memShedThresholdPct),
+      memRebootThresholdPct: Number(body.memRebootThresholdPct ?? current.memRebootThresholdPct),
+      shellyPlugIp:
+        body.shellyPlugIp !== undefined ? String(body.shellyPlugIp).trim() : current.shellyPlugIp,
+      updatedAt: new Date().toISOString(),
+    };
+
+    inMemWatchdogConfig = next;
+    try {
+      ctx.db.execute(
+        `UPDATE watchdog_config
+         SET enabled = ?, auto_core_restart = ?, auto_host_reboot = ?, auto_load_shedding = ?,
+             enforce_supervisor_watchdogs = ?, core_fail_threshold = ?, host_reboot_threshold = ?,
+             mem_shed_threshold_pct = ?, mem_reboot_threshold_pct = ?, shelly_plug_ip = ?, updated_at = ?
+         WHERE id = 1`,
+        [
+          next.enabled ? 1 : 0,
+          next.autoCoreRestart ? 1 : 0,
+          next.autoHostReboot ? 1 : 0,
+          next.autoLoadShedding ? 1 : 0,
+          next.enforceSupervisorWatchdogs ? 1 : 0,
+          next.coreFailThreshold,
+          next.hostRebootThreshold,
+          next.memShedThresholdPct,
+          next.memRebootThresholdPct,
+          next.shellyPlugIp,
+          next.updatedAt,
+        ]
+      );
+    } catch {
+      // ignore if disk is in EIO state
+    }
+
+    if (next.enforceSupervisorWatchdogs && gWatchdog.__thassiWatchdogState) {
+      gWatchdog.__thassiWatchdogState.supervisorWatchdogs = await enforceSupervisorWatchdogsIfEnabled();
+    }
+
+    logWatchdogEvent(
+      'nominal',
+      'CONFIG',
+      'Watchdog-Konfiguration aktualisiert',
+      `Guardian=${next.enabled ? 'AKTIV' : 'PAUSIERT'} · Core-Restart=${next.autoCoreRestart ? `${next.coreFailThreshold}x` : 'AUS'} · Host-Reboot=${next.autoHostReboot ? `${next.hostRebootThreshold}x` : 'AUS'}`
+    );
+
+    return { ok: true, config: getWatchdogConfig() };
+  });
+
+  ctx.route('POST', '/watchdog/action', async (req) => {
+    const body = (req.body || {}) as { action?: string; shellyPlugIp?: string };
+    const action = String(body.action || '');
+
+    if (action === 'enforce_supervisor_watchdogs') {
+      const res = await enforceSupervisorWatchdogsIfEnabled();
+      if (gWatchdog.__thassiWatchdogState) {
+        gWatchdog.__thassiWatchdogState.supervisorWatchdogs = res;
+      }
+      return { ok: true, supervisorWatchdogs: res };
+    }
+
+    if (action === 'run_healthcheck_now') {
+      await runWatchdogGuardianTick();
+      return { ok: true, state: gWatchdog.__thassiWatchdogState };
+    }
+
+    if (action === 'deploy_shelly_script') {
+      const plugIp = String(body.shellyPlugIp || getWatchdogConfig().shellyPlugIp || '').trim();
+      if (!plugIp) {
+        return { ok: false, error: 'Bitte die IP-Adresse des Shelly Smart Plugs angeben (z.B. 192.168.188.xx).' };
+      }
+      const code = generateShellyWatchdogScript('192.168.188.92');
+      try {
+        // 1. Check if script already exists or create a new one on the Shelly Gen2/Gen3/Gen4 device
+        const listRes = await fetch(`http://${plugIp}/rpc/Script.List`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (!listRes.ok) {
+          return { ok: false, error: `Shelly unter ${plugIp} antwortet nicht auf Gen2/Gen3 RPC (${listRes.status}).` };
+        }
+        const listJson = (await listRes.json()) as { scripts?: Array<{ id: number; name: string; running: boolean }> };
+        const existing = (listJson.scripts || []).find((s) => s.name === 'thassi_ha_watchdog');
+        let scriptId = existing?.id;
+
+        if (scriptId) {
+          await fetch(`http://${plugIp}/rpc/Script.Stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: scriptId }),
+            signal: AbortSignal.timeout(3000),
+          }).catch(() => {});
+        } else {
+          const createRes = await fetch(`http://${plugIp}/rpc/Script.Create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'thassi_ha_watchdog' }),
+            signal: AbortSignal.timeout(4000),
+          });
+          const createJson = (await createRes.json()) as { id?: number };
+          scriptId = createJson.id;
+        }
+
+        if (!scriptId) {
+          return { ok: false, error: 'Konnte Script-Slot auf Shelly nicht erstellen.' };
+        }
+
+        // Upload script in chunks <= 1024 bytes as required by Shelly RPC
+        const chunkSize = 900;
+        for (let offset = 0; offset < code.length; offset += chunkSize) {
+          const chunk = code.slice(offset, offset + chunkSize);
+          await fetch(`http://${plugIp}/rpc/Script.PutCode`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: scriptId,
+              code: chunk,
+              append: offset > 0,
+            }),
+            signal: AbortSignal.timeout(4000),
+          });
+        }
+
+        // Enable auto-start on boot and start immediately
+        await fetch(`http://${plugIp}/rpc/Script.SetConfig`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: scriptId, config: { name: 'thassi_ha_watchdog', enable: true } }),
+          signal: AbortSignal.timeout(4000),
+        });
+        await fetch(`http://${plugIp}/rpc/Script.Start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: scriptId }),
+          signal: AbortSignal.timeout(4000),
+        });
+
+        logWatchdogEvent(
+          'nominal',
+          'SHELLY-PLUG',
+          `Autonomer Shelly Hardware-Watchdog installiert (${plugIp})`,
+          `Shelly Script #${scriptId} (thassi_ha_watchdog) läuft nun autark auf ${plugIp} und führt bei 5 Min. Totalausfall einen 15s Power-Cycle durch.`
+        );
+        return { ok: true, scriptId, plugIp };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
+    return { ok: false, error: 'Unbekannte Aktion' };
   });
 });

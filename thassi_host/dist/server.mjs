@@ -109,8 +109,10 @@ var ThassiAppDatabase = class {
       this.raw.close();
     } catch {
     }
+    const isSharedDb = path.basename(this.dbPath) === "shared.db";
     try {
-      for (const suffix of ["", "-wal", "-shm"]) {
+      const suffixes = isSharedDb ? ["-wal", "-shm"] : ["", "-wal", "-shm"];
+      for (const suffix of suffixes) {
         if (fs.existsSync(this.dbPath + suffix)) {
           fs.rmSync(this.dbPath + suffix, { force: true });
         }
@@ -136,8 +138,10 @@ var ThassiAppDatabase = class {
     try {
       return this.initSchema(new DatabaseSync(dbPath));
     } catch {
+      const isSharedDb = path.basename(dbPath) === "shared.db";
       try {
-        for (const suffix of ["", "-wal", "-shm"]) {
+        const suffixes = isSharedDb ? ["-wal", "-shm"] : ["", "-wal", "-shm"];
+        for (const suffix of suffixes) {
           if (fs.existsSync(dbPath + suffix)) {
             fs.rmSync(dbPath + suffix, { force: true });
           }

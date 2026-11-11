@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // packages/sdk/src/actions.ts

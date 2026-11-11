@@ -1818,8 +1818,8 @@ export default defineThassiApp((ctx) => {
   function getConfig(): VisionConfig {
     const saved = ctx.db.kvGet<Partial<VisionConfig>>('vision_config') || {};
     return {
-      cyclicEnabled: saved.cyclicEnabled ?? true,
-      highFreqMotionLoopEnabled: saved.highFreqMotionLoopEnabled ?? true,
+      cyclicEnabled: saved.cyclicEnabled ?? false,
+      highFreqMotionLoopEnabled: saved.highFreqMotionLoopEnabled ?? false,
       intervalSeconds: saved.intervalSeconds ?? 180,
       highFreqTickMs: saved.highFreqTickMs ?? 2500,
       visionEngine: 'local_coco_ssd',

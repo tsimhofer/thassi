@@ -105796,6 +105796,7 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // packages/sdk/src/actions.ts
@@ -107198,8 +107199,8 @@ var index_default = defineThassiApp((ctx) => {
   function getConfig() {
     const saved = ctx.db.kvGet("vision_config") || {};
     return {
-      cyclicEnabled: saved.cyclicEnabled ?? true,
-      highFreqMotionLoopEnabled: saved.highFreqMotionLoopEnabled ?? true,
+      cyclicEnabled: saved.cyclicEnabled ?? false,
+      highFreqMotionLoopEnabled: saved.highFreqMotionLoopEnabled ?? false,
       intervalSeconds: saved.intervalSeconds ?? 180,
       highFreqTickMs: saved.highFreqTickMs ?? 2500,
       visionEngine: "local_coco_ssd",

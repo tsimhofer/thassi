@@ -204,7 +204,83 @@ interface PerformanceSnapshot {
   history: HistoryPoint[];
 }
 
-type ViewTab = 'overview' | 'containers' | 'processes' | 'ha_activity';
+interface WatchdogTelemetry {
+  timestamp: string;
+  config: {
+    enabled: boolean;
+    autoCoreRestart: boolean;
+    autoHostReboot: boolean;
+    autoLoadShedding: boolean;
+    enforceSupervisorWatchdogs: boolean;
+    coreFailThreshold: number;
+    hostRebootThreshold: number;
+    memShedThresholdPct: number;
+    memRebootThresholdPct: number;
+    shellyPlugIp: string;
+    updatedAt: string;
+  };
+  guardianState: {
+    consecutiveCoreFailures: number;
+    lastCheckAt: string | null;
+    lastCoreOkAt: string | null;
+    lastSupervisorOkAt: string | null;
+    lastLoadShedAt: string | null;
+    uptimeSeconds: number;
+    bootDetectedAt: string | null;
+  };
+  hardwareAndKernel: {
+    cpuModel: string;
+    isBayTrailJ1900: boolean;
+    cmdline: string;
+    hasMaxCstateParam: boolean;
+    deepCstatesEnabled: boolean;
+    watchdogs: Array<{
+      device: string;
+      sysfsPath: string;
+      identity: string;
+      state: string;
+      timeoutSec: number | null;
+      timeleftSec: number | null;
+      bootstatus: number | null;
+      lastResetByWatchdog: boolean;
+    }>;
+    sysctl: {
+      panicSec: number;
+      panicOnOops: number;
+      softlockupPanic: number;
+      hungTaskPanic: number;
+      hungTaskTimeoutSec: number;
+      nmiWatchdog: number;
+      oomKillAllocatingTask: number;
+      panicOnOom: number;
+    };
+    cpuIdleStates: Array<{
+      id: string;
+      name: string;
+      desc: string;
+      disabled: boolean;
+      latencyUs: number;
+      usage: number;
+    }>;
+  };
+  supervisorWatchdogs?: {
+    coreWatchdog: boolean | null;
+    addonsChecked: number;
+    addonsEnabled: string[];
+    addonStates: Array<{ slug: string; name: string; state: string; watchdog: boolean }>;
+  };
+  shellyScript: string;
+  events: Array<{
+    id: number;
+    ts: string;
+    level: 'nominal' | 'warning' | 'critical';
+    layer: string;
+    title: string;
+    detail: string;
+  }>;
+}
+
+type ViewTab = 'overview' | 'containers' | 'processes' | 'ha_activity' | 'watchdog';
 type ProcessSortKey = 'cpu' | 'mem' | 'pid' | 'threads' | 'uptime';
 
 function formatUptime(sec: number): string {
@@ -232,6 +308,9 @@ function getSemanticStatusColor(pct: number, warnAt = 65, critAt = 85): string {
 
 export default function App({ embedded = false }: { embedded?: boolean }) {
   const [snapshot, setSnapshot] = useState<PerformanceSnapshot | null>(null);
+  const [watchdogData, setWatchdogData] = useState<WatchdogTelemetry | null>(null);
+  const [shellyIpInput, setShellyIpInput] = useState<string>('');
+  const [watchdogNotice, setWatchdogNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pollIntervalMs, setPollIntervalMs] = useState<number>(2500);
@@ -246,6 +325,58 @@ export default function App({ embedded = false }: { embedded?: boolean }) {
   const [inspectorMode, setInspectorMode] = useState<'container' | 'process'>('container');
   const [containerLogs, setContainerLogs] = useState<string>('');
   const [logsLoading, setLogsLoading] = useState(false);
+
+  const fetchWatchdog = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/watchdog`);
+      if (!res.ok) return;
+      const data = (await res.json()) as WatchdogTelemetry;
+      setWatchdogData(data);
+      if (data.config?.shellyPlugIp) {
+        setShellyIpInput((prev) => prev || data.config.shellyPlugIp);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const updateWatchdogConfig = useCallback(async (patch: Record<string, any>) => {
+    try {
+      const res = await fetch(`${getApiBase()}/watchdog/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        setWatchdogNotice('Watchdog-Konfiguration gespeichert.');
+        await fetchWatchdog();
+      }
+    } catch (e) {
+      setWatchdogNotice(`Fehler: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [fetchWatchdog]);
+
+  const triggerWatchdogAction = useCallback(async (action: string, extra: Record<string, any> = {}) => {
+    setWatchdogNotice('Führe Aktion aus...');
+    try {
+      const res = await fetch(`${getApiBase()}/watchdog/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string; scriptId?: number; plugIp?: string };
+      if (!json.ok) {
+        setWatchdogNotice(`Fehler: ${json.error || 'Aktion fehlgeschlagen'}`);
+      } else if (action === 'deploy_shelly_script') {
+        setWatchdogNotice(`Shelly Hardware-Watchdog (Script #${json.scriptId}) erfolgreich auf ${json.plugIp} aktiviert.`);
+      } else {
+        setWatchdogNotice('Watchdog-Aktion erfolgreich ausgeführt.');
+      }
+      await fetchWatchdog();
+    } catch (e) {
+      setWatchdogNotice(`Fehler: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [fetchWatchdog]);
 
   const fetchSnapshot = useCallback(async (force = false) => {
     try {
@@ -277,7 +408,8 @@ export default function App({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     void fetchSnapshot(true);
-  }, [fetchSnapshot]);
+    void fetchWatchdog();
+  }, [fetchSnapshot, fetchWatchdog]);
 
   useEffect(() => {
     if (pollIntervalMs <= 0) return;
@@ -561,7 +693,10 @@ export default function App({ embedded = false }: { embedded?: boolean }) {
           </select>
 
           <button
-            onClick={() => void fetchSnapshot(true)}
+            onClick={() => {
+              void fetchSnapshot(true);
+              void fetchWatchdog();
+            }}
             style={{
               background: '#fafafa',
               color: '#09090b',
@@ -574,6 +709,86 @@ export default function App({ embedded = false }: { embedded?: boolean }) {
             }}
           >
             Aktualisieren
+          </button>
+        </div>
+      </div>
+
+      {/* 1B. EXPLICIT DATA FRESHNESS & WATCHDOG / HARDWARE STATUS STRIP */}
+      <div
+        style={{
+          padding: '8px 32px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          background: '#111113',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          fontSize: 11.5,
+          fontFamily: 'var(--font-mono)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <span style={{ color: '#a1a1aa' }}>
+            Stand:{' '}
+            <strong style={{ color: '#fafafa', fontWeight: 500 }}>
+              {snapshot?.timestamp
+                ? new Date(snapshot.timestamp).toLocaleTimeString('de-AT')
+                : '—'}
+            </strong>{' '}
+            (vor{' '}
+            {snapshot?.timestamp
+              ? Math.max(0, Math.round((Date.now() - new Date(snapshot.timestamp).getTime()) / 1000))
+              : 0}
+            s)
+          </span>
+          <span style={{ color: 'rgba(255,255,255,0.16)' }}>|</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#a1a1aa' }}>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                backgroundColor: watchdogData?.config.enabled !== false ? '#10b981' : '#f59e0b',
+              }}
+            />
+            Auto-Reboot Guardian: {watchdogData?.config.enabled !== false ? 'AKTIV' : 'PAUSIERT'} ·
+            HW-Watchdog: iTCO_wdt (60s) · Kernel Panic: {watchdogData?.hardwareAndKernel.sysctl.panicSec ?? 5}s
+          </span>
+          {watchdogData?.hardwareAndKernel.isBayTrailJ1900 &&
+            watchdogData?.hardwareAndKernel.deepCstatesEnabled && (
+              <>
+                <span style={{ color: 'rgba(255,255,255,0.16)' }}>|</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#f59e0b' }}>
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      backgroundColor: '#f59e0b',
+                    }}
+                  />
+                  Hinweis: Intel J1900 Deep C-States (C6/C7) aktiv — BIOS/Kernel-Konfiguration empfohlen
+                </span>
+              </>
+            )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setActiveTab('watchdog')}
+            style={{
+              background: activeTab === 'watchdog' ? '#fafafa' : 'transparent',
+              color: activeTab === 'watchdog' ? '#09090b' : '#fafafa',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              borderRadius: 4,
+              padding: '3px 10px',
+              fontSize: 11,
+              fontFamily: 'var(--font-mono)',
+              cursor: 'pointer',
+            }}
+          >
+            Watchdog & Auto-Reboot Setup
           </button>
         </div>
       </div>
@@ -1113,6 +1328,10 @@ export default function App({ embedded = false }: { embedded?: boolean }) {
                 (snapshot?.haActivity.recentAutomations.length || 0) +
                 (snapshot?.supervisorJobs.length || 0)
               })`,
+            },
+            {
+              id: 'watchdog' as ViewTab,
+              label: `WATCHDOG & AUTO-REBOOT (4-SCHICHTEN)`,
             },
           ].map((tab) => {
             const active = activeTab === tab.id;
@@ -1927,6 +2146,568 @@ export default function App({ embedded = false }: { embedded?: boolean }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* TAB 5: WATCHDOG & AUTO-REBOOT (4-LAYER PROTECTION) */}
+          {activeTab === 'watchdog' && (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {watchdogNotice && (
+                <div
+                  style={{
+                    padding: '10px 24px',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                    background: '#111113',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 12,
+                    color: '#fafafa',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span>{watchdogNotice}</span>
+                  <button
+                    onClick={() => setWatchdogNotice(null)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#a1a1aa',
+                      fontSize: 11,
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    Schließen
+                  </button>
+                </div>
+              )}
+
+              {/* 4-LAYER ARCHITECTURE KPI STRIP */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                }}
+              >
+                {/* LAYER 1: HARDWARE & KERNEL */}
+                <div style={{ padding: '16px 20px', borderRight: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 10.5,
+                      letterSpacing: '0.08em',
+                      color: '#52525b',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    <span>SCHICHT 1 · HARDWARE WDT</span>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: '#10b981',
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 500, color: '#fafafa', marginTop: 6 }}>
+                    iTCO_wdt (60s Reset)
+                  </div>
+                  <div style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: '#a1a1aa', marginTop: 4 }}>
+                    /dev/watchdog0 · kernel.panic = {watchdogData?.hardwareAndKernel.sysctl.panicSec ?? 5}s
+                  </div>
+                  <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
+                    Erzwingt Mainboard-Reset bei Kernel-Deadlock
+                  </div>
+                </div>
+
+                {/* LAYER 2: SUPERVISOR WATCHDOGS */}
+                <div style={{ padding: '16px 20px', borderRight: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 10.5,
+                      letterSpacing: '0.08em',
+                      color: '#52525b',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    <span>SCHICHT 2 · SUPERVISOR WDT</span>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: watchdogData?.supervisorWatchdogs?.coreWatchdog ? '#10b981' : '#f59e0b',
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 500, color: '#fafafa', marginTop: 6 }}>
+                    Core: {watchdogData?.supervisorWatchdogs?.coreWatchdog ? 'AKTIV' : 'PRÜFE'}
+                  </div>
+                  <div style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: '#a1a1aa', marginTop: 4 }}>
+                    {
+                      (watchdogData?.supervisorWatchdogs?.addonStates || []).filter(
+                        (a) => a.state === 'started' && a.watchdog
+                      ).length
+                    }{' '}
+                    aktive Add-on Watchdogs
+                  </div>
+                  <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
+                    Startet gecrashte Container sofort neu
+                  </div>
+                </div>
+
+                {/* LAYER 3: THASSI GUARDIAN */}
+                <div style={{ padding: '16px 20px', borderRight: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 10.5,
+                      letterSpacing: '0.08em',
+                      color: '#52525b',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    <span>SCHICHT 3 · THASSI GUARDIAN</span>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: watchdogData?.config.enabled ? '#10b981' : '#f59e0b',
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 500, color: '#fafafa', marginTop: 6 }}>
+                    {watchdogData?.config.enabled ? '30s Selbstheilung' : 'Pausiert'}
+                  </div>
+                  <div style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: '#a1a1aa', marginTop: 4 }}>
+                    Fehlversuche: {watchdogData?.guardianState.consecutiveCoreFailures ?? 0} /{' '}
+                    {watchdogData?.config.hostRebootThreshold ?? 6}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
+                    RAM Load-Shedding → Core Restart → Host Reboot
+                  </div>
+                </div>
+
+                {/* LAYER 4: EXTERNAL SMART PLUG + BIOS */}
+                <div style={{ padding: '16px 20px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 10.5,
+                      letterSpacing: '0.08em',
+                      color: '#52525b',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    <span>SCHICHT 4 · HARDWARE POWER-CYCLE</span>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: watchdogData?.config.shellyPlugIp ? '#10b981' : '#f59e0b',
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 500, color: '#fafafa', marginTop: 6 }}>
+                    {watchdogData?.config.shellyPlugIp || 'Smart-Plug + BIOS'}
+                  </div>
+                  <div style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: '#a1a1aa', marginTop: 4 }}>
+                    J1900 C6/C7: {watchdogData?.hardwareAndKernel.deepCstatesEnabled ? 'AKTIV (Warnung)' : 'DEAKTIVIERT'}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
+                    Autarker 230V-Reset bei komplettem CPU-Freeze
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION A: SELF-HEALING GUARDIAN CONTROLS */}
+              <div
+                style={{
+                  padding: '16px 24px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: '#52525b',
+                      }}
+                    >
+                      AKTIVE SELBSTHEILUNGS-REGELN (THASSI GUARDIAN & SUPERVISOR API)
+                    </div>
+                    <div style={{ fontSize: 12.5, color: '#a1a1aa', marginTop: 4 }}>
+                      Prüft alle 30 Sekunden Home Assistant Core (:8123), Supervisor API und RAM-Druck. Eskaliert automatisch von Lastabwurf bis zum vollständigen Host-Reboot (/host/reboot).
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => void triggerWatchdogAction('run_healthcheck_now')}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 4,
+                        color: '#fafafa',
+                        padding: '6px 12px',
+                        fontSize: 11.5,
+                        fontFamily: 'var(--font-mono)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Healthcheck jetzt testen
+                    </button>
+                    <button
+                      onClick={() => void triggerWatchdogAction('enforce_supervisor_watchdogs')}
+                      style={{
+                        background: '#fafafa',
+                        border: 'none',
+                        borderRadius: 4,
+                        color: '#09090b',
+                        padding: '6px 12px',
+                        fontSize: 11.5,
+                        fontWeight: 500,
+                        fontFamily: 'var(--font-mono)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Supervisor Watchdogs erzwingen
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: 12,
+                    marginTop: 4,
+                  }}
+                >
+                  {[
+                    {
+                      key: 'enabled',
+                      label: 'Guardian Loop (30s)',
+                      desc: 'Kontinuierliche Überwachung aktiv',
+                      val: Boolean(watchdogData?.config.enabled),
+                    },
+                    {
+                      key: 'autoLoadShedding',
+                      label: `RAM Load-Shedding (> ${watchdogData?.config.memShedThresholdPct ?? 88}%)`,
+                      desc: 'Pausiert Vision-Tasks vor OOM-Freeze',
+                      val: Boolean(watchdogData?.config.autoLoadShedding),
+                    },
+                    {
+                      key: 'autoCoreRestart',
+                      label: `Stufe 1: Core Restart (${watchdogData?.config.coreFailThreshold ?? 3}x / 90s)`,
+                      desc: 'POST /core/restart bei API-Hänger',
+                      val: Boolean(watchdogData?.config.autoCoreRestart),
+                    },
+                    {
+                      key: 'autoHostReboot',
+                      label: `Stufe 2: PC Reboot (${watchdogData?.config.hostRebootThreshold ?? 6}x / 180s)`,
+                      desc: 'POST /host/reboot bei Totalausfall',
+                      val: Boolean(watchdogData?.config.autoHostReboot),
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.key}
+                      onClick={() => void updateWatchdogConfig({ [item.key]: !item.val })}
+                      style={{
+                        padding: '12px 14px',
+                        background: '#111113',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#fafafa' }}>{item.label}</span>
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 10.5,
+                            color: item.val ? '#10b981' : '#52525b',
+                          }}
+                        >
+                          {item.val ? 'AKTIV' : 'AUS'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 11, color: '#a1a1aa' }}>{item.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION B: INTEL CELERON J1900 BAY TRAIL HARDWARE FREEZE ANALYSIS & BIOS / KERNEL FIX */}
+              <div
+                style={{
+                  padding: '16px 24px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: '#f59e0b',
+                    }}
+                  >
+                    HARDWARE-URSACHE FÜR KOMPLETTE PC-FREEZES · INTEL CELERON J1900 (BAY TRAIL ERRATUM VLI89)
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#a1a1aa' }}>
+                    /proc/cmdline: {watchdogData?.hardwareAndKernel.hasMaxCstateParam ? 'intel_idle.max_cstate=1 gesetzt' : 'intel_idle.max_cstate fehlt'}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: 12.5, color: '#a1a1aa', lineHeight: 1.55 }}>
+                  Auf diesem Host arbeitet ein <strong style={{ color: '#fafafa' }}>Intel Celeron J1900 (Bay Trail)</strong> Prozessor. Diese CPU-Generation besitzt einen dokumentierten Hardware-Bug (Intel Erratum VLI89): Sobald die Kerne in die tiefen Schlafzustände <strong style={{ color: '#fafafa' }}>C6N / C6S / C7 / C7S</strong> wechseln, kann die Kernspannung einbrechen und der gesamte Systembus friert ohne Kernel-Panic hart ein (sodass selbst Software-Watchdogs nicht mehr ausgeführt werden).
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(6, 1fr)',
+                    gap: 8,
+                    marginTop: 4,
+                  }}
+                >
+                  {(watchdogData?.hardwareAndKernel.cpuIdleStates || []).map((st) => {
+                    const isDeep = /C6|C7/i.test(st.name);
+                    return (
+                      <div
+                        key={st.id}
+                        style={{
+                          padding: '8px 10px',
+                          background: '#111113',
+                          border: `1px solid ${isDeep && !st.disabled ? 'rgba(245, 158, 11, 0.35)' : 'rgba(255, 255, 255, 0.06)'}`,
+                          borderRadius: 4,
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 11,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#fafafa' }}>
+                          <strong>{st.name}</strong>
+                          <span style={{ color: st.disabled ? '#10b981' : isDeep ? '#f59e0b' : '#a1a1aa' }}>
+                            {st.disabled ? 'OFF' : 'ON'}
+                          </span>
+                        </div>
+                        <div style={{ color: '#52525b', fontSize: 10.5, marginTop: 2 }}>
+                          {st.desc} ({st.latencyUs}µs)
+                        </div>
+                        <div style={{ color: '#a1a1aa', fontSize: 10.5, marginTop: 2 }}>
+                          Hits: {st.usage.toLocaleString('de-AT')}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    background: '#111113',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    color: '#a1a1aa',
+                    lineHeight: 1.55,
+                  }}
+                >
+                  <div style={{ color: '#fafafa', fontWeight: 500, marginBottom: 4 }}>
+                    Dauerhafte Lösung gegen J1900 Hardware-Freezes & Garantierter Neustart nach Stromausfall:
+                  </div>
+                  <div>
+                    1. <strong style={{ color: '#fafafa' }}>Im BIOS des J1900 Mini-PCs</strong>: (a) Unter <em>CPU Configuration → CPU C-States</em> auf <code style={{ color: '#fafafa' }}>Disabled</code> (oder max. <code style={{ color: '#fafafa' }}>C1</code>) stellen. (b) Unter <em>Chipset / Power Management → Restore on AC Power Loss (After Power Failure)</em> auf <code style={{ color: '#fafafa' }}>Power On / Always On</code> stellen.
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    2. <strong style={{ color: '#fafafa' }}>Alternativ in HAOS Kernel-Cmdline</strong>: Auf der HAOS-Konsole (oder Boot-Partition <code style={{ color: '#fafafa' }}>/mnt/boot/cmdline.txt</code>) den Parameter <code style={{ color: '#fafafa' }}>intel_idle.max_cstate=1 processor.max_cstate=1 panic=5 oops=panic</code> anhängen.
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION C: AUTONOMOUS SHELLY SMART PLUG HARDWARE WATCHDOG */}
+              <div
+                style={{
+                  padding: '16px 24px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: '#52525b',
+                  }}
+                >
+                  SCHICHT 4 · AUTONOMER SHELLY SMART-PLUG HARDWARE-WATCHDOG (100% AUTARK AUF DEM PLUG)
+                </div>
+                <div style={{ fontSize: 12.5, color: '#a1a1aa', lineHeight: 1.5 }}>
+                  Wenn der Home Assistant PC über einen <strong style={{ color: '#fafafa' }}>Shelly Plug S Gen3 / Shelly 1PM</strong> mit Strom versorgt wird, kann dieses lokale mJS-Skript direkt auf dem Prozessor der Steckdose installiert werden. Es prüft völlig unabhängig von Home Assistant alle 60s <code style={{ color: '#fafafa' }}>http://192.168.188.92:4357</code>. Antwortet der PC 5 Minuten lang nicht (Total-Freeze), schaltet die Steckdose den Strom für 15 Sekunden ab und wieder ein.
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    value={shellyIpInput}
+                    onChange={(e) => setShellyIpInput(e.target.value)}
+                    placeholder="IP des Shelly Smart Plugs vor dem HA-PC (z.B. 192.168.188.xx)"
+                    style={{
+                      width: 360,
+                      background: '#141417',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: 4,
+                      padding: '7px 12px',
+                      color: '#fafafa',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 12,
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      void updateWatchdogConfig({ shellyPlugIp: shellyIpInput });
+                      void triggerWatchdogAction('deploy_shelly_script', { shellyPlugIp: shellyIpInput });
+                    }}
+                    style={{
+                      background: '#fafafa',
+                      color: '#09090b',
+                      border: 'none',
+                      borderRadius: 4,
+                      padding: '7px 14px',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      fontFamily: 'var(--font-mono)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Watchdog-Skript auf Shelly installieren
+                  </button>
+                </div>
+
+                <details style={{ marginTop: 4 }}>
+                  <summary
+                    style={{
+                      cursor: 'pointer',
+                      fontSize: 11.5,
+                      fontFamily: 'var(--font-mono)',
+                      color: '#a1a1aa',
+                    }}
+                  >
+                    Autonomes Shelly mJS Watchdog-Skript anzeigen (thassi_ha_watchdog.js)
+                  </summary>
+                  <pre
+                    style={{
+                      marginTop: 8,
+                      padding: 12,
+                      background: '#111113',
+                      border: '1px solid rgba(255, 255, 255, 0.06)',
+                      borderRadius: 4,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                      color: '#a1a1aa',
+                      overflowX: 'auto',
+                    }}
+                  >
+                    {watchdogData?.shellyScript || ''}
+                  </pre>
+                </details>
+              </div>
+
+              {/* SECTION D: WATCHDOG EVENT & REBOOT LOG */}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div
+                  style={{
+                    padding: '12px 24px 8px 24px',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: '#52525b',
+                  }}
+                >
+                  WATCHDOG EREIGNIS- & CRASH-RECOVERY-PROTOKOLL ({(watchdogData?.events || []).length})
+                </div>
+                {(watchdogData?.events || []).map((ev) => (
+                  <div
+                    key={ev.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '110px 1fr 165px',
+                      padding: '10px 24px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          backgroundColor:
+                            ev.level === 'critical'
+                              ? '#ef4444'
+                              : ev.level === 'warning'
+                                ? '#f59e0b'
+                                : '#10b981',
+                        }}
+                      />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#a1a1aa' }}>
+                        {ev.layer}
+                      </span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#fafafa' }}>{ev.title}</div>
+                      <div style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: '#a1a1aa', marginTop: 2 }}>
+                        {ev.detail}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: 'right',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11.5,
+                        color: '#52525b',
+                      }}
+                    >
+                      {new Date(ev.ts).toLocaleString('de-AT')}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

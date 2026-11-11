@@ -464,7 +464,7 @@ async function postJsonLanAware<T = unknown>(urlStr: string, payload: unknown): 
           'Content-Type': 'application/json',
           'Content-Length': bodyBuf.byteLength,
         },
-        timeout: 15000,
+        timeout: 35000,
       },
       (res) => {
         const chunks: Buffer[] = [];
