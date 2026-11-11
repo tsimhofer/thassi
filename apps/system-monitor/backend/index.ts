@@ -10,6 +10,14 @@ import { getHassSidebarStylerScript, syncHassFrontendFiles } from '../../../thas
 import { renderUnifiedDashboardHtml } from '../../../thassi_host/src/ambient-dashboard.js';
 import { getUniformAppStylesheetTag } from '../../../thassi_host/src/thassi-uniform-ui.js';
 
+function readSafe(filePath: string): string {
+  try {
+    return fs.readFileSync(filePath, 'utf-8').trim();
+  } catch {
+    return '';
+  }
+}
+
 export interface CpuCoreSnapshot {
   id: string;
   usagePct: number;
@@ -1695,20 +1703,16 @@ export default defineThassiApp((ctx) => {
   }
 
   function installLiveHostAndSidebarSync() {
-    try {
-      syncHassFrontendFiles();
-    } catch {
-      // ignore
-    }
-
     const gHostPatch = globalThis as unknown as {
       __thassiOrigServerEmit?: typeof http.Server.prototype.emit;
       __thassiLatestRenderDashboard?: (ingressPath: string) => string;
       __thassiLatestSidebarStyler?: () => string;
+      __thassiLatestUniformUiTag?: () => string;
     };
 
     gHostPatch.__thassiLatestRenderDashboard = renderUnifiedDashboardHtml;
     gHostPatch.__thassiLatestSidebarStyler = getHassSidebarStylerScript;
+    gHostPatch.__thassiLatestUniformUiTag = getUniformAppStylesheetTag;
 
     if (!gHostPatch.__thassiOrigServerEmit) {
       gHostPatch.__thassiOrigServerEmit = http.Server.prototype.emit;
@@ -1748,7 +1752,7 @@ export default defineThassiApp((ctx) => {
               res.writeHead(200, {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Access-Control-Allow-Origin': '*',
-                'X-Thassi-Live-Host': 'dynamic-nav-v3',
+                'X-Thassi-Live-Host': 'dynamic-nav-v4',
               });
               res.end(html);
               return true;
@@ -1759,6 +1763,7 @@ export default defineThassiApp((ctx) => {
           (res as any).end = function (chunk?: any, encodingOrCb?: any, cb?: any) {
             try {
               const stylerFn = gHostPatch.__thassiLatestSidebarStyler;
+              const uiTagFn = gHostPatch.__thassiLatestUniformUiTag || getUniformAppStylesheetTag;
               if (stylerFn && chunk && (typeof chunk === 'string' || Buffer.isBuffer(chunk))) {
                 const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
                 if (str.includes('initThassiHassSidebarStyler')) {
@@ -1772,7 +1777,7 @@ export default defineThassiApp((ctx) => {
                     patched = patched
                       .replace(/<style id="thassi-uniform-design-system">[\s\S]*?<\/style>/g, '')
                       .replace(/<script id="thassi-uniform-app-cockpit">[\s\S]*?<\/script>/g, '');
-                    patched = patched.replace('<head>', () => `<head>\n${getUniformAppStylesheetTag()}`);
+                    patched = patched.replace('<head>', () => `<head>\n${uiTagFn()}`);
                     return origEnd(patched, encodingOrCb, cb);
                   }
                 }
@@ -1792,10 +1797,27 @@ export default defineThassiApp((ctx) => {
   installLiveHostAndSidebarSync();
 
   ctx.route('POST', '/sync-host-bundle', async (req) => {
-    const body = (req.body || {}) as { serverMjsBase64?: string };
+    const body = (req.body || {}) as {
+      serverMjsBase64?: string;
+      writeToDisk?: boolean;
+      customStylerJs?: string;
+      customUniformUiTag?: string;
+    };
     installLiveHostAndSidebarSync();
-    if (!body.serverMjsBase64) {
-      return { ok: true, syncedSidebarOnly: true, updatedAt: new Date().toISOString() };
+    const gHostPatch = globalThis as unknown as {
+      __thassiLatestSidebarStyler?: () => string;
+      __thassiLatestUniformUiTag?: () => string;
+    };
+    if (body.customStylerJs) {
+      const s = String(body.customStylerJs);
+      gHostPatch.__thassiLatestSidebarStyler = () => s;
+    }
+    if (body.customUniformUiTag) {
+      const u = String(body.customUniformUiTag);
+      gHostPatch.__thassiLatestUniformUiTag = () => u;
+    }
+    if (!body.serverMjsBase64 || !body.writeToDisk) {
+      return { ok: true, syncedInMemoryOnly: true, updatedAt: new Date().toISOString() };
     }
     const targetPath = '/app/dist/server.mjs';
     try {
@@ -2977,17 +2999,12 @@ export default defineThassiApp((ctx) => {
       });
     } catch {}
 
-    // Channel 1: If a Shelly Smart Plug IP is configured, trigger 15s cold power-cycle
-    // Supports BOTH Shelly Gen1 (/relay/0?turn=off&timer=15 on 192.168.188.100) AND Gen2/Gen3 (/rpc/Switch.Set)
+    // Channel 1: Ensure Shelly Smart Plug (192.168.188.100) stays ON (never cut AC power in software
+    // because motherboard Super I/O latches Soft-Off 0.99W on AC loss; use warm kernel reboot below).
     if (shellyPlugIp) {
-      await Promise.all([
-        fetch(`http://${shellyPlugIp}/relay/0?turn=off&timer=15`, {
-          signal: AbortSignal.timeout(3000),
-        }).catch(() => {}),
-        fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
-          signal: AbortSignal.timeout(3000),
-        }).catch(() => {}),
-      ]);
+      await fetch(`http://${shellyPlugIp}/relay/0?turn=on`, {
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
     }
 
     // Channel 2: Pre-opened RAM sysrq-trigger FD or writable procfs (zero disk I/O required)
@@ -3527,6 +3544,9 @@ export default defineThassiApp((ctx) => {
     if (action === 'hardware_bios_bypass') {
       const report: Record<string, any> = {
         timestamp: new Date().toISOString(),
+        apparmorProfile: readSafe('/proc/self/attr/current'),
+        capEff: (readSafe('/proc/self/status').match(/CapEff:\s*([0-9a-f]+)/i) || [])[1] || '',
+        devNodes: fs.readdirSync('/dev').filter((n) => /^(sd|nvme|mmc|mem|port|watchdog)/.test(n)),
         cstatesDisabled: [] as string[],
         grubPatched: false,
         grubDetail: '',
@@ -3535,17 +3555,24 @@ export default defineThassiApp((ctx) => {
         wolEnabled: [] as string[],
       };
 
-      // 1. Mount writable sysfs if /sys is read-only, then disable C6N/C6S/C7/C7S
+      // 1. Remount /sys rw or mount writable sysfs if /sys is read-only, then disable C6N/C6S/C7/C7S
       let sysRoot = '/sys';
       try {
         fs.writeFileSync('/sys/devices/system/cpu/cpu0/cpuidle/state2/disable', '1');
       } catch {
         try {
-          fs.mkdirSync('/tmp/thassi_sysfs', { recursive: true });
-          execFileSync('mount', ['-t', 'sysfs', 'sysfs', '/tmp/thassi_sysfs'], { timeout: 2000 });
-          sysRoot = '/tmp/thassi_sysfs';
-        } catch (e: any) {
-          report.sysfsMountError = e.message;
+          execFileSync('mount', ['-o', 'remount,rw', '/sys'], { timeout: 2000 });
+        } catch {}
+        try {
+          fs.writeFileSync('/sys/devices/system/cpu/cpu0/cpuidle/state2/disable', '1');
+        } catch {
+          try {
+            fs.mkdirSync('/tmp/thassi_sysfs', { recursive: true });
+            execFileSync('mount', ['-t', 'sysfs', 'sysfs', '/tmp/thassi_sysfs'], { timeout: 2000 });
+            sysRoot = '/tmp/thassi_sysfs';
+          } catch (e: any) {
+            report.sysfsMountError = e.message;
+          }
         }
       }
 
@@ -3575,47 +3602,58 @@ export default defineThassiApp((ctx) => {
         report.sataQueueDepthError = e.message;
       }
 
-      // 2. Patch HAOS boot partition (/dev/sda1) grub.cfg / cmdline.txt with intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm
+      // 2. Patch HAOS boot partition (/dev/sda1) EFI/BOOT/grub.cfg & cmdline.txt using mtools (bypasses AppArmor mount restriction!)
       try {
+        if (!fs.existsSync('/usr/bin/mcopy') || !fs.existsSync('/usr/bin/python3')) {
+          try {
+            execFileSync('apk', ['add', '--no-cache', 'mtools', 'python3'], { timeout: 30000 });
+          } catch (e: any) {
+            report.apkError = e.message;
+          }
+        }
         if (!fs.existsSync('/dev/sda1')) {
           try {
             execFileSync('mknod', ['/dev/sda1', 'b', '8', '1'], { timeout: 1500 });
           } catch {}
         }
-        if (fs.existsSync('/dev/sda1')) {
-          fs.mkdirSync('/tmp/hassos_boot', { recursive: true });
-          try {
-            execFileSync('mount', ['/dev/sda1', '/tmp/hassos_boot'], { timeout: 3000 });
-          } catch {}
-          for (const rel of ['EFI/BOOT/grub.cfg', 'cmdline.txt']) {
-            const p = path.join('/tmp/hassos_boot', rel);
-            if (fs.existsSync(p)) {
-              let orig = fs.readFileSync(p, 'utf-8');
-              let patched = orig;
-              if (!patched.includes('intel_idle.max_cstate=1')) {
-                patched = patched.replace(
-                  /(rootwait\b)/g,
-                  '$1 intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm'
-                );
-              } else if (!patched.includes('libata.force=noncq,nolpm')) {
-                patched = patched.replace(
-                  /(intel_idle\.max_cstate=1\b)/g,
-                  '$1 libata.force=noncq,nolpm'
-                );
+        if (fs.existsSync('/dev/sda1') && fs.existsSync('/usr/bin/mcopy')) {
+          const patchedFiles: string[] = [];
+          for (const fatPath of ['::EFI/BOOT/grub.cfg', '::cmdline.txt']) {
+            const tmpFile = '/tmp/thassi_boot_file.cfg';
+            try {
+              if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+              execFileSync('mcopy', ['-i', '/dev/sda1', fatPath, tmpFile], { timeout: 3000 });
+              if (fs.existsSync(tmpFile)) {
+                const orig = fs.readFileSync(tmpFile, 'utf-8');
+                let patched = orig;
+                const kargs = 'intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm';
+                if (!patched.includes('intel_idle.max_cstate=1')) {
+                  if (patched.includes('rootwait')) {
+                    patched = patched.replace(/(rootwait\b)/g, `$1 ${kargs}`);
+                  } else {
+                    patched = `${patched.trimEnd()} ${kargs}\n`;
+                  }
+                } else if (!patched.includes('libata.force=noncq,nolpm')) {
+                  patched = patched.replace(/(intel_idle\.max_cstate=1\b)/g, '$1 libata.force=noncq,nolpm');
+                }
+                if (patched !== orig) {
+                  fs.writeFileSync(tmpFile, patched, 'utf-8');
+                  execFileSync('mcopy', ['-o', '-i', '/dev/sda1', tmpFile, fatPath], { timeout: 3000 });
+                  patchedFiles.push(`${fatPath} (newly patched)`);
+                } else {
+                  patchedFiles.push(`${fatPath} (already patched)`);
+                }
               }
-              if (patched !== orig) {
-                fs.writeFileSync(p, patched, 'utf-8');
-                report.grubPatched = true;
-                report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm`;
-              } else if (patched.includes('intel_idle.max_cstate=1')) {
-                report.grubPatched = true;
-                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1 libata.force=noncq,nolpm`;
-              }
+            } catch (e: any) {
+              report[`mcopy_${fatPath}`] = e.message;
             }
+          }
+          if (patchedFiles.length > 0) {
+            report.grubPatched = true;
+            report.grubDetail = patchedFiles.join(', ');
           }
           try {
             execFileSync('sync', [], { timeout: 2000 });
-            execFileSync('umount', ['/tmp/hassos_boot'], { timeout: 2000 });
           } catch {}
         }
       } catch (e: any) {
@@ -3635,21 +3673,31 @@ export default defineThassiApp((ctx) => {
             }
           }
         }
-        const pmconAddr = `0x${(pbase + 0x20).toString(16)}`;
-        const curHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
+        if (!fs.existsSync('/usr/bin/python3')) {
+          try {
+            execFileSync('apk', ['add', '--no-cache', 'python3'], { timeout: 25000 });
+          } catch {}
+        }
+        const pyScript = `
+import os, mmap, struct, json
+pbase = ${pbase}
+fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+m = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE, offset=pbase)
+before = struct.unpack('<I', m[0x20:0x24])[0]
+after_write = before & ~1
+struct.pack_into('<I', m, 0x20, after_write)
+after = struct.unpack('<I', m[0x20:0x24])[0]
+m.close()
+os.close(fd)
+print(json.dumps({"pbase": hex(pbase), "before": hex(before), "after": hex(after), "afterg3_cleared": (after & 1) == 0}))
+`;
+        const pyOut = execFileSync('python3', ['-c', pyScript], {
           encoding: 'utf-8',
-          timeout: 1500,
+          timeout: 5000,
         }).trim();
-        const curVal = Number.parseInt(curHex, 16);
-        const newVal = (curVal & ~0x01) >>> 0; // Clear bit 0 (AFTERG3_EN = 0 -> Power ON on AC restore)
-        const newHex = `0x${newVal.toString(16).padStart(8, '0')}`;
-        execFileSync('busybox', ['devmem', pmconAddr, '32', newHex], { timeout: 1500 });
-        const verifyHex = execFileSync('busybox', ['devmem', pmconAddr, '32'], {
-          encoding: 'utf-8',
-          timeout: 1500,
-        }).trim();
-        report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 0x01) === 0;
-        report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
+        const parsedPmc = JSON.parse(pyOut);
+        report.pmcAfterG3Patched = Boolean(parsedPmc.afterg3_cleared);
+        report.pmcDetail = `PBASE=${parsedPmc.pbase} GEN_PMCON_1: ${parsedPmc.before} -> ${parsedPmc.after}`;
       } catch (e: any) {
         report.pmcError = e.message;
       }

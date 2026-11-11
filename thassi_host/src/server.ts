@@ -1298,12 +1298,14 @@ async function startServer() {
         };
 
         const targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
-        try {
-          writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
-        } catch (err) {
-          console.warn(
-            `[Thassi] Mirror to persistent deployed_apps skipped (${err instanceof Error ? err.message : err}), running from tmpfs`
-          );
+        if (process.env.THASSI_WRITE_HOST_DISK === '1') {
+          try {
+            writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
+          } catch (err) {
+            console.warn(
+              `[Thassi] Mirror to persistent deployed_apps skipped (${err instanceof Error ? err.message : err}), running from tmpfs`
+            );
+          }
         }
 
         await loadAppFromDirectory(targetDir, 'hot-deployed');

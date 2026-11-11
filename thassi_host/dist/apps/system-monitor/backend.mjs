@@ -2195,6 +2195,7 @@ function getHassSidebarStylerScript() {
       a[href="/aishe-details"],
       a[href="/aishe-security"],
       a[href="/aishe-energy"],
+      a[href^="/44ec3c40_thassi_"]:not([href="/44ec3c40_thassi_host"]):not([href^="/44ec3c40_thassi_host#"]):not(.thassi-custom-panel),
       ha-md-list-item[href="/home"],
       ha-md-list-item[href="/lovelace"],
       ha-md-list-item[href="/light"],
@@ -2212,6 +2213,7 @@ function getHassSidebarStylerScript() {
       ha-md-list-item[href="/aishe-details"],
       ha-md-list-item[href="/aishe-security"],
       ha-md-list-item[href="/aishe-energy"],
+      ha-md-list-item[href^="/44ec3c40_thassi_"]:not([href="/44ec3c40_thassi_host"]):not([href^="/44ec3c40_thassi_host#"]):not(.thassi-custom-panel),
       ha-md-list-item[data-panel="home"],
       ha-md-list-item[data-panel="lovelace"],
       ha-md-list-item[data-panel="light"],
@@ -2228,7 +2230,8 @@ function getHassSidebarStylerScript() {
       ha-md-list-item[data-panel="aishe-diagnose"],
       ha-md-list-item[data-panel="aishe-details"],
       ha-md-list-item[data-panel="aishe-security"],
-      ha-md-list-item[data-panel="aishe-energy"] {
+      ha-md-list-item[data-panel="aishe-energy"],
+      ha-md-list-item[data-panel^="44ec3c40_thassi_"]:not([data-panel="44ec3c40_thassi_host"]):not(.thassi-custom-panel) {
         display: none !important;
       }
       ha-md-list[data-thassi-active-app] > ha-md-list-item[data-panel="44ec3c40_thassi_host"],
@@ -2289,14 +2292,14 @@ function getHassSidebarStylerScript() {
 
     function applyThassiChromeToParent() {
       try {
-        if (!window.top || window.top === window) return;
+        if (!window.top) return;
         const topDoc = window.top.document;
         if (!topDoc) return;
 
-        ensureStyleTag(topDoc, 'thassi-root-vars', ROOT_THEME_CSS);
-
         const ha = topDoc.querySelector('home-assistant');
         if (!ha || !ha.shadowRoot) return;
+
+        ensureStyleTag(topDoc, 'thassi-root-vars', ROOT_THEME_CSS);
         ensureStyleTag(ha.shadowRoot, 'thassi-ha-vars', ROOT_THEME_CSS);
 
         const main = ha.shadowRoot.querySelector('home-assistant-main');
@@ -2337,18 +2340,20 @@ function getHassSidebarStylerScript() {
               '    appId = satMap[appId].parent;',
               '  }',
               '  topWin.__thassiActiveSidebarApp = appId;',
+              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, hash: subHash, fromSidebar: true, ts: Date.now() }));',
               '  var hw = topWin.__thassiHorizonWin;',
-              '  if (topWin.location.pathname === "/44ec3c40_thassi_host" && hw && !hw.closed && typeof hw.openFullService === "function") {',
+              '  if (topWin.location.pathname === "/44ec3c40_thassi_host") {',
               '    topWin.history.replaceState(null, "", "/44ec3c40_thassi_host#" + appId);',
-              '    hw.openFullService(appId, title, subHash, true);',
+              '    if (hw && !hw.closed && typeof hw.openFullService === "function") {',
+              '      hw.openFullService(appId, title, subHash, true);',
+              '    } else {',
+              '      topWin.dispatchEvent(new topWin.HashChangeEvent("hashchange"));',
+              '    }',
               '    if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
               '    return false;',
               '  }',
-              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, hash: subHash, fromSidebar: true, ts: Date.now() }));',
-              '  if (topWin.location.pathname !== "/44ec3c40_thassi_host") {',
-              '    topWin.history.pushState(null, "", "/44ec3c40_thassi_host#" + appId);',
-              '    topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
-              '  }',
+              '  topWin.history.pushState(null, "", "/44ec3c40_thassi_host#" + appId);',
+              '  topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
               '  if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
               '} catch (_err) {}',
               'return false;'
@@ -2381,6 +2386,15 @@ function getHassSidebarStylerScript() {
               'return false;'
             ].join(' ')
           );
+
+          // If the user ever lands on a stopped standalone Thassi add-on URL (/44ec3c40_thassi_<slug>), redirect immediately to Horizon
+          const curTopPath = String(window.top.location.pathname || '');
+          const stoppedMatch = curTopPath.match(/^/44ec3c40_thassi_(?!host$)([a-z0-9_]+)/i);
+          if (stoppedMatch && stoppedMatch[1]) {
+            const targetAppId = stoppedMatch[1].toLowerCase().replace(/_/g, '-');
+            window.top.__thassiOpenSidebarApp(targetAppId, targetAppId);
+            return;
+          }
 
           const mdList = sidebar.shadowRoot.querySelector('ha-md-list, paper-listbox');
           if (mdList) {
@@ -2429,19 +2443,13 @@ function getHassSidebarStylerScript() {
             const horizonItem = findSidebarPanelItem('44ec3c40_thassi_host');
             if (horizonItem) {
               horizonItem.onclick = window.top.__thassiCloseSidebarApp;
+              if (!horizonItem.__thassiCaptureBound) {
+                horizonItem.__thassiCaptureBound = true;
+                horizonItem.addEventListener('click', function(ev) {
+                  return window.top.__thassiCloseSidebarApp(ev);
+                }, true);
+              }
             }
-
-            const anchorAfterItem =
-              findSidebarPanelItem('44ec3c40_thassi_project_workflow') ||
-              findSidebarPanelItem('44ec3c40_thassi_smart_canvas') ||
-              findSidebarPanelItem('44ec3c40_thassi_google_calendar') ||
-              findSidebarPanelItem('44ec3c40_thassi_meal_planner') ||
-              findSidebarPanelItem('44ec3c40_thassi_google_health') ||
-              findSidebarPanelItem('44ec3c40_thassi_finance_analytics') ||
-              findSidebarPanelItem('44ec3c40_thassi_cortex') ||
-              findSidebarPanelItem('44ec3c40_thassi_memo') ||
-              findSidebarPanelItem('44ec3c40_thassi_workflows') ||
-              horizonItem;
 
             const SATELLITE_HIDDEN_IDS = {
               'floorplan': true,
@@ -2457,23 +2465,46 @@ function getHassSidebarStylerScript() {
               } else {
                 el.style.removeProperty('display');
               }
-              el.onclick = new window.top.Function(
+              const targetHref = '/44ec3c40_thassi_host#' + appId;
+              try {
+                el.href = targetHref;
+                if (el.setAttribute) el.setAttribute('href', targetHref);
+                if (el.shadowRoot) {
+                  const innerA = el.shadowRoot.querySelector('a');
+                  if (innerA) {
+                    innerA.href = targetHref;
+                    innerA.setAttribute('href', targetHref);
+                  }
+                }
+              } catch (_e) {}
+
+              const clickHandler = new window.top.Function(
                 'ev',
-                'if (ev) { ev.preventDefault(); ev.stopPropagation(); } return window.top.__thassiOpenSidebarApp(' +
+                'if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); } return window.top.__thassiOpenSidebarApp(' +
                   JSON.stringify(appId) +
                   ', ' +
                   JSON.stringify(title) +
                   ');'
               );
+              el.onclick = clickHandler;
+              if (el.__thassiBoundApp !== appId) {
+                el.__thassiBoundApp = appId;
+                el.addEventListener('click', clickHandler, true);
+              }
             }
 
             function ensureNativeSidebarItem(navId, appId, panelSlug, title, iconName, refAfterEl, isHiddenSatellite) {
+              // Hide any native stopped add-on panel item so Home Assistant never opens the "Start this app?" dialog
               const existingNative = findSidebarPanelItem(panelSlug);
-              if (existingNative) {
-                const dupCustom = mdList.querySelector('#' + navId);
-                if (dupCustom) dupCustom.remove();
-                bindSidebarItemClick(existingNative, appId, title, isHiddenSatellite);
-                return existingNative;
+              if (existingNative && panelSlug !== '44ec3c40_thassi_host') {
+                existingNative.setAttribute('data-panel', panelSlug);
+                existingNative.style.display = 'none';
+                bindSidebarItemClick(existingNative, appId, title, true);
+              }
+              if (isHiddenSatellite) {
+                const oldSat = mdList.querySelector('#' + navId);
+                if (oldSat) oldSat.remove();
+                return null;
               }
               let item = mdList.querySelector('#' + navId);
               if (item && item.tagName.toLowerCase() !== 'ha-md-list-item') {
@@ -2482,7 +2513,6 @@ function getHassSidebarStylerScript() {
               }
               if (!item) {
                 const sampleItem =
-                  anchorAfterItem ||
                   horizonItem ||
                   Array.from(mdList.querySelectorAll('ha-md-list-item')).find(
                     (el) => !el.id || !el.id.startsWith('thassi-nav-')
@@ -2497,7 +2527,7 @@ function getHassSidebarStylerScript() {
                 item.className = 'thassi-custom-panel';
                 item.setAttribute('type', 'link');
                 item.type = 'link';
-                item.setAttribute('data-panel', panelSlug);
+                item.setAttribute('data-thassi-app', appId);
                 item.href = '/44ec3c40_thassi_host#' + appId;
 
                 const iconEl = topDoc.createElement('ha-icon');
@@ -2512,6 +2542,14 @@ function getHassSidebarStylerScript() {
 
                 item.appendChild(iconEl);
                 item.appendChild(spanEl);
+              } else {
+                const spanEl = item.querySelector('.item-text');
+                if (spanEl && spanEl.textContent !== title) spanEl.textContent = title;
+                const iconEl = item.querySelector('ha-icon');
+                if (iconEl && iconEl.getAttribute('icon') !== iconName) {
+                  iconEl.setAttribute('icon', iconName);
+                  iconEl.icon = iconName;
+                }
               }
               if (refAfterEl && item !== refAfterEl && item.previousElementSibling !== refAfterEl) {
                 if (refAfterEl.nextSibling) {
@@ -2567,7 +2605,7 @@ function getHassSidebarStylerScript() {
               }
             }
 
-            let prevInsertedItem = horizonItem || anchorAfterItem;
+            let prevInsertedItem = horizonItem;
             const createdSidebarItems = {};
             const knownCustomIds = {};
             for (let cIdx = 0; cIdx < mergedCustomApps.length; cIdx++) {
@@ -2581,7 +2619,7 @@ function getHassSidebarStylerScript() {
                 slug,
                 cfg.title,
                 cfg.icon,
-                prevInsertedItem || anchorAfterItem,
+                prevInsertedItem || horizonItem,
                 isSat
               );
               if (navEl) {
@@ -2628,31 +2666,30 @@ function getHassSidebarStylerScript() {
         }
 
         window.top.__thassiSyncSidebarNow = applyThassiChromeToParent;
+        if (!window.top.__thassiTopSidebarTimer) {
+          window.top.__thassiTopSidebarTimer = window.top.setInterval(
+            new window.top.Function(
+              'try { if (typeof window.top.__thassiSyncSidebarNow === "function") window.top.__thassiSyncSidebarNow(); } catch (_e) {}'
+            ),
+            1000
+          );
+        }
 
-        // Persist clean sidebar order (14 Main Apps) & hidden satellite/default panels in localStorage
+        // Persist clean sidebar order & hide all stopped standalone add-on panels in localStorage
         try {
           const hidden = [
             "home","lovelace","light","security","climate","energy",
             "media-browser","logbook","history","todo","calendar",
             "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy",
-            "44ec3c40_thassi_floorplan","44ec3c40_thassi_george_sync",
+            "44ec3c40_thassi_smart_canvas","44ec3c40_thassi_camera_vision","44ec3c40_thassi_3d_print",
+            "44ec3c40_thassi_finance_analytics","44ec3c40_thassi_google_calendar","44ec3c40_thassi_google_health",
+            "44ec3c40_thassi_meal_planner","44ec3c40_thassi_memo","44ec3c40_thassi_contacts",
+            "44ec3c40_thassi_cortex","44ec3c40_thassi_workflows","44ec3c40_thassi_project_workflow",
+            "44ec3c40_thassi_system_monitor","44ec3c40_thassi_floorplan","44ec3c40_thassi_george_sync",
             "44ec3c40_thassi_network_monitor","44ec3c40_thassi_google_usage"
           ];
           const order = [
             "44ec3c40_thassi_host",
-            "44ec3c40_thassi_smart_canvas",
-            "44ec3c40_thassi_camera_vision",
-            "44ec3c40_thassi_3d_print",
-            "44ec3c40_thassi_finance_analytics",
-            "44ec3c40_thassi_google_calendar",
-            "44ec3c40_thassi_google_health",
-            "44ec3c40_thassi_meal_planner",
-            "44ec3c40_thassi_memo",
-            "44ec3c40_thassi_contacts",
-            "44ec3c40_thassi_cortex",
-            "44ec3c40_thassi_workflows",
-            "44ec3c40_thassi_project_workflow",
-            "44ec3c40_thassi_system_monitor",
             "hacs"
           ];
           window.top.localStorage.setItem('sidebarHiddenPanels', JSON.stringify(hidden));
@@ -2710,44 +2747,6 @@ function getHassSidebarStylerScript() {
     setInterval(applyThassiChromeToParent, 1200);
   })();
   `;
-}
-function syncHassFrontendFiles() {
-  const candidateConfigDirs = ["/homeassistant", "/config"];
-  for (const cfgDir of candidateConfigDirs) {
-    if (!fs3.existsSync(path3.join(cfgDir, "configuration.yaml"))) continue;
-    try {
-      const wwwDir = path3.join(cfgDir, "www");
-      fs3.mkdirSync(wwwDir, { recursive: true });
-      const stylerJs = getHassSidebarStylerScript();
-      fs3.writeFileSync(path3.join(wwwDir, "thassi-ui.js"), stylerJs, "utf-8");
-      const loaderHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <style>html,body{margin:0;padding:0;background:#09090b;overflow:hidden;width:100%;height:100%;}iframe{width:100%;height:100%;border:0;display:block;}</style>
-</head>
-<body>
-  <iframe id="thassi-fallback-frame" title="Thassi Horizon"></iframe>
-  <script>${stylerJs}
-  try {
-    var f = document.getElementById('thassi-fallback-frame');
-    if (f) {
-      f.src = window.location.protocol + '//' + (window.location.hostname || '192.168.188.92') + ':8099/';
-    }
-    if (window.top && window.top.location.pathname.startsWith('/lovelace')) {
-      window.top.history.pushState(null, '', '/44ec3c40_thassi_host');
-      window.top.dispatchEvent(new CustomEvent('location-changed', { bubbles: true, composed: true }));
-    }
-  } catch (e) {}
-  </script>
-</body>
-</html>`;
-      fs3.writeFileSync(path3.join(wwwDir, "thassi-loader.html"), loaderHtml, "utf-8");
-      console.log(`[Thassi] Synced /local/thassi-ui.js and /local/thassi-loader.html to ${wwwDir}`);
-    } catch (err) {
-      console.warn("[Thassi] Could not write to www dir:", err);
-    }
-  }
 }
 
 // thassi_host/src/ambient-dashboard.ts
@@ -7913,6 +7912,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
 }
 
 // apps/system-monitor/backend/index.ts
+function readSafe(filePath) {
+  try {
+    return fs4.readFileSync(filePath, "utf-8").trim();
+  } catch {
+    return "";
+  }
+}
 var gState = globalThis;
 if (gState.__thassiSysMonTimer) {
   clearInterval(gState.__thassiSysMonTimer);
@@ -9253,13 +9259,10 @@ var index_default = defineThassiApp((ctx) => {
     return result;
   }
   function installLiveHostAndSidebarSync() {
-    try {
-      syncHassFrontendFiles();
-    } catch {
-    }
     const gHostPatch = globalThis;
     gHostPatch.__thassiLatestRenderDashboard = renderUnifiedDashboardHtml;
     gHostPatch.__thassiLatestSidebarStyler = getHassSidebarStylerScript;
+    gHostPatch.__thassiLatestUniformUiTag = getUniformAppStylesheetTag;
     if (!gHostPatch.__thassiOrigServerEmit) {
       gHostPatch.__thassiOrigServerEmit = http.Server.prototype.emit;
     }
@@ -9290,7 +9293,7 @@ var index_default = defineThassiApp((ctx) => {
               res.writeHead(200, {
                 "Content-Type": "text/html; charset=utf-8",
                 "Access-Control-Allow-Origin": "*",
-                "X-Thassi-Live-Host": "dynamic-nav-v3"
+                "X-Thassi-Live-Host": "dynamic-nav-v4"
               });
               res.end(html);
               return true;
@@ -9300,6 +9303,7 @@ var index_default = defineThassiApp((ctx) => {
           res.end = function(chunk, encodingOrCb, cb) {
             try {
               const stylerFn = gHostPatch.__thassiLatestSidebarStyler;
+              const uiTagFn = gHostPatch.__thassiLatestUniformUiTag || getUniformAppStylesheetTag;
               if (stylerFn && chunk && (typeof chunk === "string" || Buffer.isBuffer(chunk))) {
                 const str = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
                 if (str.includes("initThassiHassSidebarStyler")) {
@@ -9313,7 +9317,7 @@ ${stylerFn().trim()}`
                     );
                     patched = patched.replace(/<style id="thassi-uniform-design-system">[\s\S]*?<\/style>/g, "").replace(/<script id="thassi-uniform-app-cockpit">[\s\S]*?<\/script>/g, "");
                     patched = patched.replace("<head>", () => `<head>
-${getUniformAppStylesheetTag()}`);
+${uiTagFn()}`);
                     return origEnd(patched, encodingOrCb, cb);
                   }
                 }
@@ -9332,8 +9336,17 @@ ${getUniformAppStylesheetTag()}`);
   ctx.route("POST", "/sync-host-bundle", async (req) => {
     const body = req.body || {};
     installLiveHostAndSidebarSync();
-    if (!body.serverMjsBase64) {
-      return { ok: true, syncedSidebarOnly: true, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    const gHostPatch = globalThis;
+    if (body.customStylerJs) {
+      const s = String(body.customStylerJs);
+      gHostPatch.__thassiLatestSidebarStyler = () => s;
+    }
+    if (body.customUniformUiTag) {
+      const u = String(body.customUniformUiTag);
+      gHostPatch.__thassiLatestUniformUiTag = () => u;
+    }
+    if (!body.serverMjsBase64 || !body.writeToDisk) {
+      return { ok: true, syncedInMemoryOnly: true, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
     }
     const targetPath = "/app/dist/server.mjs";
     try {
@@ -10340,16 +10353,10 @@ ${yamlBlock}`, "utf-8");
     } catch {
     }
     if (shellyPlugIp) {
-      await Promise.all([
-        fetch(`http://${shellyPlugIp}/relay/0?turn=off&timer=15`, {
-          signal: AbortSignal.timeout(3e3)
-        }).catch(() => {
-        }),
-        fetch(`http://${shellyPlugIp}/rpc/Switch.Set?id=0&on=false&toggle_after=15`, {
-          signal: AbortSignal.timeout(3e3)
-        }).catch(() => {
-        })
-      ]);
+      await fetch(`http://${shellyPlugIp}/relay/0?turn=on`, {
+        signal: AbortSignal.timeout(2e3)
+      }).catch(() => {
+      });
     }
     const gState2 = globalThis;
     if (typeof gState2.__thassiSysrqFd === "number") {
@@ -10807,6 +10814,9 @@ ${yamlBlock}`, "utf-8");
     if (action === "hardware_bios_bypass") {
       const report = {
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        apparmorProfile: readSafe("/proc/self/attr/current"),
+        capEff: (readSafe("/proc/self/status").match(/CapEff:\s*([0-9a-f]+)/i) || [])[1] || "",
+        devNodes: fs4.readdirSync("/dev").filter((n) => /^(sd|nvme|mmc|mem|port|watchdog)/.test(n)),
         cstatesDisabled: [],
         grubPatched: false,
         grubDetail: "",
@@ -10819,11 +10829,19 @@ ${yamlBlock}`, "utf-8");
         fs4.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
       } catch {
         try {
-          fs4.mkdirSync("/tmp/thassi_sysfs", { recursive: true });
-          execFileSync("mount", ["-t", "sysfs", "sysfs", "/tmp/thassi_sysfs"], { timeout: 2e3 });
-          sysRoot = "/tmp/thassi_sysfs";
-        } catch (e) {
-          report.sysfsMountError = e.message;
+          execFileSync("mount", ["-o", "remount,rw", "/sys"], { timeout: 2e3 });
+        } catch {
+        }
+        try {
+          fs4.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
+        } catch {
+          try {
+            fs4.mkdirSync("/tmp/thassi_sysfs", { recursive: true });
+            execFileSync("mount", ["-t", "sysfs", "sysfs", "/tmp/thassi_sysfs"], { timeout: 2e3 });
+            sysRoot = "/tmp/thassi_sysfs";
+          } catch (e) {
+            report.sysfsMountError = e.message;
+          }
         }
       }
       for (let cpu = 0; cpu < 4; cpu++) {
@@ -10851,47 +10869,58 @@ ${yamlBlock}`, "utf-8");
         report.sataQueueDepthError = e.message;
       }
       try {
+        if (!fs4.existsSync("/usr/bin/mcopy") || !fs4.existsSync("/usr/bin/python3")) {
+          try {
+            execFileSync("apk", ["add", "--no-cache", "mtools", "python3"], { timeout: 3e4 });
+          } catch (e) {
+            report.apkError = e.message;
+          }
+        }
         if (!fs4.existsSync("/dev/sda1")) {
           try {
             execFileSync("mknod", ["/dev/sda1", "b", "8", "1"], { timeout: 1500 });
           } catch {
           }
         }
-        if (fs4.existsSync("/dev/sda1")) {
-          fs4.mkdirSync("/tmp/hassos_boot", { recursive: true });
-          try {
-            execFileSync("mount", ["/dev/sda1", "/tmp/hassos_boot"], { timeout: 3e3 });
-          } catch {
-          }
-          for (const rel of ["EFI/BOOT/grub.cfg", "cmdline.txt"]) {
-            const p = path4.join("/tmp/hassos_boot", rel);
-            if (fs4.existsSync(p)) {
-              let orig = fs4.readFileSync(p, "utf-8");
-              let patched = orig;
-              if (!patched.includes("intel_idle.max_cstate=1")) {
-                patched = patched.replace(
-                  /(rootwait\b)/g,
-                  "$1 intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm"
-                );
-              } else if (!patched.includes("libata.force=noncq,nolpm")) {
-                patched = patched.replace(
-                  /(intel_idle\.max_cstate=1\b)/g,
-                  "$1 libata.force=noncq,nolpm"
-                );
+        if (fs4.existsSync("/dev/sda1") && fs4.existsSync("/usr/bin/mcopy")) {
+          const patchedFiles = [];
+          for (const fatPath of ["::EFI/BOOT/grub.cfg", "::cmdline.txt"]) {
+            const tmpFile = "/tmp/thassi_boot_file.cfg";
+            try {
+              if (fs4.existsSync(tmpFile)) fs4.unlinkSync(tmpFile);
+              execFileSync("mcopy", ["-i", "/dev/sda1", fatPath, tmpFile], { timeout: 3e3 });
+              if (fs4.existsSync(tmpFile)) {
+                const orig = fs4.readFileSync(tmpFile, "utf-8");
+                let patched = orig;
+                const kargs = "intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm";
+                if (!patched.includes("intel_idle.max_cstate=1")) {
+                  if (patched.includes("rootwait")) {
+                    patched = patched.replace(/(rootwait\b)/g, `$1 ${kargs}`);
+                  } else {
+                    patched = `${patched.trimEnd()} ${kargs}
+`;
+                  }
+                } else if (!patched.includes("libata.force=noncq,nolpm")) {
+                  patched = patched.replace(/(intel_idle\.max_cstate=1\b)/g, "$1 libata.force=noncq,nolpm");
+                }
+                if (patched !== orig) {
+                  fs4.writeFileSync(tmpFile, patched, "utf-8");
+                  execFileSync("mcopy", ["-o", "-i", "/dev/sda1", tmpFile, fatPath], { timeout: 3e3 });
+                  patchedFiles.push(`${fatPath} (newly patched)`);
+                } else {
+                  patchedFiles.push(`${fatPath} (already patched)`);
+                }
               }
-              if (patched !== orig) {
-                fs4.writeFileSync(p, patched, "utf-8");
-                report.grubPatched = true;
-                report.grubDetail = `Patched ${rel} with intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm`;
-              } else if (patched.includes("intel_idle.max_cstate=1")) {
-                report.grubPatched = true;
-                report.grubDetail = `${rel} already contains intel_idle.max_cstate=1 libata.force=noncq,nolpm`;
-              }
+            } catch (e) {
+              report[`mcopy_${fatPath}`] = e.message;
             }
+          }
+          if (patchedFiles.length > 0) {
+            report.grubPatched = true;
+            report.grubDetail = patchedFiles.join(", ");
           }
           try {
             execFileSync("sync", [], { timeout: 2e3 });
-            execFileSync("umount", ["/tmp/hassos_boot"], { timeout: 2e3 });
           } catch {
           }
         }
@@ -10910,21 +10939,32 @@ ${yamlBlock}`, "utf-8");
             }
           }
         }
-        const pmconAddr = `0x${(pbase + 32).toString(16)}`;
-        const curHex = execFileSync("busybox", ["devmem", pmconAddr, "32"], {
+        if (!fs4.existsSync("/usr/bin/python3")) {
+          try {
+            execFileSync("apk", ["add", "--no-cache", "python3"], { timeout: 25e3 });
+          } catch {
+          }
+        }
+        const pyScript = `
+import os, mmap, struct, json
+pbase = ${pbase}
+fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+m = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE, offset=pbase)
+before = struct.unpack('<I', m[0x20:0x24])[0]
+after_write = before & ~1
+struct.pack_into('<I', m, 0x20, after_write)
+after = struct.unpack('<I', m[0x20:0x24])[0]
+m.close()
+os.close(fd)
+print(json.dumps({"pbase": hex(pbase), "before": hex(before), "after": hex(after), "afterg3_cleared": (after & 1) == 0}))
+`;
+        const pyOut = execFileSync("python3", ["-c", pyScript], {
           encoding: "utf-8",
-          timeout: 1500
+          timeout: 5e3
         }).trim();
-        const curVal = Number.parseInt(curHex, 16);
-        const newVal = (curVal & ~1) >>> 0;
-        const newHex = `0x${newVal.toString(16).padStart(8, "0")}`;
-        execFileSync("busybox", ["devmem", pmconAddr, "32", newHex], { timeout: 1500 });
-        const verifyHex = execFileSync("busybox", ["devmem", pmconAddr, "32"], {
-          encoding: "utf-8",
-          timeout: 1500
-        }).trim();
-        report.pmcAfterG3Patched = (Number.parseInt(verifyHex, 16) & 1) === 0;
-        report.pmcDetail = `PBASE=0x${pbase.toString(16)} GEN_PMCON_1(${pmconAddr}): ${curHex} -> ${verifyHex}`;
+        const parsedPmc = JSON.parse(pyOut);
+        report.pmcAfterG3Patched = Boolean(parsedPmc.afterg3_cleared);
+        report.pmcDetail = `PBASE=${parsedPmc.pbase} GEN_PMCON_1: ${parsedPmc.before} -> ${parsedPmc.after}`;
       } catch (e) {
         report.pmcError = e.message;
       }

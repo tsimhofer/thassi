@@ -836,6 +836,7 @@ function getHassSidebarStylerScript() {
       a[href="/aishe-details"],
       a[href="/aishe-security"],
       a[href="/aishe-energy"],
+      a[href^="/44ec3c40_thassi_"]:not([href="/44ec3c40_thassi_host"]):not([href^="/44ec3c40_thassi_host#"]):not(.thassi-custom-panel),
       ha-md-list-item[href="/home"],
       ha-md-list-item[href="/lovelace"],
       ha-md-list-item[href="/light"],
@@ -853,6 +854,7 @@ function getHassSidebarStylerScript() {
       ha-md-list-item[href="/aishe-details"],
       ha-md-list-item[href="/aishe-security"],
       ha-md-list-item[href="/aishe-energy"],
+      ha-md-list-item[href^="/44ec3c40_thassi_"]:not([href="/44ec3c40_thassi_host"]):not([href^="/44ec3c40_thassi_host#"]):not(.thassi-custom-panel),
       ha-md-list-item[data-panel="home"],
       ha-md-list-item[data-panel="lovelace"],
       ha-md-list-item[data-panel="light"],
@@ -869,7 +871,8 @@ function getHassSidebarStylerScript() {
       ha-md-list-item[data-panel="aishe-diagnose"],
       ha-md-list-item[data-panel="aishe-details"],
       ha-md-list-item[data-panel="aishe-security"],
-      ha-md-list-item[data-panel="aishe-energy"] {
+      ha-md-list-item[data-panel="aishe-energy"],
+      ha-md-list-item[data-panel^="44ec3c40_thassi_"]:not([data-panel="44ec3c40_thassi_host"]):not(.thassi-custom-panel) {
         display: none !important;
       }
       ha-md-list[data-thassi-active-app] > ha-md-list-item[data-panel="44ec3c40_thassi_host"],
@@ -930,14 +933,14 @@ function getHassSidebarStylerScript() {
 
     function applyThassiChromeToParent() {
       try {
-        if (!window.top || window.top === window) return;
+        if (!window.top) return;
         const topDoc = window.top.document;
         if (!topDoc) return;
 
-        ensureStyleTag(topDoc, 'thassi-root-vars', ROOT_THEME_CSS);
-
         const ha = topDoc.querySelector('home-assistant');
         if (!ha || !ha.shadowRoot) return;
+
+        ensureStyleTag(topDoc, 'thassi-root-vars', ROOT_THEME_CSS);
         ensureStyleTag(ha.shadowRoot, 'thassi-ha-vars', ROOT_THEME_CSS);
 
         const main = ha.shadowRoot.querySelector('home-assistant-main');
@@ -978,18 +981,20 @@ function getHassSidebarStylerScript() {
               '    appId = satMap[appId].parent;',
               '  }',
               '  topWin.__thassiActiveSidebarApp = appId;',
+              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, hash: subHash, fromSidebar: true, ts: Date.now() }));',
               '  var hw = topWin.__thassiHorizonWin;',
-              '  if (topWin.location.pathname === "/44ec3c40_thassi_host" && hw && !hw.closed && typeof hw.openFullService === "function") {',
+              '  if (topWin.location.pathname === "/44ec3c40_thassi_host") {',
               '    topWin.history.replaceState(null, "", "/44ec3c40_thassi_host#" + appId);',
-              '    hw.openFullService(appId, title, subHash, true);',
+              '    if (hw && !hw.closed && typeof hw.openFullService === "function") {',
+              '      hw.openFullService(appId, title, subHash, true);',
+              '    } else {',
+              '      topWin.dispatchEvent(new topWin.HashChangeEvent("hashchange"));',
+              '    }',
               '    if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
               '    return false;',
               '  }',
-              '  topWin.sessionStorage.setItem("thassi_open_app", JSON.stringify({ id: appId, title: title, hash: subHash, fromSidebar: true, ts: Date.now() }));',
-              '  if (topWin.location.pathname !== "/44ec3c40_thassi_host") {',
-              '    topWin.history.pushState(null, "", "/44ec3c40_thassi_host#" + appId);',
-              '    topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
-              '  }',
+              '  topWin.history.pushState(null, "", "/44ec3c40_thassi_host#" + appId);',
+              '  topWin.dispatchEvent(new topWin.CustomEvent("location-changed", { bubbles: true, composed: true }));',
               '  if (typeof topWin.__thassiSyncSidebarNow === "function") topWin.__thassiSyncSidebarNow();',
               '} catch (_err) {}',
               'return false;'
@@ -1022,6 +1027,15 @@ function getHassSidebarStylerScript() {
               'return false;'
             ].join(' ')
           );
+
+          // If the user ever lands on a stopped standalone Thassi add-on URL (/44ec3c40_thassi_<slug>), redirect immediately to Horizon
+          const curTopPath = String(window.top.location.pathname || '');
+          const stoppedMatch = curTopPath.match(/^/44ec3c40_thassi_(?!host$)([a-z0-9_]+)/i);
+          if (stoppedMatch && stoppedMatch[1]) {
+            const targetAppId = stoppedMatch[1].toLowerCase().replace(/_/g, '-');
+            window.top.__thassiOpenSidebarApp(targetAppId, targetAppId);
+            return;
+          }
 
           const mdList = sidebar.shadowRoot.querySelector('ha-md-list, paper-listbox');
           if (mdList) {
@@ -1070,19 +1084,13 @@ function getHassSidebarStylerScript() {
             const horizonItem = findSidebarPanelItem('44ec3c40_thassi_host');
             if (horizonItem) {
               horizonItem.onclick = window.top.__thassiCloseSidebarApp;
+              if (!horizonItem.__thassiCaptureBound) {
+                horizonItem.__thassiCaptureBound = true;
+                horizonItem.addEventListener('click', function(ev) {
+                  return window.top.__thassiCloseSidebarApp(ev);
+                }, true);
+              }
             }
-
-            const anchorAfterItem =
-              findSidebarPanelItem('44ec3c40_thassi_project_workflow') ||
-              findSidebarPanelItem('44ec3c40_thassi_smart_canvas') ||
-              findSidebarPanelItem('44ec3c40_thassi_google_calendar') ||
-              findSidebarPanelItem('44ec3c40_thassi_meal_planner') ||
-              findSidebarPanelItem('44ec3c40_thassi_google_health') ||
-              findSidebarPanelItem('44ec3c40_thassi_finance_analytics') ||
-              findSidebarPanelItem('44ec3c40_thassi_cortex') ||
-              findSidebarPanelItem('44ec3c40_thassi_memo') ||
-              findSidebarPanelItem('44ec3c40_thassi_workflows') ||
-              horizonItem;
 
             const SATELLITE_HIDDEN_IDS = {
               'floorplan': true,
@@ -1098,23 +1106,46 @@ function getHassSidebarStylerScript() {
               } else {
                 el.style.removeProperty('display');
               }
-              el.onclick = new window.top.Function(
+              const targetHref = '/44ec3c40_thassi_host#' + appId;
+              try {
+                el.href = targetHref;
+                if (el.setAttribute) el.setAttribute('href', targetHref);
+                if (el.shadowRoot) {
+                  const innerA = el.shadowRoot.querySelector('a');
+                  if (innerA) {
+                    innerA.href = targetHref;
+                    innerA.setAttribute('href', targetHref);
+                  }
+                }
+              } catch (_e) {}
+
+              const clickHandler = new window.top.Function(
                 'ev',
-                'if (ev) { ev.preventDefault(); ev.stopPropagation(); } return window.top.__thassiOpenSidebarApp(' +
+                'if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); } return window.top.__thassiOpenSidebarApp(' +
                   JSON.stringify(appId) +
                   ', ' +
                   JSON.stringify(title) +
                   ');'
               );
+              el.onclick = clickHandler;
+              if (el.__thassiBoundApp !== appId) {
+                el.__thassiBoundApp = appId;
+                el.addEventListener('click', clickHandler, true);
+              }
             }
 
             function ensureNativeSidebarItem(navId, appId, panelSlug, title, iconName, refAfterEl, isHiddenSatellite) {
+              // Hide any native stopped add-on panel item so Home Assistant never opens the "Start this app?" dialog
               const existingNative = findSidebarPanelItem(panelSlug);
-              if (existingNative) {
-                const dupCustom = mdList.querySelector('#' + navId);
-                if (dupCustom) dupCustom.remove();
-                bindSidebarItemClick(existingNative, appId, title, isHiddenSatellite);
-                return existingNative;
+              if (existingNative && panelSlug !== '44ec3c40_thassi_host') {
+                existingNative.setAttribute('data-panel', panelSlug);
+                existingNative.style.display = 'none';
+                bindSidebarItemClick(existingNative, appId, title, true);
+              }
+              if (isHiddenSatellite) {
+                const oldSat = mdList.querySelector('#' + navId);
+                if (oldSat) oldSat.remove();
+                return null;
               }
               let item = mdList.querySelector('#' + navId);
               if (item && item.tagName.toLowerCase() !== 'ha-md-list-item') {
@@ -1123,7 +1154,6 @@ function getHassSidebarStylerScript() {
               }
               if (!item) {
                 const sampleItem =
-                  anchorAfterItem ||
                   horizonItem ||
                   Array.from(mdList.querySelectorAll('ha-md-list-item')).find(
                     (el) => !el.id || !el.id.startsWith('thassi-nav-')
@@ -1138,7 +1168,7 @@ function getHassSidebarStylerScript() {
                 item.className = 'thassi-custom-panel';
                 item.setAttribute('type', 'link');
                 item.type = 'link';
-                item.setAttribute('data-panel', panelSlug);
+                item.setAttribute('data-thassi-app', appId);
                 item.href = '/44ec3c40_thassi_host#' + appId;
 
                 const iconEl = topDoc.createElement('ha-icon');
@@ -1153,6 +1183,14 @@ function getHassSidebarStylerScript() {
 
                 item.appendChild(iconEl);
                 item.appendChild(spanEl);
+              } else {
+                const spanEl = item.querySelector('.item-text');
+                if (spanEl && spanEl.textContent !== title) spanEl.textContent = title;
+                const iconEl = item.querySelector('ha-icon');
+                if (iconEl && iconEl.getAttribute('icon') !== iconName) {
+                  iconEl.setAttribute('icon', iconName);
+                  iconEl.icon = iconName;
+                }
               }
               if (refAfterEl && item !== refAfterEl && item.previousElementSibling !== refAfterEl) {
                 if (refAfterEl.nextSibling) {
@@ -1208,7 +1246,7 @@ function getHassSidebarStylerScript() {
               }
             }
 
-            let prevInsertedItem = horizonItem || anchorAfterItem;
+            let prevInsertedItem = horizonItem;
             const createdSidebarItems = {};
             const knownCustomIds = {};
             for (let cIdx = 0; cIdx < mergedCustomApps.length; cIdx++) {
@@ -1222,7 +1260,7 @@ function getHassSidebarStylerScript() {
                 slug,
                 cfg.title,
                 cfg.icon,
-                prevInsertedItem || anchorAfterItem,
+                prevInsertedItem || horizonItem,
                 isSat
               );
               if (navEl) {
@@ -1269,31 +1307,30 @@ function getHassSidebarStylerScript() {
         }
 
         window.top.__thassiSyncSidebarNow = applyThassiChromeToParent;
+        if (!window.top.__thassiTopSidebarTimer) {
+          window.top.__thassiTopSidebarTimer = window.top.setInterval(
+            new window.top.Function(
+              'try { if (typeof window.top.__thassiSyncSidebarNow === "function") window.top.__thassiSyncSidebarNow(); } catch (_e) {}'
+            ),
+            1000
+          );
+        }
 
-        // Persist clean sidebar order (14 Main Apps) & hidden satellite/default panels in localStorage
+        // Persist clean sidebar order & hide all stopped standalone add-on panels in localStorage
         try {
           const hidden = [
             "home","lovelace","light","security","climate","energy",
             "media-browser","logbook","history","todo","calendar",
             "map","thomas-buero","aishe-diagnose","aishe-details","aishe-security","aishe-energy",
-            "44ec3c40_thassi_floorplan","44ec3c40_thassi_george_sync",
+            "44ec3c40_thassi_smart_canvas","44ec3c40_thassi_camera_vision","44ec3c40_thassi_3d_print",
+            "44ec3c40_thassi_finance_analytics","44ec3c40_thassi_google_calendar","44ec3c40_thassi_google_health",
+            "44ec3c40_thassi_meal_planner","44ec3c40_thassi_memo","44ec3c40_thassi_contacts",
+            "44ec3c40_thassi_cortex","44ec3c40_thassi_workflows","44ec3c40_thassi_project_workflow",
+            "44ec3c40_thassi_system_monitor","44ec3c40_thassi_floorplan","44ec3c40_thassi_george_sync",
             "44ec3c40_thassi_network_monitor","44ec3c40_thassi_google_usage"
           ];
           const order = [
             "44ec3c40_thassi_host",
-            "44ec3c40_thassi_smart_canvas",
-            "44ec3c40_thassi_camera_vision",
-            "44ec3c40_thassi_3d_print",
-            "44ec3c40_thassi_finance_analytics",
-            "44ec3c40_thassi_google_calendar",
-            "44ec3c40_thassi_google_health",
-            "44ec3c40_thassi_meal_planner",
-            "44ec3c40_thassi_memo",
-            "44ec3c40_thassi_contacts",
-            "44ec3c40_thassi_cortex",
-            "44ec3c40_thassi_workflows",
-            "44ec3c40_thassi_project_workflow",
-            "44ec3c40_thassi_system_monitor",
             "hacs"
           ];
           window.top.localStorage.setItem('sidebarHiddenPanels', JSON.stringify(hidden));
@@ -1353,6 +1390,7 @@ function getHassSidebarStylerScript() {
   `;
 }
 function syncHassFrontendFiles() {
+  if (process.env.THASSI_WRITE_HASS_WWW !== "1") return;
   const candidateConfigDirs = ["/homeassistant", "/config"];
   for (const cfgDir of candidateConfigDirs) {
     if (!fs3.existsSync(path3.join(cfgDir, "configuration.yaml"))) continue;
