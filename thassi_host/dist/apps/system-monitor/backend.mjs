@@ -10023,7 +10023,7 @@ ${yamlBlock}`, "utf-8");
       await fetch("http://supervisor/addons/self/options", {
         method: "POST",
         headers,
-        body: JSON.stringify({ watchdog: true, boot: "auto", auto_update: true }),
+        body: JSON.stringify({ watchdog: true, boot: "auto", auto_update: false }),
         signal: AbortSignal.timeout(2e3)
       }).catch(() => {
       });

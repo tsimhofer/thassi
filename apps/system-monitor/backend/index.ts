@@ -2640,11 +2640,11 @@ export default defineThassiApp((ctx) => {
             ? sJson!.data!.addons!
             : cachedSupervisorSnapshot?.containers.filter((c) => c.kind === 'addon') || []);
 
-      // Always ensure 'self' (thassi_host) watchdog & auto-boot are enabled
+      // Always ensure 'self' (thassi_host) watchdog & auto-boot are enabled (never auto_update via docker buildx!)
       await fetch('http://supervisor/addons/self/options', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ watchdog: true, boot: 'auto', auto_update: true }),
+        body: JSON.stringify({ watchdog: true, boot: 'auto', auto_update: false }),
         signal: AbortSignal.timeout(2000),
       }).catch(() => {});
 
