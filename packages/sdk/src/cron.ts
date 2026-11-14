@@ -59,8 +59,9 @@ export class ThassiCronScheduler {
     };
 
     const entry: InternalJobEntry = { appId, def, state };
+    const cronEnabled = process.env.THASSI_ENABLE_CRON === '1';
 
-    if (def.intervalMinutes > 0) {
+    if (cronEnabled && def.intervalMinutes > 0) {
       const ms = Math.max(10_000, def.intervalMinutes * 60 * 1000);
       entry.timer = setInterval(() => {
         void this.triggerJob(appId, def.id);
@@ -69,7 +70,7 @@ export class ThassiCronScheduler {
 
     this.jobs.set(key, entry);
 
-    if (def.runOnStart) {
+    if (cronEnabled && def.runOnStart) {
       setTimeout(() => {
         void this.triggerJob(appId, def.id);
       }, 500);

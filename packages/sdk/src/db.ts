@@ -185,10 +185,9 @@ export class ThassiAppDatabase {
   }
 
   private initSchema(db: DatabaseSync): DatabaseSync {
-    db.exec('PRAGMA journal_mode = WAL;');
+    db.exec('PRAGMA journal_mode = MEMORY;');
     db.exec('PRAGMA synchronous = OFF;');
     db.exec('PRAGMA temp_store = MEMORY;');
-    db.exec('PRAGMA wal_autocheckpoint = 4000;');
     db.exec('PRAGMA foreign_keys = ON;');
     db.exec(`
       CREATE TABLE IF NOT EXISTS _thassi_kv (

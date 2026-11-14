@@ -1,5 +1,3 @@
-import { createRequire as __thassiCreateRequire } from 'node:module'; const require = __thassiCreateRequire(import.meta.url);
-
 // thassi_host/src/server.ts
 import http from "node:http";
 import fs4 from "node:fs";
@@ -122,10 +120,9 @@ var ThassiAppDatabase = class {
     this.raw = this.openWithAutoRecovery(this.dbPath);
   }
   initSchema(db) {
-    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("PRAGMA journal_mode = MEMORY;");
     db.exec("PRAGMA synchronous = OFF;");
     db.exec("PRAGMA temp_store = MEMORY;");
-    db.exec("PRAGMA wal_autocheckpoint = 4000;");
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec(`
       CREATE TABLE IF NOT EXISTS _thassi_kv (
@@ -521,14 +518,16 @@ var ThassiHaBridge = class {
       method: "POST",
       body: JSON.stringify(payload)
     });
-    const published = this.sharedDb.kvGet("published_sensors", {}) || {};
-    published[entityId] = {
-      entityId,
-      appId: this.appId,
-      state: String(state),
-      updatedAt: nowIso
-    };
-    this.sharedDb.kvSet("published_sensors", published);
+    if (process.env.THASSI_PERSIST_SENSOR_LOG === "1") {
+      const published = this.sharedDb.kvGet("published_sensors", {}) || {};
+      published[entityId] = {
+        entityId,
+        appId: this.appId,
+        state: String(state),
+        updatedAt: nowIso
+      };
+      this.sharedDb.kvSet("published_sensors", published);
+    }
     return result;
   }
   /** Fire a custom event on the Home Assistant event bus */
@@ -567,14 +566,15 @@ var ThassiCronScheduler = class {
       runCount: existing?.state.runCount ?? 0
     };
     const entry = { appId, def, state };
-    if (def.intervalMinutes > 0) {
+    const cronEnabled = process.env.THASSI_ENABLE_CRON === "1";
+    if (cronEnabled && def.intervalMinutes > 0) {
       const ms = Math.max(1e4, def.intervalMinutes * 60 * 1e3);
       entry.timer = setInterval(() => {
         void this.triggerJob(appId, def.id);
       }, ms);
     }
     this.jobs.set(key, entry);
-    if (def.runOnStart) {
+    if (cronEnabled && def.runOnStart) {
       setTimeout(() => {
         void this.triggerJob(appId, def.id);
       }, 500);

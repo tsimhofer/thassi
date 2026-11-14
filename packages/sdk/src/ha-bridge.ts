@@ -198,15 +198,16 @@ export class ThassiHaBridge {
       body: JSON.stringify(payload),
     });
 
-    // Record published sensor in shared DB only when actually published to Home Assistant
-    const published = this.sharedDb.kvGet<Record<string, { entityId: string; appId: string; state: string; updatedAt: string }>>('published_sensors', {}) || {};
-    published[entityId] = {
-      entityId,
-      appId: this.appId,
-      state: String(state),
-      updatedAt: nowIso,
-    };
-    this.sharedDb.kvSet('published_sensors', published);
+    if (process.env.THASSI_PERSIST_SENSOR_LOG === '1') {
+      const published = this.sharedDb.kvGet<Record<string, { entityId: string; appId: string; state: string; updatedAt: string }>>('published_sensors', {}) || {};
+      published[entityId] = {
+        entityId,
+        appId: this.appId,
+        state: String(state),
+        updatedAt: nowIso,
+      };
+      this.sharedDb.kvSet('published_sensors', published);
+    }
 
     return result;
   }

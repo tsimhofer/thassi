@@ -1602,53 +1602,26 @@ export default defineThassiApp((ctx) => {
       history: historyBuffer,
     };
 
-    // Share compact summary into sharedDb for Horizon & Cortex
-    try {
-      ctx.sharedDb.kvSet('hass_os_performance', {
-        updatedAt: nowIso,
-        cpuPct: cpu.total.usagePct,
-        iowaitPct: cpu.total.iowaitPct,
-        cpuTempC: cpu.cpuTempC,
-        load1m: cpu.load1m,
-        load5m: cpu.load5m,
-        memUsedMb: memory.usedMb,
-        memTotalMb: memory.totalMb,
-        memPct: memory.usedPct,
-        swapUsedMb: memory.swapUsedMb,
-        diskUsedGb: disk.usedGb,
-        diskTotalGb: disk.totalGb,
-        diskPct: disk.usedPct,
-        runningContainers: supervisor.containers.filter((c) => c.state === 'started').length,
-        totalContainers: supervisor.containers.length,
-        topWorkload: activeWorkloads[0]?.title || 'System Nominal',
-        activeWorkloads: activeWorkloads.slice(0, 8),
-        containers: supervisor.containers.slice(0, 12),
-      });
-    } catch {
-      // ignore if sharedDb is recovering
-    }
-
     return snapshot;
   }
 
   let latestSnapshotCache: Record<string, any> | null = null;
   let snapshotInFlight: Promise<Record<string, any>> | null = null;
 
-  // Warm up initial tick delta and background sampler every 15 seconds
-  void buildCompletePerformanceSnapshot(false).then((s) => {
-    latestSnapshotCache = s;
-  });
-  gState.__thassiSysMonTimer = setInterval(() => {
-    if (snapshotInFlight) return;
-    snapshotInFlight = buildCompletePerformanceSnapshot(false)
-      .then((s) => {
-        latestSnapshotCache = s;
-        return s;
-      })
-      .finally(() => {
-        snapshotInFlight = null;
-      });
-  }, 15000);
+  // On-demand sampling only (zero background Supervisor/disk polling unless explicitly enabled)
+  if (process.env.THASSI_ENABLE_BG_SAMPLER === '1') {
+    gState.__thassiSysMonTimer = setInterval(() => {
+      if (snapshotInFlight) return;
+      snapshotInFlight = buildCompletePerformanceSnapshot(false)
+        .then((s) => {
+          latestSnapshotCache = s;
+          return s;
+        })
+        .finally(() => {
+          snapshotInFlight = null;
+        });
+    }, 60000);
+  }
 
   // Sync Home Assistant sidebar & live-patch Thassi Host HTML serving in-memory
   function readAllDeployedAppManifests(): Array<Record<string, any>> {
@@ -3121,17 +3094,10 @@ export default defineThassiApp((ctx) => {
     gWatchdog.__thassiWatchdogState.kernelHardening = initialHardening;
   }
 
-  // SATA Link Keepalive (every 10s) so /dev/sda never enters DevSlp/Slumber on Intel Bay Trail J1900
-  gWatchdog.__thassiSataKeepaliveTimer = setInterval(() => {
-    try {
-      if (fs.existsSync('/homeassistant/configuration.yaml')) {
-        const fd = fs.openSync('/homeassistant/configuration.yaml', 'r');
-        const buf = Buffer.alloc(16);
-        fs.readSync(fd, buf, 0, 16, 0);
-        fs.closeSync(fd);
-      }
-    } catch {}
-  }, 10000);
+  // Do not run periodic disk keepalive reads on /homeassistant/configuration.yaml
+  if (gWatchdog.__thassiSataKeepaliveTimer) {
+    clearInterval(gWatchdog.__thassiSataKeepaliveTimer);
+  }
 
   async function runWatchdogGuardianTick() {
     const cfg = getWatchdogConfig();
@@ -3305,11 +3271,13 @@ export default defineThassiApp((ctx) => {
     }
   }
 
-  // Run guardian every 30s without writing to /homeassistant or Supervisor config on startup
-  void runWatchdogGuardianTick();
-  gWatchdog.__thassiWatchdogTimer = setInterval(() => {
+  // Only run background watchdog polling when explicitly enabled
+  if (process.env.THASSI_ENABLE_WATCHDOG_TIMER === '1') {
     void runWatchdogGuardianTick();
-  }, 30000);
+    gWatchdog.__thassiWatchdogTimer = setInterval(() => {
+      void runWatchdogGuardianTick();
+    }, 60000);
+  }
 
   ctx.route('GET', '/disk-healthz', async () => {
     const chk = checkBlockStorageHealthy();
