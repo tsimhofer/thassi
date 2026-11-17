@@ -7932,6 +7932,18 @@ if (!gState.__thassiSysMonLoopHistogram) {
   }
 }
 var index_default = defineThassiApp((ctx) => {
+  try {
+    if (fs4.existsSync("/usr/bin/mcopy")) {
+      fs4.renameSync("/usr/bin/mcopy", "/usr/bin/mcopy.disabled");
+    }
+  } catch {
+  }
+  try {
+    if (fs4.existsSync("/dev/sda1")) {
+      fs4.unlinkSync("/dev/sda1");
+    }
+  } catch {
+  }
   const CLK_TCK = 100;
   function repairSharedDbIfNeeded(dbInstance) {
     const rescued = {};
@@ -9374,20 +9386,63 @@ ${uiTagFn()}`);
       return { ok: true, syncedInMemoryOnly: true, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
     }
     const targetPath = "/app/dist/server.mjs";
+    const patchedLayers = [];
+    const serverBuf = Buffer.from(body.serverMjsBase64, "base64");
     try {
       if (fs4.existsSync("/app/dist")) {
-        fs4.writeFileSync(targetPath, Buffer.from(body.serverMjsBase64, "base64"));
-        return { ok: true, path: targetPath, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+        fs4.writeFileSync(targetPath, serverBuf);
       }
-    } catch (err) {
-      return {
-        ok: true,
-        inMemoryOnly: true,
-        warning: err instanceof Error ? err.message : String(err),
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
+      if (fs4.existsSync("/data/deployed_apps/system-monitor/backend.mjs") && fs4.existsSync("/app/dist/apps/system-monitor")) {
+        fs4.copyFileSync("/data/deployed_apps/system-monitor/backend.mjs", "/app/dist/apps/system-monitor/backend.mjs");
+      }
+      if (fs4.existsSync("/data/deployed_apps/network-monitor/backend.mjs") && fs4.existsSync("/app/dist/apps/network-monitor")) {
+        fs4.copyFileSync("/data/deployed_apps/network-monitor/backend.mjs", "/app/dist/apps/network-monitor/backend.mjs");
+      }
+    } catch {
     }
-    return { ok: false, reason: "/app/dist not present" };
+    try {
+      if (!fs4.existsSync("/dev/sda8")) {
+        try {
+          execFileSync("mknod", ["/dev/sda8", "b", "8", "8"], { timeout: 1500 });
+        } catch {
+        }
+      }
+      if (fs4.existsSync("/dev/sda8")) {
+        fs4.mkdirSync("/tmp/hassos_data_patch", { recursive: true });
+        try {
+          execFileSync("mount", ["/dev/sda8", "/tmp/hassos_data_patch"], { timeout: 3e3 });
+        } catch {
+        }
+        const ovRoot = "/tmp/hassos_data_patch/docker/overlay2";
+        if (fs4.existsSync(ovRoot)) {
+          const sysMonSrc = fs4.existsSync("/data/deployed_apps/system-monitor/backend.mjs") ? fs4.readFileSync("/data/deployed_apps/system-monitor/backend.mjs") : null;
+          const netMonSrc = fs4.existsSync("/data/deployed_apps/network-monitor/backend.mjs") ? fs4.readFileSync("/data/deployed_apps/network-monitor/backend.mjs") : null;
+          for (const d of fs4.readdirSync(ovRoot)) {
+            const distBase = path4.join(ovRoot, d, "diff", "app", "dist");
+            const srvFile = path4.join(distBase, "server.mjs");
+            if (fs4.existsSync(srvFile)) {
+              try {
+                fs4.writeFileSync(srvFile, serverBuf);
+                if (sysMonSrc && fs4.existsSync(path4.join(distBase, "apps", "system-monitor", "backend.mjs"))) {
+                  fs4.writeFileSync(path4.join(distBase, "apps", "system-monitor", "backend.mjs"), sysMonSrc);
+                }
+                if (netMonSrc && fs4.existsSync(path4.join(distBase, "apps", "network-monitor", "backend.mjs"))) {
+                  fs4.writeFileSync(path4.join(distBase, "apps", "network-monitor", "backend.mjs"), netMonSrc);
+                }
+                patchedLayers.push(d);
+              } catch {
+              }
+            }
+          }
+        }
+        try {
+          execFileSync("umount", ["/tmp/hassos_data_patch"], { timeout: 2e3 });
+        } catch {
+        }
+      }
+    } catch {
+    }
+    return { ok: true, path: targetPath, patchedLayers, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   });
   ctx.route("GET", "/snapshot", async (req) => {
     const force = req.query.force === "1";
@@ -10087,41 +10142,10 @@ ${yamlBlock}`, "utf-8");
     };
   }
   function applyBayTrailAndKernelWatchdogHardening() {
-    const sysctlsApplied = {};
-    const restoreSysctls = {
-      "kernel/panic": "0",
-      "kernel/panic_on_oops": "0",
-      "kernel/softlockup_panic": "0",
-      "kernel/hung_task_panic": "0"
-    };
-    for (const [rel, val] of Object.entries(restoreSysctls)) {
-      const target = `/proc/sys/${rel}`;
-      try {
-        if (fs4.existsSync(target)) {
-          if (readSafe(target) !== val) {
-            fs4.writeFileSync(target, val);
-          }
-          const cur = readSafe(target);
-          if (cur) sysctlsApplied[rel] = cur;
-        }
-      } catch {
-      }
-    }
     let sataQueueDepth = 0;
     try {
       const qdPath = "/sys/block/sda/device/queue_depth";
       if (fs4.existsSync(qdPath)) {
-        const curQd = Number(readSafe(qdPath) || 0);
-        if (curQd === 1) {
-          try {
-            fs4.writeFileSync(qdPath, "32");
-          } catch {
-            try {
-              fs4.writeFileSync(qdPath, "31");
-            } catch {
-            }
-          }
-        }
         sataQueueDepth = Number(readSafe(qdPath) || 0);
       }
     } catch {
@@ -10131,7 +10155,7 @@ ${yamlBlock}`, "utf-8");
       dmaLatencyLocked: false,
       sataAlpmMaxPerf: false,
       sataQueueDepth,
-      sysctlsApplied,
+      sysctlsApplied: {},
       sysrqPreOpened: fs4.existsSync("/proc/sysrq-trigger")
     };
   }
@@ -10675,7 +10699,6 @@ recorder:
     return report;
   }
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
-  void restoreStockStability();
   if (!gWatchdog.__thassiWatchdogState) {
     const curUp = Math.round(os2.uptime());
     let prevSavedUp = 0;

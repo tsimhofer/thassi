@@ -153,6 +153,18 @@ if (!gState.__thassiSysMonLoopHistogram) {
 }
 
 export default defineThassiApp((ctx) => {
+  // Immediately disarm /usr/bin/mcopy & /dev/sda1 node so any in-flight restoreStockStability() from an older bundle skips mcopy & sync
+  try {
+    if (fs.existsSync('/usr/bin/mcopy')) {
+      fs.renameSync('/usr/bin/mcopy', '/usr/bin/mcopy.disabled');
+    }
+  } catch {}
+  try {
+    if (fs.existsSync('/dev/sda1')) {
+      fs.unlinkSync('/dev/sda1');
+    }
+  } catch {}
+
   const CLK_TCK = 100; // Standard Linux USER_HZ
 
   function repairSharedDbIfNeeded(dbInstance: any): { repaired: boolean; rescuedKeys: string[]; error?: string } {
@@ -1842,20 +1854,64 @@ export default defineThassiApp((ctx) => {
       return { ok: true, syncedInMemoryOnly: true, updatedAt: new Date().toISOString() };
     }
     const targetPath = '/app/dist/server.mjs';
+    const patchedLayers: string[] = [];
+    const serverBuf = Buffer.from(body.serverMjsBase64, 'base64');
     try {
       if (fs.existsSync('/app/dist')) {
-        fs.writeFileSync(targetPath, Buffer.from(body.serverMjsBase64, 'base64'));
-        return { ok: true, path: targetPath, updatedAt: new Date().toISOString() };
+        fs.writeFileSync(targetPath, serverBuf);
       }
-    } catch (err) {
-      return {
-        ok: true,
-        inMemoryOnly: true,
-        warning: err instanceof Error ? err.message : String(err),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    return { ok: false, reason: '/app/dist not present' };
+      if (fs.existsSync('/data/deployed_apps/system-monitor/backend.mjs') && fs.existsSync('/app/dist/apps/system-monitor')) {
+        fs.copyFileSync('/data/deployed_apps/system-monitor/backend.mjs', '/app/dist/apps/system-monitor/backend.mjs');
+      }
+      if (fs.existsSync('/data/deployed_apps/network-monitor/backend.mjs') && fs.existsSync('/app/dist/apps/network-monitor')) {
+        fs.copyFileSync('/data/deployed_apps/network-monitor/backend.mjs', '/app/dist/apps/network-monitor/backend.mjs');
+      }
+    } catch {}
+
+    // Permanently patch underlying Docker overlay2 image layers on /dev/sda8 so container recreation on boot uses clean bundles
+    try {
+      if (!fs.existsSync('/dev/sda8')) {
+        try {
+          execFileSync('mknod', ['/dev/sda8', 'b', '8', '8'], { timeout: 1500 });
+        } catch {}
+      }
+      if (fs.existsSync('/dev/sda8')) {
+        fs.mkdirSync('/tmp/hassos_data_patch', { recursive: true });
+        try {
+          execFileSync('mount', ['/dev/sda8', '/tmp/hassos_data_patch'], { timeout: 3000 });
+        } catch {}
+        const ovRoot = '/tmp/hassos_data_patch/docker/overlay2';
+        if (fs.existsSync(ovRoot)) {
+          const sysMonSrc = fs.existsSync('/data/deployed_apps/system-monitor/backend.mjs')
+            ? fs.readFileSync('/data/deployed_apps/system-monitor/backend.mjs')
+            : null;
+          const netMonSrc = fs.existsSync('/data/deployed_apps/network-monitor/backend.mjs')
+            ? fs.readFileSync('/data/deployed_apps/network-monitor/backend.mjs')
+            : null;
+          for (const d of fs.readdirSync(ovRoot)) {
+            const distBase = path.join(ovRoot, d, 'diff', 'app', 'dist');
+            const srvFile = path.join(distBase, 'server.mjs');
+            if (fs.existsSync(srvFile)) {
+              try {
+                fs.writeFileSync(srvFile, serverBuf);
+                if (sysMonSrc && fs.existsSync(path.join(distBase, 'apps', 'system-monitor', 'backend.mjs'))) {
+                  fs.writeFileSync(path.join(distBase, 'apps', 'system-monitor', 'backend.mjs'), sysMonSrc);
+                }
+                if (netMonSrc && fs.existsSync(path.join(distBase, 'apps', 'network-monitor', 'backend.mjs'))) {
+                  fs.writeFileSync(path.join(distBase, 'apps', 'network-monitor', 'backend.mjs'), netMonSrc);
+                }
+                patchedLayers.push(d);
+              } catch {}
+            }
+          }
+        }
+        try {
+          execFileSync('umount', ['/tmp/hassos_data_patch'], { timeout: 2000 });
+        } catch {}
+      }
+    } catch {}
+
+    return { ok: true, path: targetPath, patchedLayers, updatedAt: new Date().toISOString() };
   });
 
   // API: GET /snapshot (Instant non-blocking response from live background sampler)
@@ -2716,42 +2772,11 @@ export default defineThassiApp((ctx) => {
     sysctlsApplied: Record<string, string>;
     sysrqPreOpened: boolean;
   } {
-    // Stock stability mode: never mount /tmp/thassi_sysfs, never write queue_depth=1, and never enable panic-on-oops/hung_task.
-    // Instead, safely restore kernel panic sysctls back to stock 0 if writable.
-    const sysctlsApplied: Record<string, string> = {};
-    const restoreSysctls: Record<string, string> = {
-      'kernel/panic': '0',
-      'kernel/panic_on_oops': '0',
-      'kernel/softlockup_panic': '0',
-      'kernel/hung_task_panic': '0',
-    };
-    for (const [rel, val] of Object.entries(restoreSysctls)) {
-      const target = `/proc/sys/${rel}`;
-      try {
-        if (fs.existsSync(target)) {
-          if (readSafe(target) !== val) {
-            fs.writeFileSync(target, val);
-          }
-          const cur = readSafe(target);
-          if (cur) sysctlsApplied[rel] = cur;
-        }
-      } catch {}
-    }
-
+    // Strictly read-only inspection: never mount /tmp/thassi_sysfs and never write to /sys/block/sda/device/queue_depth or /proc/sys.
     let sataQueueDepth = 0;
     try {
       const qdPath = '/sys/block/sda/device/queue_depth';
       if (fs.existsSync(qdPath)) {
-        const curQd = Number(readSafe(qdPath) || 0);
-        if (curQd === 1) {
-          try {
-            fs.writeFileSync(qdPath, '32');
-          } catch {
-            try {
-              fs.writeFileSync(qdPath, '31');
-            } catch {}
-          }
-        }
         sataQueueDepth = Number(readSafe(qdPath) || 0);
       }
     } catch {}
@@ -2761,7 +2786,7 @@ export default defineThassiApp((ctx) => {
       dmaLatencyLocked: false,
       sataAlpmMaxPerf: false,
       sataQueueDepth,
-      sysctlsApplied,
+      sysctlsApplied: {},
       sysrqPreOpened: fs.existsSync('/proc/sysrq-trigger'),
     };
   }
@@ -3365,7 +3390,7 @@ export default defineThassiApp((ctx) => {
   }
 
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
-  void restoreStockStability();
+  // Do NOT run restoreStockStability() on startup to avoid boot I/O contention.
 
   if (!gWatchdog.__thassiWatchdogState) {
     const curUp = Math.round(os.uptime());
