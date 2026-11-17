@@ -1,3 +1,5 @@
+import { createRequire as __thassiCreateRequire } from 'node:module'; const require = __thassiCreateRequire(import.meta.url);
+
 // thassi_host/src/server.ts
 import http from "node:http";
 import fs4 from "node:fs";

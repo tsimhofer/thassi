@@ -592,10 +592,6 @@ var index_default = defineThassiApp((ctx) => {
       hist.splice(0, hist.length - 90);
     }
     gNetState.__thassiNetMonHistory = hist;
-    try {
-      ctx.db.kvSet("network_samples_history", hist);
-    } catch {
-    }
     return {
       primaryUpnp,
       upstreamUpnp,
@@ -604,11 +600,10 @@ var index_default = defineThassiApp((ctx) => {
       latGoogleDnsMs
     };
   }
-  gNetState.__thassiNetMonTimer = setInterval(() => {
-    void sampleLiveTelemetry();
-  }, 15e3);
-  void sampleLiveTelemetry();
-  void refreshAuthenticatedFritzData(false);
+  if (gNetState.__thassiNetMonTimer) {
+    clearInterval(gNetState.__thassiNetMonTimer);
+    gNetState.__thassiNetMonTimer = void 0;
+  }
   async function buildOverviewPayload(forceLua = false) {
     const cfg = loadRouterConfig();
     const [live, lua] = await Promise.all([

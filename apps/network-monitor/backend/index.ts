@@ -726,12 +726,6 @@ export default defineThassiApp((ctx) => {
     }
     gNetState.__thassiNetMonHistory = hist;
 
-    try {
-      ctx.db.kvSet('network_samples_history', hist);
-    } catch {
-      // ignore sqlite write race
-    }
-
     return {
       primaryUpnp,
       upstreamUpnp,
@@ -741,12 +735,11 @@ export default defineThassiApp((ctx) => {
     };
   }
 
-  // Background sampler every 15 seconds
-  gNetState.__thassiNetMonTimer = setInterval(() => {
-    void sampleLiveTelemetry();
-  }, 15000);
-  void sampleLiveTelemetry();
-  void refreshAuthenticatedFritzData(false);
+  // On-demand telemetry only (zero background polling/SQLite writes)
+  if (gNetState.__thassiNetMonTimer) {
+    clearInterval(gNetState.__thassiNetMonTimer);
+    gNetState.__thassiNetMonTimer = undefined;
+  }
 
   async function buildOverviewPayload(forceLua = false) {
     const cfg = loadRouterConfig();

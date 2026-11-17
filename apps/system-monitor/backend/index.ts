@@ -2318,11 +2318,11 @@ export default defineThassiApp((ctx) => {
   }
 
   let inMemWatchdogConfig = {
-    enabled: true,
+    enabled: false,
     autoCoreRestart: false,
     autoHostReboot: false,
-    autoLoadShedding: true,
-    enforceSupervisorWatchdogs: true,
+    autoLoadShedding: false,
+    enforceSupervisorWatchdogs: false,
     coreFailThreshold: 12,
     hostRebootThreshold: 24,
     memShedThresholdPct: 88.0,
@@ -2340,12 +2340,14 @@ export default defineThassiApp((ctx) => {
     detail: string;
   }> = [];
 
-  // Neutralize any aggressive thresholds from older schema versions on startup
+  // Disable automatic watchdog/reboot loops and Supervisor enforcement on startup
   try {
     ctx.db.execute(
       `UPDATE watchdog_config
-       SET auto_core_restart = 0,
+       SET enabled = 0,
+           auto_core_restart = 0,
            auto_host_reboot = 0,
+           enforce_supervisor_watchdogs = 0,
            core_fail_threshold = CASE WHEN core_fail_threshold < 12 THEN 12 ELSE core_fail_threshold END,
            host_reboot_threshold = CASE WHEN host_reboot_threshold < 24 THEN 24 ELSE host_reboot_threshold END
        WHERE id = 1`
@@ -2361,7 +2363,7 @@ export default defineThassiApp((ctx) => {
           `INSERT OR IGNORE INTO watchdog_config
            (id, enabled, auto_core_restart, auto_host_reboot, auto_load_shedding, enforce_supervisor_watchdogs,
             core_fail_threshold, host_reboot_threshold, mem_shed_threshold_pct, mem_reboot_threshold_pct, shelly_plug_ip, updated_at)
-           VALUES (1, 1, 0, 0, 1, 1, 12, 24, 88.0, 97.0, '192.168.188.100', ?)`,
+           VALUES (1, 0, 0, 0, 0, 0, 12, 24, 88.0, 97.0, '192.168.188.100', ?)`,
           [now]
         );
         row = ctx.db.queryOne<Record<string, any>>('SELECT * FROM watchdog_config WHERE id = 1') || {};
@@ -2370,11 +2372,11 @@ export default defineThassiApp((ctx) => {
         row.shelly_plug_ip = '192.168.188.100';
       }
       inMemWatchdogConfig = {
-        enabled: Boolean(row.enabled ?? 1),
+        enabled: Boolean(row.enabled ?? 0),
         autoCoreRestart: Boolean(row.auto_core_restart ?? 0),
         autoHostReboot: Boolean(row.auto_host_reboot ?? 0),
-        autoLoadShedding: Boolean(row.auto_load_shedding ?? 1),
-        enforceSupervisorWatchdogs: Boolean(row.enforce_supervisor_watchdogs ?? 1),
+        autoLoadShedding: Boolean(row.auto_load_shedding ?? 0),
+        enforceSupervisorWatchdogs: Boolean(row.enforce_supervisor_watchdogs ?? 0),
         coreFailThreshold: Math.max(12, Number(row.core_fail_threshold || 12)),
         hostRebootThreshold: Math.max(24, Number(row.host_reboot_threshold || 24)),
         memShedThresholdPct: Number(row.mem_shed_threshold_pct || 88.0),
@@ -2541,13 +2543,8 @@ export default defineThassiApp((ctx) => {
     };
   }
 
-  async function enforceSupervisorWatchdogsIfEnabled(): Promise<{
-    coreWatchdog: boolean | null;
-    addonsChecked: number;
-    addonsEnabled: string[];
-    addonStates: Array<{ slug: string; name: string; state: string; watchdog: boolean }>;
-  }> {
-    const supToken =
+  function resolveSupervisorToken(): string {
+    return (
       process.env.SUPERVISOR_TOKEN ||
       process.env.HASSIO_TOKEN ||
       (() => {
@@ -2557,7 +2554,17 @@ export default defineThassiApp((ctx) => {
           return '';
         }
       })() ||
-      '';
+      ''
+    );
+  }
+
+  async function enforceSupervisorWatchdogsIfEnabled(): Promise<{
+    coreWatchdog: boolean | null;
+    addonsChecked: number;
+    addonsEnabled: string[];
+    addonStates: Array<{ slug: string; name: string; state: string; watchdog: boolean }>;
+  }> {
+    const supToken = resolveSupervisorToken();
 
     if (!supToken) {
       return { coreWatchdog: null, addonsChecked: 0, addonsEnabled: [], addonStates: [] };
@@ -2569,6 +2576,22 @@ export default defineThassiApp((ctx) => {
       Accept: 'application/json',
     };
 
+    // Never enable watchdog or auto_update on Supervisor add-ons or Core: explicitly disable them so
+    // Supervisor never triggers background docker buildx rebuilds or spurious restarts.
+    await fetch('http://supervisor/addons/self/options', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ watchdog: false, boot: 'auto', auto_update: false }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+
+    await fetch('http://supervisor/core/options', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ watchdog: false }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+
     let coreWatchdog: boolean | null = null;
     try {
       const cRes = await fetch('http://supervisor/core/info', {
@@ -2578,21 +2601,6 @@ export default defineThassiApp((ctx) => {
       if (cRes.ok) {
         const cJson = (await cRes.json()) as { data?: Record<string, any> };
         coreWatchdog = Boolean(cJson?.data?.watchdog);
-        if (!coreWatchdog) {
-          await fetch('http://supervisor/core/options', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ watchdog: true }),
-            signal: AbortSignal.timeout(3000),
-          });
-          coreWatchdog = true;
-          logWatchdogEvent(
-            'nominal',
-            'SUPERVISOR',
-            'HA Core Watchdog aktiviert',
-            'Supervisor Watchdog für Home Assistant Core wurde automatisch auf watchdog=true gesetzt.'
-          );
-        }
       }
     } catch {}
 
@@ -2613,14 +2621,6 @@ export default defineThassiApp((ctx) => {
             ? sJson!.data!.addons!
             : cachedSupervisorSnapshot?.containers.filter((c) => c.kind === 'addon') || []);
 
-      // Always ensure 'self' (thassi_host) watchdog & auto-boot are enabled (never auto_update via docker buildx!)
-      await fetch('http://supervisor/addons/self/options', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ watchdog: true, boot: 'auto', auto_update: false }),
-        signal: AbortSignal.timeout(2000),
-      }).catch(() => {});
-
       const startedOrRelevant = list.filter(
         (a) => a && a.slug && (!String(a.slug).startsWith('44ec3c40_thassi_') || a.slug === '44ec3c40_thassi_host')
       );
@@ -2637,21 +2637,8 @@ export default defineThassiApp((ctx) => {
             if (infoRes.ok) {
               const infoJson = (await infoRes.json()) as { data?: Record<string, any> };
               const d = infoJson?.data || {};
-              let wd = Boolean(d.watchdog);
+              const wd = Boolean(d.watchdog);
               const state = String(d.state || addon.state || 'unknown');
-              if (!wd && state === 'started') {
-                const targetSlug = slug === '44ec3c40_thassi_host' ? 'self' : encodeURIComponent(slug);
-                const optRes = await fetch(`http://supervisor/addons/${targetSlug}/options`, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ watchdog: true }),
-                  signal: AbortSignal.timeout(2000),
-                });
-                if (optRes.ok) {
-                  wd = true;
-                  addonsEnabled.push(slug);
-                }
-              }
               addonStates.push({
                 slug,
                 name: String(d.name || addon.name || slug),
@@ -2663,15 +2650,6 @@ export default defineThassiApp((ctx) => {
         })
       );
     } catch {}
-
-    if (addonsEnabled.length > 0) {
-      logWatchdogEvent(
-        'nominal',
-        'SUPERVISOR',
-        `Add-on Watchdogs aktiviert (${addonsEnabled.length})`,
-        `Supervisor Watchdog aktiviert für: ${addonsEnabled.join(', ')}`
-      );
-    }
 
     return {
       coreWatchdog,
@@ -2685,109 +2663,57 @@ export default defineThassiApp((ctx) => {
     cstatesDisabled: string[];
     dmaLatencyLocked: boolean;
     sataAlpmMaxPerf: boolean;
+    sataQueueDepth: number;
     sysctlsApplied: Record<string, string>;
     sysrqPreOpened: boolean;
   } {
-    const cstatesDisabled: string[] = [];
-    const dmaLatencyLocked = false;
-    let sataAlpmMaxPerf = false;
+    // Stock stability mode: never mount /tmp/thassi_sysfs, never write queue_depth=1, and never enable panic-on-oops/hung_task.
+    // Instead, safely restore kernel panic sysctls back to stock 0 if writable.
     const sysctlsApplied: Record<string, string> = {};
-    const sysrqPreOpened = fs.existsSync('/proc/sysrq-trigger');
-    let sataQueueDepth = 0;
-
-    let sysRoot = '/sys';
-    try {
-      fs.writeFileSync('/sys/devices/system/cpu/cpu0/cpuidle/state2/disable', '1');
-    } catch {
-      try {
-        if (!fs.existsSync('/tmp/thassi_sysfs/devices')) {
-          fs.mkdirSync('/tmp/thassi_sysfs', { recursive: true });
-          execFileSync('mount', ['-t', 'sysfs', 'sysfs', '/tmp/thassi_sysfs'], { timeout: 1500 });
-        }
-        if (fs.existsSync('/tmp/thassi_sysfs/devices')) {
-          sysRoot = '/tmp/thassi_sysfs';
-        }
-      } catch {}
-    }
-
-    // 1. Disable Intel Bay Trail J1900 deep C-states (C6N, C6S, C7, C7S = state2..state5)
-    for (let cpu = 0; cpu < 4; cpu++) {
-      for (const st of ['state2', 'state3', 'state4', 'state5']) {
-        const disablePath = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
-        const namePath = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
-        try {
-          if (fs.existsSync(disablePath)) {
-            if (readSafe(disablePath) !== '1') {
-              fs.writeFileSync(disablePath, '1');
-            }
-            if (readSafe(disablePath) === '1' && cpu === 0) {
-              cstatesDisabled.push(readSafe(namePath) || st);
-            }
-          }
-        } catch {}
-      }
-    }
-
-    // 2. Disable SATA NCQ (queue_depth = 1) and set ALPM to max_performance to prevent /dev/sda EIO disconnects
-    try {
-      const qdPath = `${sysRoot}/block/sda/device/queue_depth`;
-      if (fs.existsSync(qdPath)) {
-        if (readSafe(qdPath) !== '1') {
-          fs.writeFileSync(qdPath, '1');
-        }
-        sataQueueDepth = Number(readSafe(qdPath) || 0);
-      }
-    } catch {}
-
-    try {
-      const scsiRoot = `${sysRoot}/class/scsi_host`;
-      if (fs.existsSync(scsiRoot)) {
-        for (const host of fs.readdirSync(scsiRoot)) {
-          const lpmPath = path.join(scsiRoot, host, 'link_power_management_policy');
-          try {
-            if (fs.existsSync(lpmPath)) {
-              if (readSafe(lpmPath) !== 'max_performance') {
-                fs.writeFileSync(lpmPath, 'max_performance');
-              }
-              if (readSafe(lpmPath) === 'max_performance') {
-                sataAlpmMaxPerf = true;
-              }
-            }
-          } catch {}
-        }
-      }
-    } catch {}
-
-    // 3. Configure Kernel Auto-Reboot on Panic, Oops, Softlockup, and Hung Disk Tasks (>120s)
-    const desiredSysctls: Record<string, string> = {
-      'kernel/panic': '5',
-      'kernel/panic_on_oops': '1',
-      'kernel/softlockup_panic': '1',
-      'kernel/hung_task_timeout_secs': '120',
-      'kernel/hung_task_panic': '1',
-      'kernel/sysrq': '1',
+    const restoreSysctls: Record<string, string> = {
+      'kernel/panic': '0',
+      'kernel/panic_on_oops': '0',
+      'kernel/softlockup_panic': '0',
+      'kernel/hung_task_panic': '0',
     };
-    for (const [rel, val] of Object.entries(desiredSysctls)) {
+    for (const [rel, val] of Object.entries(restoreSysctls)) {
       const target = `/proc/sys/${rel}`;
       try {
         if (fs.existsSync(target)) {
           if (readSafe(target) !== val) {
             fs.writeFileSync(target, val);
           }
-          if (readSafe(target) === val) {
-            sysctlsApplied[rel] = val;
-          }
+          const cur = readSafe(target);
+          if (cur) sysctlsApplied[rel] = cur;
         }
       } catch {}
     }
 
+    let sataQueueDepth = 0;
+    try {
+      const qdPath = '/sys/block/sda/device/queue_depth';
+      if (fs.existsSync(qdPath)) {
+        const curQd = Number(readSafe(qdPath) || 0);
+        if (curQd === 1) {
+          try {
+            fs.writeFileSync(qdPath, '32');
+          } catch {
+            try {
+              fs.writeFileSync(qdPath, '31');
+            } catch {}
+          }
+        }
+        sataQueueDepth = Number(readSafe(qdPath) || 0);
+      }
+    } catch {}
+
     return {
-      cstatesDisabled,
-      dmaLatencyLocked,
-      sataAlpmMaxPerf,
+      cstatesDisabled: [],
+      dmaLatencyLocked: false,
+      sataAlpmMaxPerf: false,
       sataQueueDepth,
       sysctlsApplied,
-      sysrqPreOpened,
+      sysrqPreOpened: fs.existsSync('/proc/sysrq-trigger'),
     };
   }
 
@@ -3043,15 +2969,250 @@ export default defineThassiApp((ctx) => {
   }
   if (gWatchdog.__thassiBayTrailAntiCstateTimer) {
     clearInterval(gWatchdog.__thassiBayTrailAntiCstateTimer);
+    gWatchdog.__thassiBayTrailAntiCstateTimer = undefined;
   }
 
-  // Bay Trail J1900 Anti-C7S Residency Pulse (15ms epoll wakeup prevents 30ms Package C7S MWAIT 0x64 VLI89 freeze)
-  let antiCstateTick = 0;
-  gWatchdog.__thassiBayTrailAntiCstateTimer = setInterval(() => {
-    antiCstateTick = (antiCstateTick + 1) & 0xffff;
-  }, 15);
+  async function restoreStockStability(): Promise<Record<string, any>> {
+    const report: Record<string, any> = {
+      timestamp: new Date().toISOString(),
+      selfOptionsUpdated: false,
+      coreOptionsUpdated: false,
+      storeReloaded: false,
+      grubCleaned: false,
+      grubDetail: '',
+      bootFiles: {} as Record<string, { before: string; after: string; changed: boolean }>,
+      sysctlsRestored: false,
+      sysctls: {} as Record<string, string>,
+      sataQueueDepth: 0,
+      automationCleaned: false,
+      recorderConfigured: false,
+    };
+
+    const supToken = resolveSupervisorToken();
+    if (supToken) {
+      const headers = {
+        Authorization: `Bearer ${supToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+      try {
+        const optRes = await fetch('http://supervisor/addons/self/options', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ auto_update: false, watchdog: false, boot: 'auto' }),
+          signal: AbortSignal.timeout(5000),
+        });
+        report.selfOptionsUpdated = optRes.ok;
+        if (!optRes.ok) report.selfOptionsStatus = optRes.status;
+      } catch (e: any) {
+        report.selfOptionsError = e?.message || String(e);
+      }
+
+      try {
+        const coreOptRes = await fetch('http://supervisor/core/options', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ watchdog: false }),
+          signal: AbortSignal.timeout(5000),
+        });
+        report.coreOptionsUpdated = coreOptRes.ok;
+      } catch {}
+
+      try {
+        const storeRes = await fetch('http://supervisor/store/reload', {
+          method: 'POST',
+          headers,
+          signal: AbortSignal.timeout(15000),
+        });
+        report.storeReloaded = storeRes.ok;
+        if (!storeRes.ok) report.storeReloadStatus = storeRes.status;
+      } catch (e: any) {
+        report.storeReloadError = e?.message || String(e);
+      }
+
+      try {
+        await fetch('http://supervisor/core/api/services/update/skip', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ entity_id: 'update.thassi_personal_app_hub_update' }),
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => {});
+      } catch {}
+    } else {
+      report.supervisorWarning = 'No SUPERVISOR_TOKEN available';
+    }
+
+    // Restore kernel panic sysctls & SATA NCQ queue depth back to stock
+    const kernelRestore = applyBayTrailAndKernelWatchdogHardening();
+    report.sysctls = kernelRestore.sysctlsApplied;
+    report.sysctlsRestored = Object.keys(kernelRestore.sysctlsApplied).length > 0;
+    report.sataQueueDepth = kernelRestore.sataQueueDepth;
+
+    // Clean /dev/sda1 boot files via mcopy (remove libata.force=noncq,nolpm and deduplicate args)
+    try {
+      if (!fs.existsSync('/dev/sda1')) {
+        try {
+          execFileSync('mknod', ['/dev/sda1', 'b', '8', '1'], { timeout: 1500 });
+        } catch {}
+      }
+      if (fs.existsSync('/dev/sda1') && fs.existsSync('/usr/bin/mcopy')) {
+        const details: string[] = [];
+        let anyOk = false;
+        for (const fatPath of ['::EFI/BOOT/grub.cfg', '::cmdline.txt']) {
+          const tmpFile = '/tmp/thassi_boot_clean.cfg';
+          try {
+            if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+            execFileSync('mcopy', ['-i', '/dev/sda1', fatPath, tmpFile], { timeout: 3000 });
+            if (fs.existsSync(tmpFile)) {
+              anyOk = true;
+              const orig = fs.readFileSync(tmpFile, 'utf-8');
+              const cleaned = orig
+                .split('\n')
+                .map((line) => {
+                  let out = line.replace(/[ \t]*\blibata\.force=[^\s"']+/g, '');
+                  for (const key of ['intel_idle\\.max_cstate=1', 'processor\\.max_cstate=1']) {
+                    let seen = false;
+                    out = out.replace(new RegExp(`[ \\t]*\\b${key}\\b`, 'g'), (m) => {
+                      if (!seen) {
+                        seen = true;
+                        return m;
+                      }
+                      return '';
+                    });
+                  }
+                  return out;
+                })
+                .join('\n');
+              const changed = cleaned !== orig;
+              if (changed) {
+                fs.writeFileSync(tmpFile, cleaned, 'utf-8');
+                execFileSync('mcopy', ['-o', '-i', '/dev/sda1', tmpFile, fatPath], { timeout: 3000 });
+                details.push(`${fatPath} (cleaned)`);
+              } else {
+                details.push(`${fatPath} (already clean)`);
+              }
+              report.bootFiles[fatPath] = {
+                before: orig.slice(0, 1000),
+                after: cleaned.slice(0, 1000),
+                changed,
+              };
+            }
+          } catch (e: any) {
+            report[`mcopy_${fatPath}`] = e?.message || String(e);
+          }
+        }
+        report.grubCleaned = anyOk;
+        report.grubDetail = details.join(', ');
+        try {
+          execFileSync('sync', [], { timeout: 2000 });
+        } catch {}
+      }
+    } catch (e: any) {
+      report.grubError = e?.message || String(e);
+    }
+
+    // Remove injected watchdog automation & configure recorder commit_interval: 60
+    const haRoot = fs.existsSync('/homeassistant')
+      ? '/homeassistant'
+      : fs.existsSync('/config')
+        ? '/config'
+        : null;
+    if (haRoot) {
+      try {
+        const autoYamlPath = path.join(haRoot, 'automations.yaml');
+        if (fs.existsSync(autoYamlPath)) {
+          const origAuto = fs.readFileSync(autoYamlPath, 'utf-8');
+          if (origAuto.includes(WATCHDOG_AUTOMATION_ID)) {
+            const lines = origAuto.split(/\r?\n/);
+            const kept: string[] = [];
+            let skipping = false;
+            for (const ln of lines) {
+              if (/^-\s+id:\s*['"]?thassi_auto_reboot_on_critical_failure['"]?/.test(ln)) {
+                skipping = true;
+                continue;
+              }
+              if (skipping && /^-\s+/.test(ln)) {
+                skipping = false;
+              }
+              if (!skipping) {
+                kept.push(ln);
+              }
+            }
+            const nextAuto = kept.join('\n').trim();
+            fs.writeFileSync(autoYamlPath, nextAuto ? `${nextAuto}\n` : '[]\n', 'utf-8');
+            report.automationCleaned = true;
+          }
+        }
+      } catch (e: any) {
+        report.automationCleanError = e?.message || String(e);
+      }
+
+      if (supToken) {
+        try {
+          const delRes = await fetch(
+            `http://supervisor/core/api/config/automation/config/${WATCHDOG_AUTOMATION_ID}`,
+            {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${supToken}` },
+              signal: AbortSignal.timeout(4000),
+            }
+          );
+          if (delRes.ok) report.automationCleaned = true;
+          if (report.automationCleaned) {
+            await ctx.ha.callService('automation', 'reload', {}).catch(() => {});
+          }
+        } catch {}
+      }
+
+      try {
+        const cfgYamlPath = path.join(haRoot, 'configuration.yaml');
+        if (fs.existsSync(cfgYamlPath)) {
+          const origCfg = fs.readFileSync(cfgYamlPath, 'utf-8');
+          const bakPath = `${cfgYamlPath}.bak.thassi`;
+          if (!fs.existsSync(bakPath)) {
+            fs.writeFileSync(bakPath, origCfg, 'utf-8');
+          }
+          if (!/^recorder\s*:/m.test(origCfg)) {
+            const nextCfg = `${origCfg.replace(/\s*$/, '')}\n\nrecorder:\n  commit_interval: 60\n  purge_keep_days: 7\n`;
+            fs.writeFileSync(cfgYamlPath, nextCfg, 'utf-8');
+            report.recorderConfigured = true;
+            report.recorderDetail = 'Added recorder block with commit_interval: 60';
+          } else {
+            const lines = origCfg.split(/\r?\n/);
+            const recIdx = lines.findIndex((l) => /^recorder\s*:/.test(l));
+            let hasCommit = false;
+            for (let i = recIdx + 1; i < lines.length; i++) {
+              if (/^[a-zA-Z0-9_]/.test(lines[i])) break;
+              if (/^\s+commit_interval\s*:/.test(lines[i])) {
+                hasCommit = true;
+                break;
+              }
+            }
+            if (!hasCommit && recIdx >= 0) {
+              lines.splice(recIdx + 1, 0, '  commit_interval: 60');
+              fs.writeFileSync(cfgYamlPath, `${lines.join('\n').replace(/\s*$/, '')}\n`, 'utf-8');
+              report.recorderConfigured = true;
+              report.recorderDetail = 'Inserted commit_interval: 60 into existing recorder block';
+            } else {
+              report.recorderConfigured = true;
+              report.recorderDetail = 'recorder commit_interval already configured';
+            }
+          }
+        }
+      } catch (e: any) {
+        report.recorderError = e?.message || String(e);
+      }
+    }
+
+    if (gWatchdog.__thassiWatchdogState) {
+      gWatchdog.__thassiWatchdogState.kernelHardening = kernelRestore;
+    }
+
+    return report;
+  }
 
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
+  void restoreStockStability();
 
   if (!gWatchdog.__thassiWatchdogState) {
     const curUp = Math.round(os.uptime());
@@ -3681,6 +3842,11 @@ print(json.dumps({"pbase": hex(pbase), "before": hex(before), "after": hex(after
         }
       } catch {}
 
+      return { ok: true, report };
+    }
+
+    if (action === 'restore_stock_stability') {
+      const report = await restoreStockStability();
       return { ok: true, report };
     }
 

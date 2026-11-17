@@ -522,18 +522,17 @@ async function commandDeploy(appId?: string, hostOverride?: string): Promise<voi
   const data = res.json();
   console.log(`✅ Instant deploy complete! "${manifest.name}" is live at ${hostUrl}/apps/${data.appId}/`);
 
-  // Automatically sync host & sidebar registration in-memory (avoid 3MB disk write on every deploy unless requested)
+  // Automatically sync host & sidebar registration and persist /app/dist/server.mjs across container/host restarts
   try {
-    const payload: Record<string, string> = {};
-    if (process.env.THASSI_WRITE_HOST_DISK === '1') {
-      await buildHostServer();
-      const serverMjsPath = path.join(HOST_DIST_DIR, 'server.mjs');
-      if (fs.existsSync(serverMjsPath)) {
-        payload.serverMjsBase64 = fs.readFileSync(serverMjsPath).toString('base64');
-      }
+    await buildHostServer();
+    const payload: { serverMjsBase64?: string; writeToDisk?: boolean } = {};
+    const serverMjsPath = path.join(HOST_DIST_DIR, 'server.mjs');
+    if (fs.existsSync(serverMjsPath)) {
+      payload.serverMjsBase64 = fs.readFileSync(serverMjsPath).toString('base64');
+      payload.writeToDisk = true;
     }
     await postJsonLanAware(`${hostUrl}/api/apps/system-monitor/sync-host-bundle`, payload);
-    console.log(`🧭 Synced Home Assistant sidebar & host navigation registry.`);
+    console.log(`🧭 Synced Home Assistant sidebar & persisted host bundle on disk.`);
   } catch {
     // non-fatal if system-monitor route is not yet initialized
   }
