@@ -10374,6 +10374,26 @@ ${yamlBlock}`, "utf-8");
     report.sysctls = kernelRestore.sysctlsApplied;
     report.sysctlsRestored = Object.keys(kernelRestore.sysctlsApplied).length > 0;
     report.sataQueueDepth = kernelRestore.sataQueueDepth;
+    const cleanBootText = (orig, isGrubCfg) => {
+      return orig.split("\n").map((line) => {
+        let out = line.replace(/[ \t]*\blibata\.force=[^\s"']+/g, "");
+        if (isGrubCfg) {
+          out = out.replace(/[ \t]*\bintel_idle\.max_cstate=[^\s"']+/g, "").replace(/[ \t]*\bprocessor\.max_cstate=[^\s"']+/g, "");
+        } else {
+          for (const key of ["intel_idle\\.max_cstate=1", "processor\\.max_cstate=1"]) {
+            let seen = false;
+            out = out.replace(new RegExp(`[ \\t]*\\b${key}\\b`, "g"), (m) => {
+              if (!seen) {
+                seen = true;
+                return m;
+              }
+              return "";
+            });
+          }
+        }
+        return out;
+      }).join("\n");
+    };
     try {
       if (!fs4.existsSync("/dev/sda1")) {
         try {
@@ -10381,58 +10401,130 @@ ${yamlBlock}`, "utf-8");
         } catch {
         }
       }
-      if (fs4.existsSync("/dev/sda1") && fs4.existsSync("/usr/bin/mcopy")) {
-        const details = [];
-        let anyOk = false;
-        for (const fatPath of ["::EFI/BOOT/grub.cfg", "::cmdline.txt"]) {
-          const tmpFile = "/tmp/thassi_boot_clean.cfg";
+      const details = [];
+      let anyOk = false;
+      if (fs4.existsSync("/dev/sda1")) {
+        try {
+          fs4.mkdirSync("/tmp/hassos_boot_clean", { recursive: true });
           try {
-            if (fs4.existsSync(tmpFile)) fs4.unlinkSync(tmpFile);
-            execFileSync("mcopy", ["-i", "/dev/sda1", fatPath, tmpFile], { timeout: 3e3 });
-            if (fs4.existsSync(tmpFile)) {
+            execFileSync("mount", ["/dev/sda1", "/tmp/hassos_boot_clean"], { timeout: 3e3 });
+          } catch {
+          }
+          for (const rel of ["EFI/BOOT/grub.cfg", "cmdline.txt"]) {
+            const p = path4.join("/tmp/hassos_boot_clean", rel);
+            if (fs4.existsSync(p)) {
               anyOk = true;
-              const orig = fs4.readFileSync(tmpFile, "utf-8");
-              const cleaned = orig.split("\n").map((line) => {
-                let out = line.replace(/[ \t]*\blibata\.force=[^\s"']+/g, "");
-                for (const key of ["intel_idle\\.max_cstate=1", "processor\\.max_cstate=1"]) {
-                  let seen = false;
-                  out = out.replace(new RegExp(`[ \\t]*\\b${key}\\b`, "g"), (m) => {
-                    if (!seen) {
-                      seen = true;
-                      return m;
-                    }
-                    return "";
-                  });
-                }
-                return out;
-              }).join("\n");
+              const orig = fs4.readFileSync(p, "utf-8");
+              const cleaned = cleanBootText(orig, rel.endsWith("grub.cfg"));
               const changed = cleaned !== orig;
               if (changed) {
-                fs4.writeFileSync(tmpFile, cleaned, "utf-8");
-                execFileSync("mcopy", ["-o", "-i", "/dev/sda1", tmpFile, fatPath], { timeout: 3e3 });
-                details.push(`${fatPath} (cleaned)`);
+                fs4.writeFileSync(p, cleaned, "utf-8");
+                details.push(`mount:${rel} (cleaned)`);
               } else {
-                details.push(`${fatPath} (already clean)`);
+                details.push(`mount:${rel} (already clean)`);
               }
-              report.bootFiles[fatPath] = {
+              report.bootFiles[rel] = {
                 before: orig.slice(0, 1e3),
                 after: cleaned.slice(0, 1e3),
                 changed
               };
             }
-          } catch (e) {
-            report[`mcopy_${fatPath}`] = e?.message || String(e);
           }
-        }
-        report.grubCleaned = anyOk;
-        report.grubDetail = details.join(", ");
-        try {
-          execFileSync("sync", [], { timeout: 2e3 });
-        } catch {
+          try {
+            execFileSync("sync", [], { timeout: 2e3 });
+            execFileSync("umount", ["/tmp/hassos_boot_clean"], { timeout: 2e3 });
+          } catch {
+          }
+        } catch (e) {
+          report.mountBootError = e?.message || String(e);
         }
       }
+      if (!anyOk && fs4.existsSync("/dev/sda1")) {
+        if (!fs4.existsSync("/usr/bin/mcopy")) {
+          try {
+            execFileSync("apk", ["add", "--no-cache", "mtools"], { timeout: 2e4 });
+          } catch (e) {
+            report.apkMtoolsError = e?.message || String(e);
+          }
+        }
+        if (fs4.existsSync("/usr/bin/mcopy")) {
+          for (const fatPath of ["::EFI/BOOT/grub.cfg", "::cmdline.txt"]) {
+            const tmpFile = "/tmp/thassi_boot_clean.cfg";
+            try {
+              if (fs4.existsSync(tmpFile)) fs4.unlinkSync(tmpFile);
+              execFileSync("mcopy", ["-i", "/dev/sda1", fatPath, tmpFile], { timeout: 3e3 });
+              if (fs4.existsSync(tmpFile)) {
+                anyOk = true;
+                const orig = fs4.readFileSync(tmpFile, "utf-8");
+                const cleaned = cleanBootText(orig, fatPath.endsWith("grub.cfg"));
+                const changed = cleaned !== orig;
+                if (changed) {
+                  fs4.writeFileSync(tmpFile, cleaned, "utf-8");
+                  execFileSync("mcopy", ["-o", "-i", "/dev/sda1", tmpFile, fatPath], { timeout: 3e3 });
+                  details.push(`${fatPath} (cleaned)`);
+                } else {
+                  details.push(`${fatPath} (already clean)`);
+                }
+                report.bootFiles[fatPath] = {
+                  before: orig.slice(0, 1e3),
+                  after: cleaned.slice(0, 1e3),
+                  changed
+                };
+              }
+            } catch (e) {
+              report[`mcopy_${fatPath}`] = e?.message || String(e);
+            }
+          }
+          try {
+            execFileSync("sync", [], { timeout: 2e3 });
+          } catch {
+          }
+        }
+      }
+      report.grubCleaned = anyOk;
+      report.grubDetail = details.join(", ");
     } catch (e) {
       report.grubError = e?.message || String(e);
+    }
+    const haRootForDb = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
+    if (haRootForDb) {
+      const haDbPath = path4.join(haRootForDb, "home-assistant_v2.db");
+      if (fs4.existsSync(haDbPath)) {
+        let isCorrupt = false;
+        let checkDetail = "ok";
+        try {
+          const checkDb = new DatabaseSync2(haDbPath, { open: true });
+          try {
+            const row = checkDb.prepare("PRAGMA quick_check(1)").get();
+            const val = row ? String(Object.values(row)[0] || "") : "ok";
+            if (val.toLowerCase() !== "ok") {
+              isCorrupt = true;
+              checkDetail = val;
+            }
+          } finally {
+            checkDb.close();
+          }
+        } catch (e) {
+          const msg = e?.message || String(e);
+          if (/malformed|corrupt|not a database/i.test(msg)) {
+            isCorrupt = true;
+            checkDetail = msg;
+          }
+        }
+        report.haRecorderDbCheck = checkDetail;
+        if (isCorrupt) {
+          const bakSuffix = `.corrupt.${Date.now()}`;
+          for (const sfx of ["", "-wal", "-shm"]) {
+            try {
+              if (fs4.existsSync(haDbPath + sfx)) {
+                fs4.renameSync(haDbPath + sfx, haDbPath + sfx + bakSuffix);
+              }
+            } catch {
+            }
+          }
+          report.haRecorderDbRepaired = true;
+        }
+      }
     }
     const haRoot = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
     if (haRoot) {
