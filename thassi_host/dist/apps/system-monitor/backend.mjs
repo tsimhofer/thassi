@@ -9174,6 +9174,55 @@ var index_default = defineThassiApp((ctx) => {
   }
   let latestSnapshotCache = null;
   let snapshotInFlight = null;
+  try {
+    const gAny = globalThis;
+    for (const k of ["__thassiVisionHighFreqTimer", "__thassiNetMonTimer", "__thassiSysMonTimer", "__thassiSataKeepaliveTimer", "__thassiWatchdogTimer", "__thassiBayTrailAntiCstateTimer"]) {
+      if (gAny[k]) {
+        clearInterval(gAny[k]);
+        gAny[k] = void 0;
+      }
+    }
+    if (process.env.THASSI_ENABLE_CRON !== "1") {
+      const origMapSet = Map.prototype.set;
+      let capturedJobsMap = null;
+      Map.prototype.set = function(k, v) {
+        if (typeof k === "string" && k.startsWith("system-monitor:__thassi_disarm")) {
+          capturedJobsMap = this;
+        }
+        return origMapSet.call(this, k, v);
+      };
+      try {
+        ctx.scheduleJob({
+          id: "__thassi_disarm",
+          name: "Disarm Background Cron Timers",
+          intervalMinutes: 0,
+          handler: () => {
+          }
+        });
+      } finally {
+        Map.prototype.set = origMapSet;
+      }
+      if (capturedJobsMap) {
+        const jm = capturedJobsMap;
+        jm.delete("system-monitor:__thassi_disarm");
+        for (const [, entry] of jm.entries()) {
+          if (entry?.timer) {
+            clearInterval(entry.timer);
+            entry.timer = void 0;
+          }
+        }
+        const rawSet = jm.set.bind(jm);
+        jm.set = (k, entry) => {
+          if (entry?.timer) {
+            clearInterval(entry.timer);
+            entry.timer = void 0;
+          }
+          return rawSet(k, entry);
+        };
+      }
+    }
+  } catch {
+  }
   if (process.env.THASSI_ENABLE_BG_SAMPLER === "1") {
     gState.__thassiSysMonTimer = setInterval(() => {
       if (snapshotInFlight) return;

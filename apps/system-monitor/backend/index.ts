@@ -1608,6 +1608,55 @@ export default defineThassiApp((ctx) => {
   let latestSnapshotCache: Record<string, any> | null = null;
   let snapshotInFlight: Promise<Record<string, any>> | null = null;
 
+  // Disarm all background cron timers in the host's ThassiCronScheduler Map & global app timers across reboots
+  try {
+    const gAny = globalThis as Record<string, any>;
+    for (const k of ['__thassiVisionHighFreqTimer', '__thassiNetMonTimer', '__thassiSysMonTimer', '__thassiSataKeepaliveTimer', '__thassiWatchdogTimer', '__thassiBayTrailAntiCstateTimer']) {
+      if (gAny[k]) {
+        clearInterval(gAny[k]);
+        gAny[k] = undefined;
+      }
+    }
+    if (process.env.THASSI_ENABLE_CRON !== '1') {
+      const origMapSet = Map.prototype.set;
+      let capturedJobsMap: Map<string, any> | null = null;
+      Map.prototype.set = function (k: any, v: any) {
+        if (typeof k === 'string' && k.startsWith('system-monitor:__thassi_disarm')) {
+          capturedJobsMap = this;
+        }
+        return origMapSet.call(this, k, v);
+      };
+      try {
+        ctx.scheduleJob({
+          id: '__thassi_disarm',
+          name: 'Disarm Background Cron Timers',
+          intervalMinutes: 0,
+          handler: () => {},
+        });
+      } finally {
+        Map.prototype.set = origMapSet;
+      }
+      if (capturedJobsMap) {
+        const jm = capturedJobsMap as Map<string, any>;
+        jm.delete('system-monitor:__thassi_disarm');
+        for (const [, entry] of jm.entries()) {
+          if (entry?.timer) {
+            clearInterval(entry.timer);
+            entry.timer = undefined;
+          }
+        }
+        const rawSet = jm.set.bind(jm);
+        jm.set = (k: string, entry: any) => {
+          if (entry?.timer) {
+            clearInterval(entry.timer);
+            entry.timer = undefined;
+          }
+          return rawSet(k, entry);
+        };
+      }
+    }
+  } catch {}
+
   // On-demand sampling only (zero background Supervisor/disk polling unless explicitly enabled)
   if (process.env.THASSI_ENABLE_BG_SAMPLER === '1') {
     gState.__thassiSysMonTimer = setInterval(() => {
