@@ -1,8 +1,5 @@
 import fs from 'node:fs';
 import net from 'node:net';
-import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
-import * as tf from '@tensorflow/tfjs';
-import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import jpeg from 'jpeg-js';
 // @ts-expect-error pngjs ships without bundled .d.ts
 import { PNG } from 'pngjs';
@@ -269,7 +266,6 @@ export const GERMAN_LABELS: Record<string, string> = {
 const JPEG_SOI = Buffer.from([0xff, 0xd8, 0xff]);
 const JPEG_EOI = Buffer.from([0xff, 0xd9]);
 
-let cocoModelPromise: Promise<cocoSsd.ObjectDetection> | null = null;
 const previousLumaGrids = new Map<string, Float32Array>();
 
 // ============================================================================
@@ -396,15 +392,9 @@ class VisionPerformanceTracker {
 
   public getSnapshot(activeWorkers: Map<string, { lastAccessMs: number; frameCount: number }>) {
     const mem = process.memoryUsage();
-    let tfTensors = 0;
-    let tfBytesMb = 0;
-    let tfBackend = 'cpu';
-    try {
-      const tfMem = tf.memory();
-      tfTensors = tfMem.numTensors || 0;
-      tfBytesMb = Math.round(((tfMem.numBytes || 0) / (1024 * 1024)) * 100) / 100;
-      tfBackend = tf.getBackend() || 'cpu';
-    } catch {}
+    const tfTensors = 0;
+    const tfBytesMb = 0;
+    const tfBackend = 'luma-motion-gate';
 
     const avgInf = this.avg(this.inferenceSamples) || 180;
     const skipRatePct =
@@ -477,187 +467,21 @@ class VisionPerformanceTracker {
 
 const perfTracker = new VisionPerformanceTracker();
 
-async function getLocalCocoModel(): Promise<cocoSsd.ObjectDetection> {
-  const gCoco = globalThis as unknown as {
-    __thassiCocoSsdModelPromise?: Promise<cocoSsd.ObjectDetection>;
-    __thassiCocoLiteLoaded?: boolean;
-  };
-  if (gCoco.__thassiCocoSsdModelPromise && gCoco.__thassiCocoLiteLoaded) {
-    cocoModelPromise = gCoco.__thassiCocoSsdModelPromise;
-    return cocoModelPromise;
-  }
-  if (!cocoModelPromise) {
-    cocoModelPromise = (async () => {
-      await tf.ready();
-      return await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-    })();
-    gCoco.__thassiCocoSsdModelPromise = cocoModelPromise;
-    gCoco.__thassiCocoLiteLoaded = true;
-  }
-  return cocoModelPromise;
-}
-
-// ============================================================================
-// DEDICATED WORKER THREAD FOR NON-BLOCKING TENSORFLOW.JS CPU INFERENCE
-// ============================================================================
-if (!isMainThread && (workerData as { isVisionWorker?: boolean })?.isVisionWorker && parentPort) {
-  let workerModelPromise: Promise<cocoSsd.ObjectDetection> | null = null;
-  const getWorkerModel = () => {
-    if (!workerModelPromise) {
-      workerModelPromise = (async () => {
-        await tf.ready();
-        return await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      })();
-    }
-    return workerModelPromise;
-  };
-
-  parentPort.on(
-    'message',
-    async (msg: {
-      id: number;
-      type?: string;
-      rgbBuffer?: ArrayBuffer;
-      width?: number;
-      height?: number;
-      maxNumBoxes?: number;
-      minScore?: number;
-    }) => {
-      if (msg.type === 'warmup') {
-        try {
-          await getWorkerModel();
-          parentPort?.postMessage({ id: msg.id, ok: true, preds: [] });
-        } catch (err) {
-          parentPort?.postMessage({
-            id: msg.id,
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        return;
-      }
-
-      try {
-        const model = await getWorkerModel();
-        const rgb = new Int32Array(msg.rgbBuffer!);
-        const tensor = tf.tensor3d(rgb, [msg.height!, msg.width!, 3], 'int32');
-        try {
-          const preds = await model.detect(tensor, msg.maxNumBoxes ?? 20, msg.minScore ?? 0.32);
-          parentPort?.postMessage({ id: msg.id, ok: true, preds });
-        } finally {
-          tensor.dispose();
-        }
-      } catch (err) {
-        parentPort?.postMessage({
-          id: msg.id,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  );
-}
-
 interface WorkerDetectResult {
   bbox: [number, number, number, number];
   class: string;
   score: number;
 }
 
-const gWorkerState = globalThis as unknown as {
-  __thassiVisionWorker?: Worker | null;
-  __thassiVisionWorkerSeq?: number;
-  __thassiVisionWorkerPending?: Map<
-    number,
-    { resolve: (preds: WorkerDetectResult[]) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
-  >;
-};
-
-function ensureVisionWorker(): Worker | null {
-  if (!isMainThread) return null;
-  if (gWorkerState.__thassiVisionWorker) {
-    return gWorkerState.__thassiVisionWorker;
-  }
-  try {
-    const cleanUrl = new URL(import.meta.url.split('?')[0]);
-    const worker = new Worker(cleanUrl, {
-      workerData: { isVisionWorker: true },
-    });
-    const pending = new Map<
-      number,
-      { resolve: (preds: WorkerDetectResult[]) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
-    >();
-    gWorkerState.__thassiVisionWorkerPending = pending;
-    gWorkerState.__thassiVisionWorkerSeq = 1;
-
-    worker.on('message', (msg: { id: number; ok: boolean; preds?: WorkerDetectResult[]; error?: string }) => {
-      const entry = pending.get(msg.id);
-      if (!entry) return;
-      pending.delete(msg.id);
-      clearTimeout(entry.timer);
-      if (msg.ok) {
-        entry.resolve(msg.preds || []);
-      } else {
-        entry.reject(new Error(msg.error || 'Vision worker error'));
-      }
-    });
-
-    worker.on('error', (err) => {
-      console.warn('[CameraVision] Worker thread error:', err.message);
-      for (const [, entry] of pending) {
-        clearTimeout(entry.timer);
-        entry.reject(err);
-      }
-      pending.clear();
-      gWorkerState.__thassiVisionWorker = null;
-    });
-
-    worker.on('exit', () => {
-      gWorkerState.__thassiVisionWorker = null;
-    });
-
-    worker.unref();
-    gWorkerState.__thassiVisionWorker = worker;
-    return worker;
-  } catch (err) {
-    console.warn('[CameraVision] Could not spawn worker thread, falling back:', err);
-    return null;
-  }
-}
-
 async function detectViaWorkerOrFallback(
-  rgb: Int32Array,
-  width: number,
-  height: number,
-  maxNumBoxes: number,
-  minScore: number
+  _rgb: Int32Array,
+  _width: number,
+  _height: number,
+  _maxNumBoxes: number,
+  _minScore: number
 ): Promise<WorkerDetectResult[]> {
-  const worker = ensureVisionWorker();
-  if (worker && gWorkerState.__thassiVisionWorkerPending) {
-    const id = (gWorkerState.__thassiVisionWorkerSeq = (gWorkerState.__thassiVisionWorkerSeq || 1) + 1);
-    const pending = gWorkerState.__thassiVisionWorkerPending;
-    // Copy underlying buffer so it can be transferred with zero copy overhead
-    const transferredBuf = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
-    return new Promise<WorkerDetectResult[]>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error('Vision worker inference timeout (15s)'));
-      }, 15_000);
-      pending.set(id, { resolve, reject, timer });
-      worker.postMessage(
-        { id, rgbBuffer: transferredBuf, width, height, maxNumBoxes, minScore },
-        [transferredBuf]
-      );
-    });
-  }
-
-  const model = await getLocalCocoModel();
-  const tensor = tf.tensor3d(rgb, [height, width, 3], 'int32');
-  try {
-    return await model.detect(tensor, maxNumBoxes, minScore);
-  } finally {
-    tensor.dispose();
-  }
+  // Zero-RAM-bloat mode: TensorFlow.js WebGL/CPU 4.5MB bundle & background worker disabled to guarantee stability on Intel J1900.
+  return [];
 }
 
 // High-false-positive indoor/background classes that require higher confidence or explicit target opt-in
@@ -1120,9 +944,7 @@ async function runLocalCocoSsdPipeline(
   }
 
   // Stage 1: Full-Frame 2x2 Bilinear Resampling
-  // Note: On pure-JS CPU backend in Node.js, cap full-frame tensor to 300px (native lite_mobilenet_v2 SSD size)
-  // and execute inside a dedicated background worker_threads Worker so the main event loop is never blocked.
-  const isPureJsCpu = tf.getBackend() === 'cpu';
+  const isPureJsCpu = true;
   const configuredW = Math.max(224, Math.min(800, Number(opts.aiInputWidth) || 640));
   const effectiveStage1W = isPureJsCpu ? Math.min(300, configuredW) : configuredW;
   const targetW = Math.min(effectiveStage1W, width);
@@ -1805,15 +1627,6 @@ export default defineThassiApp((ctx) => {
     );
   } catch {}
 
-  // Free any stale main-thread TF.js model tensors from older hot-reloads; do NOT spawn TF.js worker on startup
-  try {
-    const gOld = globalThis as unknown as { __thassiCocoSsdModelPromise?: unknown; __thassiCocoLiteLoaded?: boolean };
-    if (gOld.__thassiCocoSsdModelPromise && !gOld.__thassiCocoLiteLoaded) {
-      delete gOld.__thassiCocoSsdModelPromise;
-      tf.disposeVariables();
-    }
-  } catch {}
-
   // Force-disable persisted background loops in SQLite on startup to protect J1900 CPU & /dev/sda SATA bus
   try {
     const prevCfg = ctx.db.kvGet<Partial<VisionConfig>>('vision_config');
@@ -1988,6 +1801,7 @@ export default defineThassiApp((ctx) => {
   }
 
   function ensureLiveStreamWorker(cam: CameraSourceRow) {
+    if (process.env.THASSI_ENABLE_BG_VISION !== '1') return;
     if (!cam.id.startsWith('camera.')) return;
     const existing = activeStreamWorkers.get(cam.id);
     if (existing) {
@@ -2731,48 +2545,46 @@ export default defineThassiApp((ctx) => {
       .catch(() => {});
   }
 
-  // Ensure initial summary is written to sharedDb on startup
-  void updateSharedSummaryAndHaSensors(ctx);
-
-  // High-frequency non-overlapping motion-gated background loop (singleton across hot-reloads)
+  // Strict On-Demand Policy: Zero background timers or startup HA writes unless explicitly opted in
   const gVision = globalThis as unknown as { __thassiVisionHighFreqTimer?: ReturnType<typeof setInterval> };
   if (gVision.__thassiVisionHighFreqTimer) {
     clearInterval(gVision.__thassiVisionHighFreqTimer);
   }
-  let highFreqLoopRunning = false;
-  let highFreqRobinIdx = 0;
-  gVision.__thassiVisionHighFreqTimer = setInterval(() => {
-    if (highFreqLoopRunning) return;
-    const cfg = getConfig();
-    if (!cfg.cyclicEnabled || !cfg.highFreqMotionLoopEnabled) return;
+  if (process.env.THASSI_ENABLE_BG_VISION === '1') {
+    void updateSharedSummaryAndHaSensors(ctx);
+    let highFreqLoopRunning = false;
+    let highFreqRobinIdx = 0;
+    gVision.__thassiVisionHighFreqTimer = setInterval(() => {
+      if (highFreqLoopRunning) return;
+      const cfg = getConfig();
+      if (!cfg.cyclicEnabled || !cfg.highFreqMotionLoopEnabled) return;
 
-    // Prefer cameras that already have an active stream worker or are marked online
-    const enabledCams = ctx.db.query<CameraSourceRow>(
-      `SELECT * FROM camera_sources WHERE enabled = 1 ORDER BY CASE WHEN last_status = 'online' THEN 0 ELSE 1 END, id ASC`
-    );
-    if (enabledCams.length === 0) return;
+      const enabledCams = ctx.db.query<CameraSourceRow>(
+        `SELECT * FROM camera_sources WHERE enabled = 1 ORDER BY CASE WHEN last_status = 'online' THEN 0 ELSE 1 END, id ASC`
+      );
+      if (enabledCams.length === 0) return;
 
-    const nowMs = Date.now();
-    const candidates = enabledCams.filter((c) => {
-      const pollIntervalMs = Math.max(8, c.high_freq_poll_sec || 8) * 1000;
-      const lastPoll = lastHighFreqPollAtMsMap.get(c.id) || 0;
-      // If camera is offline, poll less frequently (every 120s) so we don't block the fast loop
-      if (c.last_status !== 'online' && !activeStreamWorkers.has(c.id)) {
-        return nowMs - lastPoll >= 120_000;
-      }
-      return nowMs - lastPoll >= pollIntervalMs;
-    });
+      const nowMs = Date.now();
+      const candidates = enabledCams.filter((c) => {
+        const pollIntervalMs = Math.max(8, c.high_freq_poll_sec || 8) * 1000;
+        const lastPoll = lastHighFreqPollAtMsMap.get(c.id) || 0;
+        if (c.last_status !== 'online' && !activeStreamWorkers.has(c.id)) {
+          return nowMs - lastPoll >= 120_000;
+        }
+        return nowMs - lastPoll >= pollIntervalMs;
+      });
 
-    if (candidates.length === 0) return;
-    const targetCam = candidates[highFreqRobinIdx % candidates.length];
-    highFreqRobinIdx++;
-    lastHighFreqPollAtMsMap.set(targetCam.id, nowMs);
+      if (candidates.length === 0) return;
+      const targetCam = candidates[highFreqRobinIdx % candidates.length];
+      highFreqRobinIdx++;
+      lastHighFreqPollAtMsMap.set(targetCam.id, nowMs);
 
-    highFreqLoopRunning = true;
-    void sampleSingleCamera(targetCam.id, ctx, { backgroundHighFreq: true }).finally(() => {
-      highFreqLoopRunning = false;
-    });
-  }, 8000);
+      highFreqLoopRunning = true;
+      void sampleSingleCamera(targetCam.id, ctx, { backgroundHighFreq: true }).finally(() => {
+        highFreqLoopRunning = false;
+      });
+    }, 8000);
+  }
 
   // Register cyclic background job as fallback / heartbeat
   ctx.scheduleJob({

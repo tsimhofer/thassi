@@ -549,6 +549,10 @@ async function discoverAllApps(): Promise<void> {
         try {
           const hotDir = path.join(deployedBase, entry.name);
           const hotBackend = path.join(hotDir, 'backend.mjs');
+          if (entry.name === 'camera-vision' && fs.existsSync(hotBackend) && fs.statSync(hotBackend).size > 1_000_000) {
+            fs.rmSync(hotDir, { recursive: true, force: true });
+            continue;
+          }
           const builtInBackend = path.join(__dirname, 'apps', entry.name, 'backend.mjs');
           if (fs.existsSync(builtInBackend) && fs.existsSync(hotBackend)) {
             const builtInMtime = fs.statSync(builtInBackend).mtimeMs;

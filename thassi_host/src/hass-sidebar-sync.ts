@@ -351,7 +351,8 @@ export function getHassSidebarStylerScript(): string {
 
           // If the user ever lands on a stopped standalone Thassi add-on URL (/44ec3c40_thassi_<slug>), redirect immediately to Horizon
           const curTopPath = String(window.top.location.pathname || '');
-          const stoppedMatch = curTopPath.match(/^\/44ec3c40_thassi_(?!host$)([a-z0-9_]+)/i);
+          const stoppedRx = new RegExp('^/44ec3c40_thassi_(?!host$)([a-z0-9_]+)', 'i');
+          const stoppedMatch = curTopPath.match(stoppedRx);
           if (stoppedMatch && stoppedMatch[1]) {
             const targetAppId = stoppedMatch[1].toLowerCase().replace(/_/g, '-');
             window.top.__thassiOpenSidebarApp(targetAppId, targetAppId);

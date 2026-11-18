@@ -172,19 +172,11 @@ export class ThassiAppDatabase {
     try {
       this.raw.close();
     } catch {}
-    const isSharedDb = path.basename(this.dbPath) === 'shared.db';
-    try {
-      const suffixes = isSharedDb ? ['-wal', '-shm'] : ['', '-wal', '-shm'];
-      for (const suffix of suffixes) {
-        if (fs.existsSync(this.dbPath + suffix)) {
-          fs.rmSync(this.dbPath + suffix, { force: true });
-        }
-      }
-    } catch {}
     this.raw = this.openWithAutoRecovery(this.dbPath);
   }
 
   private initSchema(db: DatabaseSync): DatabaseSync {
+    db.exec('PRAGMA busy_timeout = 5000;');
     db.exec('PRAGMA journal_mode = MEMORY;');
     db.exec('PRAGMA synchronous = OFF;');
     db.exec('PRAGMA temp_store = MEMORY;');

@@ -1859,58 +1859,22 @@ export default defineThassiApp((ctx) => {
     try {
       if (fs.existsSync('/app/dist')) {
         fs.writeFileSync(targetPath, serverBuf);
+        patchedLayers.push('/app/dist/server.mjs');
       }
-      if (fs.existsSync('/data/deployed_apps/system-monitor/backend.mjs') && fs.existsSync('/app/dist/apps/system-monitor')) {
-        fs.copyFileSync('/data/deployed_apps/system-monitor/backend.mjs', '/app/dist/apps/system-monitor/backend.mjs');
-      }
-      if (fs.existsSync('/data/deployed_apps/network-monitor/backend.mjs') && fs.existsSync('/app/dist/apps/network-monitor')) {
-        fs.copyFileSync('/data/deployed_apps/network-monitor/backend.mjs', '/app/dist/apps/network-monitor/backend.mjs');
-      }
-    } catch {}
-
-    // Permanently patch underlying Docker overlay2 image layers on /dev/sda8 so container recreation on boot uses clean bundles
-    try {
-      if (!fs.existsSync('/dev/sda8')) {
-        try {
-          execFileSync('mknod', ['/dev/sda8', 'b', '8', '8'], { timeout: 1500 });
-        } catch {}
-      }
-      if (fs.existsSync('/dev/sda8')) {
-        fs.mkdirSync('/tmp/hassos_data_patch', { recursive: true });
-        try {
-          execFileSync('mount', ['/dev/sda8', '/tmp/hassos_data_patch'], { timeout: 3000 });
-        } catch {}
-        const ovRoot = '/tmp/hassos_data_patch/docker/overlay2';
-        if (fs.existsSync(ovRoot)) {
-          const sysMonSrc = fs.existsSync('/data/deployed_apps/system-monitor/backend.mjs')
-            ? fs.readFileSync('/data/deployed_apps/system-monitor/backend.mjs')
-            : null;
-          const netMonSrc = fs.existsSync('/data/deployed_apps/network-monitor/backend.mjs')
-            ? fs.readFileSync('/data/deployed_apps/network-monitor/backend.mjs')
-            : null;
-          for (const d of fs.readdirSync(ovRoot)) {
-            const distBase = path.join(ovRoot, d, 'diff', 'app', 'dist');
-            const srvFile = path.join(distBase, 'server.mjs');
-            if (fs.existsSync(srvFile)) {
-              try {
-                fs.writeFileSync(srvFile, serverBuf);
-                if (sysMonSrc && fs.existsSync(path.join(distBase, 'apps', 'system-monitor', 'backend.mjs'))) {
-                  fs.writeFileSync(path.join(distBase, 'apps', 'system-monitor', 'backend.mjs'), sysMonSrc);
-                }
-                if (netMonSrc && fs.existsSync(path.join(distBase, 'apps', 'network-monitor', 'backend.mjs'))) {
-                  fs.writeFileSync(path.join(distBase, 'apps', 'network-monitor', 'backend.mjs'), netMonSrc);
-                }
-                patchedLayers.push(d);
-              } catch {}
-            }
+      if (fs.existsSync('/data/deployed_apps') && fs.existsSync('/app/dist/apps')) {
+        for (const appEntry of fs.readdirSync('/data/deployed_apps', { withFileTypes: true })) {
+          if (!appEntry.isDirectory()) continue;
+          const srcBackend = path.join('/data/deployed_apps', appEntry.name, 'backend.mjs');
+          const dstBackend = path.join('/app/dist/apps', appEntry.name, 'backend.mjs');
+          if (fs.existsSync(srcBackend) && fs.existsSync(path.dirname(dstBackend))) {
+            fs.copyFileSync(srcBackend, dstBackend);
+            patchedLayers.push(dstBackend);
           }
         }
-        try {
-          execFileSync('umount', ['/tmp/hassos_data_patch'], { timeout: 2000 });
-        } catch {}
       }
     } catch {}
 
+    // Never raw-mount /dev/sda8 while Docker/HASS OS already has it mounted at /mnt/data (causes ext4/overlay2 EIO).
     return { ok: true, path: targetPath, patchedLayers, updatedAt: new Date().toISOString() };
   });
 
@@ -2037,6 +2001,83 @@ export default defineThassiApp((ctx) => {
     }
 
     return diag;
+  });
+
+  // Read-only forensic kernel & previous-boot journal log collector
+  ctx.route('GET', '/forensic-logs', async () => {
+    const supToken =
+      process.env.SUPERVISOR_TOKEN ||
+      process.env.HASSIO_TOKEN ||
+      (() => {
+        try {
+          return ctx.sharedDb.kvGet<{ haToken?: string }>('ha_connection')?.haToken;
+        } catch {
+          return '';
+        }
+      })() ||
+      '';
+    const result: Record<string, any> = {
+      timestamp: new Date().toISOString(),
+      uptimeSec: Math.round(os.uptime()),
+      cmdline: readSafe('/proc/cmdline'),
+      mounts: readSafe('/proc/mounts'),
+      meminfo: readSafe('/proc/meminfo'),
+      dmesgTail: '',
+      boots: null,
+      prevBootKernelLog: '',
+      prevBootHostLogTail: '',
+      curBootKernelLogTail: '',
+      supervisorLogTail: '',
+      thassiHostLogTail: '',
+    };
+
+    try {
+      const dm = execFileSync('dmesg', [], { encoding: 'utf-8', timeout: 3000 });
+      result.dmesgTail = dm.split('\n').slice(-200).join('\n');
+    } catch (e: any) {
+      result.dmesgError = e?.message || String(e);
+    }
+
+    if (supToken) {
+      const fetchText = async (ep: string, maxLines = 250): Promise<string> => {
+        try {
+          const r = await fetch(`http://supervisor${ep}`, {
+            headers: { Authorization: `Bearer ${supToken}`, Accept: 'text/plain' },
+            signal: AbortSignal.timeout(6000),
+          });
+          const txt = await r.text();
+          return txt.replace(/\x1b\[[0-9;]*m/g, '').split('\n').slice(-maxLines).join('\n');
+        } catch (e: any) {
+          return `ERROR(${ep}): ${e?.message || String(e)}`;
+        }
+      };
+
+      try {
+        const bRes = await fetch('http://supervisor/host/logs/boots', {
+          headers: { Authorization: `Bearer ${supToken}`, Accept: 'application/json' },
+          signal: AbortSignal.timeout(4000),
+        });
+        result.boots = await bRes.json();
+      } catch (e: any) {
+        result.bootsError = e?.message || String(e);
+      }
+
+      const [prevKernel, prevHost, curKernel, supLog, thassiLog] = await Promise.all([
+        fetchText('/host/logs/boots/-1/identifiers/kernel', 300),
+        fetchText('/host/logs/boots/-1', 250),
+        fetchText('/host/logs/identifiers/kernel', 200),
+        fetchText('/supervisor/logs', 150),
+        fetchText('/addons/44ec3c40_thassi_host/logs', 150),
+      ]);
+
+      result.prevBootKernelLog = prevKernel;
+      result.prevBootHostLogTail = prevHost;
+      result.curBootKernelLogTail = curKernel;
+      result.supervisorLogTail = supLog;
+      result.thassiHostLogTail = thassiLog;
+    }
+
+    return result;
   });
 
   // API: GET /container-logs (Fetch live logs from Supervisor for any HASS container/add-on)

@@ -109,19 +109,10 @@ var ThassiAppDatabase = class {
       this.raw.close();
     } catch {
     }
-    const isSharedDb = path.basename(this.dbPath) === "shared.db";
-    try {
-      const suffixes = isSharedDb ? ["-wal", "-shm"] : ["", "-wal", "-shm"];
-      for (const suffix of suffixes) {
-        if (fs.existsSync(this.dbPath + suffix)) {
-          fs.rmSync(this.dbPath + suffix, { force: true });
-        }
-      }
-    } catch {
-    }
     this.raw = this.openWithAutoRecovery(this.dbPath);
   }
   initSchema(db) {
+    db.exec("PRAGMA busy_timeout = 5000;");
     db.exec("PRAGMA journal_mode = MEMORY;");
     db.exec("PRAGMA synchronous = OFF;");
     db.exec("PRAGMA temp_store = MEMORY;");
@@ -6839,7 +6830,8 @@ function getHassSidebarStylerScript() {
 
           // If the user ever lands on a stopped standalone Thassi add-on URL (/44ec3c40_thassi_<slug>), redirect immediately to Horizon
           const curTopPath = String(window.top.location.pathname || '');
-          const stoppedMatch = curTopPath.match(/^/44ec3c40_thassi_(?!host$)([a-z0-9_]+)/i);
+          const stoppedRx = new RegExp('^/44ec3c40_thassi_(?!host$)([a-z0-9_]+)', 'i');
+          const stoppedMatch = curTopPath.match(stoppedRx);
           if (stoppedMatch && stoppedMatch[1]) {
             const targetAppId = stoppedMatch[1].toLowerCase().replace(/_/g, '-');
             window.top.__thassiOpenSidebarApp(targetAppId, targetAppId);
@@ -7291,7 +7283,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
     #mobile-nav-toggle,
     #mobile-nav-backdrop,
     #sky-stage,
-    #pinned-rooms-tray,
+    #rooms-live-matrix-grid,
     #timeline-devices-separator {
       display: none !important;
     }
@@ -7621,12 +7613,16 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
 
     /* ============================================================================
-       ZONE B: 4-COLUMN EXECUTIVE KPI STRIP (#top-right-widgets)
+       ZONE B: 4-COLUMN EXECUTIVE KPI STRIP (#top-right-widgets) \u2014 BLACK SPACE
        ============================================================================ */
     #top-right-widgets {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      border-bottom: 1px solid var(--line-hairline);
+      gap: 18px;
+      padding: 24px 36px 10px 36px;
+      max-width: 1480px;
+      width: 100%;
+      margin: 0 auto;
       background: var(--bg-canvas);
       z-index: 45;
       flex-shrink: 0;
@@ -7634,20 +7630,51 @@ function renderUnifiedDashboardHtml(ingressPath) {
 
     .ambient-widget {
       position: relative;
-      padding: 12px 24px;
-      border-right: 1px solid var(--line-hairline);
-      background: var(--bg-canvas);
+      padding: 16px 20px;
+      border: 1px solid var(--line-hairline);
+      border-radius: 6px;
+      background: #0d0d10;
       cursor: pointer;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      transition: background-color 0.12s ease;
-    }
-    .ambient-widget:last-child {
-      border-right: none;
+      transition: background-color 0.14s ease, border-color 0.14s ease;
     }
     .ambient-widget:hover {
       background: var(--bg-elevated);
+      border-color: var(--line-strong);
+    }
+
+    /* Modern Icon Navigation Button in Top Menubar */
+    .hz-nav-icon-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      height: 30px;
+      padding: 0 10px;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
+    }
+    .hz-nav-icon-btn svg {
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      transition: color 0.14s ease;
+    }
+    .hz-nav-icon-btn:hover {
+      color: var(--text-primary);
+      background: var(--bg-elevated);
+      border-color: var(--line-hairline);
+    }
+    .hz-nav-icon-btn:hover svg {
+      color: var(--text-primary);
     }
 
     .w-header {
@@ -7897,31 +7924,33 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .note-del:hover { color: var(--dot-err); }
 
     /* ============================================================================
-       ZONE C: PRIMARY HAIRLINE WORKSPACE (MASTER ROOM MATRIX + RIGHT INSPECTOR)
+       BOTTOM BAR: SMART HOME ROOM DOCK & UPWARD POPOVERS (#devices-dock)
        ============================================================================ */
     #devices-dock {
-      flex: 1;
-      min-height: 0;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 390px;
+      position: relative;
+      height: 44px;
+      min-height: 44px;
+      border-top: 1px solid var(--line-hairline);
       background: var(--bg-canvas);
-      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      gap: 16px;
+      z-index: 65;
+      flex-shrink: 0;
     }
 
-    /* Left Column: Smart Home Room & Device Matrix */
     .sh-matrix-column {
       display: flex;
-      flex-direction: column;
-      min-height: 0;
-      border-right: 1px solid var(--line-hairline);
+      align-items: center;
+      min-width: 0;
+      flex: 1;
     }
 
     #room-dock-bar {
-      height: 40px;
-      min-height: 40px;
-      padding: 0 24px;
-      border-bottom: 1px solid var(--line-hairline);
-      background: var(--bg-elevated);
+      height: 44px;
+      width: 100%;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -7931,13 +7960,13 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .sh-bar-left {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       min-width: 0;
       flex: 1;
     }
 
     .sh-section-label {
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 500;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -7963,19 +7992,20 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .room-dock-group::-webkit-scrollbar { display: none; }
 
     .room-pill {
-      background: transparent;
+      background: #0d0d10;
       border: 1px solid var(--line-hairline);
-      border-radius: 3px;
-      padding: 3px 8px;
+      border-radius: 4px;
+      padding: 5px 10px;
       color: var(--text-secondary);
       font-family: var(--font-sans);
-      font-size: 11px;
+      font-size: 11.5px;
       font-weight: 500;
       display: inline-flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
       cursor: pointer;
       white-space: nowrap;
+      transition: all 0.14s ease;
     }
     .room-pill:hover {
       color: var(--text-primary);
@@ -8002,102 +8032,103 @@ function renderUnifiedDashboardHtml(ingressPath) {
     .td-sep-unpin-btn {
       background: transparent;
       border: 1px solid var(--line-hairline);
-      border-radius: 3px;
+      border-radius: 4px;
       color: var(--text-secondary);
       font-family: var(--font-mono);
       font-size: 10px;
-      padding: 3px 8px;
+      padding: 4px 8px;
       cursor: pointer;
     }
 
-    /* Live Hairline Room Grid */
-    #rooms-live-matrix-grid {
-      flex: 1;
-      overflow-y: auto;
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-      align-content: start;
-      background: var(--bg-canvas);
+    /* Upward Pinned Room Popover Tray above Bottom Bar */
+    #pinned-rooms-tray {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 24px;
+      right: 24px;
+      display: none;
+      flex-wrap: wrap;
+      gap: 14px;
+      z-index: 75;
+      pointer-events: none;
     }
-
-    .sh-room-cell {
-      border-right: 1px solid var(--line-hairline);
-      border-bottom: 1px solid var(--line-hairline);
+    #pinned-rooms-tray.has-pinned {
+      display: flex;
+    }
+    .pinned-room-card {
+      width: min(330px, 92vw);
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      background: var(--bg-canvas);
+      gap: 10px;
+      pointer-events: auto;
     }
-
-    .sh-room-head {
-      height: 36px;
-      padding: 0 16px;
-      border-bottom: 1px solid var(--line-hairline);
-      background: var(--bg-elevated);
+    .prc-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line-hairline);
     }
-    .sh-room-title-group {
+    .prc-title-wrap {
       display: flex;
-      align-items: center;
-      gap: 8px;
+      flex-direction: column;
+      gap: 2px;
     }
-    .sh-room-name {
-      font-size: 11.5px;
+    .prc-title {
+      font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
       color: var(--text-primary);
     }
-    .sh-room-meta-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .sh-room-telemetry {
+    .prc-meta {
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--text-secondary);
-      font-variant-numeric: tabular-nums;
     }
-    .sh-room-off-btn {
+    .prc-unpin {
       background: transparent;
       border: 1px solid var(--line-hairline);
-      border-radius: 3px;
+      border-radius: 4px;
       color: var(--text-secondary);
-      font-family: var(--font-mono);
-      font-size: 9.5px;
-      padding: 1px 6px;
+      font-size: 10.5px;
+      padding: 2px 7px;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
-    .sh-room-off-btn:hover {
+    .prc-unpin:hover {
       color: var(--text-primary);
       border-color: var(--line-focus);
     }
-
-    .sh-room-devices {
+    .prc-dev-grid {
       display: flex;
       flex-direction: column;
+      gap: 6px;
+      max-height: 280px;
+      overflow-y: auto;
     }
 
     .rf-dev-row {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      padding: 8px 16px;
-      border-bottom: 1px solid var(--line-hairline);
+      padding: 8px 10px;
+      border: 1px solid var(--line-hairline);
+      border-radius: 4px;
       background: var(--bg-canvas);
       transition: background-color 0.12s ease;
     }
-    .rf-dev-row:last-child {
-      border-bottom: none;
-    }
     .rf-dev-row:hover {
-      background: var(--bg-elevated);
+      background: var(--bg-input);
     }
     .rf-dev-row.is-on {
-      background: rgba(255, 255, 255, 0.02);
+      border-color: var(--line-strong);
+      background: #141417;
     }
     .rf-dev-main {
       display: flex;
@@ -8106,7 +8137,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
       gap: 8px;
     }
     .rf-dev-label {
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 400;
       color: var(--text-secondary);
     }
@@ -8121,14 +8152,14 @@ function renderUnifiedDashboardHtml(ingressPath) {
     }
     .rf-power-badge {
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--text-muted);
       font-variant-numeric: tabular-nums;
     }
     .rf-toggle-btn {
       border: 1px solid var(--line-hairline);
       border-radius: 3px;
-      padding: 3px 9px;
+      padding: 2px 8px;
       font-family: var(--font-mono);
       font-size: 10px;
       font-weight: 500;
@@ -8180,66 +8211,70 @@ function renderUnifiedDashboardHtml(ingressPath) {
       border-color: var(--text-primary);
     }
 
-    /* Right Column: Hardware, 3D Print & Vision Inspector (#statusbar-right-previews) */
+    /* Right Side of Bottom Bar: 3D Print & Vision Triggers (#statusbar-right-previews) */
     #statusbar-right-previews {
       display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-      background: var(--bg-canvas);
+      flex-direction: row;
+      align-items: center;
+      gap: 14px;
+      flex-shrink: 0;
     }
 
     .sb-preview-item {
-      border-bottom: 1px solid var(--line-hairline);
+      position: relative;
       display: flex;
-      flex-direction: column;
+      align-items: center;
     }
     .sb-preview-head {
-      height: 36px;
-      padding: 0 16px;
-      background: var(--bg-elevated);
-      border-bottom: 1px solid var(--line-hairline);
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 6px;
     }
     .sb-preview-trigger {
-      background: transparent;
-      border: none;
-      padding: 0;
-      color: var(--text-primary);
+      background: #0d0d10;
+      border: 1px solid var(--line-hairline);
+      border-radius: 4px;
+      padding: 5px 10px;
+      color: var(--text-secondary);
       font-family: var(--font-sans);
       font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-weight: 500;
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 6px;
       cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.14s ease;
+    }
+    .sb-preview-trigger:hover,
+    .sb-preview-item.expanded .sb-preview-trigger {
+      color: var(--text-primary);
+      border-color: var(--line-focus);
+      background: var(--bg-input);
     }
     .sb-meta {
       font-family: var(--font-mono);
-      font-size: 10.5px;
-      font-weight: 400;
-      color: var(--text-secondary);
-      text-transform: none;
-      letter-spacing: 0;
+      font-size: 10px;
+      color: var(--text-muted);
     }
     .sb-caret {
-      display: none;
+      font-size: 9px;
+      color: var(--text-muted);
     }
     .sb-upward-flyout {
-      padding: 12px 16px;
-      background: var(--bg-canvas);
-      display: block !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-      position: static !important;
-      width: 100% !important;
-      border: none !important;
-      box-shadow: none !important;
-      transform: none !important;
-      pointer-events: auto !important;
+      position: absolute;
+      bottom: calc(100% + 10px);
+      right: 0;
+      width: min(350px, 92vw);
+      padding: 14px 16px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      display: none;
+      z-index: 80;
+    }
+    .sb-preview-item.expanded .sb-upward-flyout {
+      display: block;
     }
     .w-3d-row {
       display: flex;
@@ -8542,27 +8577,52 @@ function renderUnifiedDashboardHtml(ingressPath) {
       html, body {
         height: auto;
         min-height: 100dvh;
+        overflow-x: hidden;
         overflow-y: auto;
+        padding-bottom: 50px;
       }
       #horizon-header-bar {
         height: auto;
         padding: 10px 16px;
         flex-wrap: wrap;
       }
+      #horizon-menubar {
+        padding: 0 14px !important;
+      }
       #top-right-widgets {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 14px 16px 6px 16px;
+        gap: 10px;
       }
       .ambient-widget {
-        border-bottom: 1px solid var(--line-hairline);
-        padding: 10px 16px;
+        padding: 12px 14px;
+      }
+      #horizon-overview-stage {
+        grid-template-columns: 1fr !important;
+        padding: 10px 16px 16px 16px !important;
+        gap: 12px !important;
+        overflow: visible !important;
       }
       #devices-dock {
-        grid-template-columns: 1fr;
-        overflow: visible;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 0 12px;
+        background: rgba(9, 9, 11, 0.96);
+        backdrop-filter: blur(12px);
       }
-      .sh-matrix-column {
-        border-right: none;
-        border-bottom: 1px solid var(--line-hairline);
+      #pinned-rooms-tray {
+        left: 12px;
+        right: 12px;
+      }
+    }
+    @media (max-width: 520px) {
+      #top-right-widgets {
+        grid-template-columns: 1fr;
+      }
+      .sb-meta {
+        display: none;
       }
     }
   </style>
@@ -8669,17 +8729,53 @@ function renderUnifiedDashboardHtml(ingressPath) {
     </div>
   </header>
 
-  <!-- HORIZON TOP MEN\xDCLEISTE (Subseiten & Schnellaktionen) -->
-  <nav id="horizon-menubar" style="height:40px; padding:0 24px; border-bottom:1px solid var(--line-hairline); background:var(--bg-canvas); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-shrink:0;">
-    <div style="display:flex; align-items:center; gap:20px; height:40px;">
-      <button id="hz-tab-overview" class="thassi-u-tab active" style="height:40px; font-size:12px;" onclick="switchHorizonTab('overview')">\xDCbersicht (Cockpit)</button>
-      <button id="hz-tab-rooms" class="thassi-u-tab" style="height:40px; font-size:12px;" onclick="switchHorizonTab('rooms')">Schnellsteuerung (R\xE4ume)</button>
-      <button id="hz-tab-hardware" class="thassi-u-tab" style="height:40px; font-size:12px;" onclick="switchHorizonTab('hardware')">3D-Druck, Kameras &amp; System</button>
+  <!-- HORIZON TOP MEN\xDCLEISTE (Moderne Vektor-Icon-Navigation) -->
+  <nav id="horizon-menubar" style="height:44px; padding:0 36px; border-bottom:1px solid var(--line-hairline); background:var(--bg-canvas); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-shrink:0; overflow-x:auto; scrollbar-width:none;">
+    <div style="display:flex; align-items:center; gap:6px; height:44px;">
+      <button class="hz-nav-icon-btn" onclick="openFullService('smart-canvas', 'Smart Home')" title="Smart Home Canvas">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.5V19a1 1 0 0 0 1 1h4.5v-5.5h3V20H18a1 1 0 0 0 1-1V9.5"></path></svg>
+        <span>Smart Home</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('floorplan', '2D Grundriss')" title="2D Grundriss &amp; Raumplaner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 21V9"></path></svg>
+        <span>Grundriss</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('google-calendar', 'Kalender &amp; Zeit')" title="Kalender &amp; Zeit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        <span>Kalender</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('finance-analytics', 'thassi.finances')" title="Finanzen &amp; Budgets">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+        <span>Finanzen</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('google-health', 'Gesundheit')" title="Health &amp; Readiness">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        <span>Health</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('meal-planner', 'Ern\xE4hrung &amp; Einkauf')" title="Meal Planner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>
+        <span>Meals</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('memo', 'Memo')" title="Memo &amp; Notizen">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+        <span>Memo</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('3d-print', '3D Druck Studio')" title="3D Druck Studio">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <span>3D Druck</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('camera-vision', 'Kameras &amp; Vision')" title="Kameras &amp; Vision">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+        <span>Kameras</span>
+      </button>
+      <button class="hz-nav-icon-btn" onclick="openFullService('system-monitor', 'System &amp; Infra')" title="System &amp; Netzwerk">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line></svg>
+        <span>System</span>
+      </button>
     </div>
-    <div style="display:flex; align-items:center; gap:8px;">
+    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
       <button class="w-nav-btn" onclick="toggleEventModal(true)">+ Termin</button>
       <button class="w-nav-btn" onclick="openQuickImportFlyout(event)">George Sync</button>
-      <button class="w-nav-btn" onclick="openFullService('floorplan', '2D Grundriss')">2D Grundriss \u2197</button>
     </div>
   </nav>
 
@@ -8820,134 +8916,28 @@ function renderUnifiedDashboardHtml(ingressPath) {
     </div>
   </section>
 
-  <!-- ZONE C1: HORIZON STARTSEITE VISUAL DOMAIN DIAGRAMS (DEFAULT \xDCBERSICHT) -->
-  <section id="horizon-overview-stage" style="flex:1; min-height:0; display:grid; grid-template-columns:7fr 5fr; border-bottom:1px solid var(--line-hairline); background:var(--bg-canvas); overflow:hidden;">
-    <div style="padding:16px 24px; border-right:1px solid var(--line-hairline); display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
+  <!-- ZONE C: SPACIOUS BLACK-SPACE OVERVIEW STAGE -->
+  <section id="horizon-overview-stage" style="flex:1; min-height:0; display:grid; grid-template-columns:7fr 5fr; gap:18px; padding:14px 36px 24px 36px; max-width:1480px; width:100%; margin:0 auto; background:var(--bg-canvas); overflow:hidden;">
+    <div style="padding:20px 24px; border:1px solid var(--line-hairline); border-radius:6px; background:#0d0d10; display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-        <span class="sh-section-label">HAUS, ENERGIE &amp; RAUM-AKTIVIT\xC4T (LIVE DIAGRAMM)</span>
+        <span class="sh-section-label">HAUS, ENERGIE &amp; RAUM-AKTIVIT\xC4T</span>
         <div style="display:flex; gap:8px;">
-          <button class="w-nav-btn" onclick="switchHorizonTab('rooms')">Raum-Schalter \xF6ffnen \u2192</button>
           <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')">Smart Home \u2197</button>
+          <button class="w-nav-btn" onclick="openFullService('floorplan', '2D Grundriss')">Grundriss \u2197</button>
         </div>
       </div>
       <div id="hz-ov-energy-chart" style="flex:1; display:flex; align-items:center; justify-content:center; min-height:130px;"></div>
     </div>
-    <div style="padding:16px 24px; display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
+    <div style="padding:20px 24px; border:1px solid var(--line-hairline); border-radius:6px; background:#0d0d10; display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-        <span class="sh-section-label">SYSTEM, 3D-DRUCK &amp; KAMERA-PULS</span>
-        <button class="w-nav-btn" onclick="switchHorizonTab('hardware')">Hardware-Inspektor \u2192</button>
+        <span class="sh-section-label">SYSTEM, 3D-DRUCK &amp; KAMERA-STATUS</span>
+        <button class="w-nav-btn" onclick="openFullService('system-monitor', 'System &amp; Infra')">System \u2197</button>
       </div>
       <div id="hz-ov-system-chart" style="flex:1; display:flex; align-items:center; justify-content:center; min-height:130px;"></div>
     </div>
   </section>
 
-  <!-- ZONE C2: PRIMARY HAIRLINE WORKSPACE (SMART HOME MATRIX + HARDWARE/VISION INSPECTOR) -->
-  <main id="devices-dock" style="display:none;">
-    <div id="timeline-devices-separator"></div>
-    <div id="pinned-rooms-tray"></div>
-
-    <!-- Left Column: Live Smart Home Room Matrix -->
-    <div class="sh-matrix-column">
-      <div id="room-dock-bar">
-        <div class="sh-bar-left">
-          <span class="sh-section-label">SMART HOME \xB7 RAUM-MATRIX</span>
-          <span id="sh-matrix-summary">5 R\xE4ume</span>
-          <div class="room-dock-group" id="room-pills-container"></div>
-          <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Alle zeigen</button>
-        </div>
-        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-          <button class="w-nav-btn" onclick="openFullService('smart-canvas', 'Smart Home')">Smart Canvas \u2197</button>
-          <button class="w-nav-btn" onclick="openFullService('floorplan', '2D Grundriss & Raumplaner')">2D Grundriss \u2197</button>
-        </div>
-      </div>
-      <div id="rooms-live-matrix-grid"></div>
-    </div>
-
-    <!-- Right Column: Hardware, 3D Print, Vision & Infrastructure Inspector -->
-    <aside id="statusbar-right-previews">
-      <!-- 1. 3D PRINT INSPECTOR -->
-      <div class="sb-preview-item" id="widget-3dprint">
-        <div class="sb-preview-head">
-          <button class="sb-preview-trigger" onclick="openFullService('3d-print', '3D Druck Studio')">
-            <span class="room-dot" id="dot-3dprint" style="background:#10b981;"></span>
-            <span id="print3d-dock-dot" style="display:none;"></span>
-            <span>3D DRUCK \xB7 BAMBU P1S</span>
-            <span class="sb-meta" id="print3d-dock-meta">Bereit</span>
-            <span class="sb-caret">\u25B4</span>
-          </button>
-          <button class="w-nav-btn" onclick="openFullService('3d-print', '3D Druck Studio')">Studio \u2197</button>
-        </div>
-        <div class="sb-upward-flyout">
-          <div class="w-3d-row">
-            <div style="position:relative; width:76px; height:58px; border-radius:3px; background:var(--bg-elevated); border:1px solid var(--line-hairline); overflow:hidden; flex-shrink:0;"
-                 title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)">
-              <canvas id="mini-3d-canvas" width="152" height="116" style="width:76px; height:58px; display:block; cursor:grab; touch-action:none;"></canvas>
-            </div>
-            <div class="w-3d-info">
-              <div class="w-primary" id="compact-3dprint" style="font-size:14px;">Kein Projekt aktiv</div>
-              <div class="w-sub" id="sub-3dprint">Platzhalter \xB7 0% Leerlauf</div>
-              <div style="width:100%; height:3px; background:var(--line-hairline); overflow:hidden; margin-top:6px;">
-                <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:#10b981; transition:width 0.35s ease;"></div>
-              </div>
-            </div>
-          </div>
-          <div class="w-stat-grid" style="margin-bottom:8px;">
-            <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
-            <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer">0% (0/0)</span></div>
-            <div class="w-stat-item"><span class="w-stat-k">Ma\xDFe / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
-            <div class="w-stat-item"><span class="w-stat-k">D\xFCse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24\xB0C / 24\xB0C</span></div>
-          </div>
-          <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:8px;">
-            <input id="mini-3d-prompt" class="minimal-input" placeholder="AI CAD: 3D-Objekt \xE4ndern oder neu erstellen\u2026" />
-            <button type="submit" id="mini-3d-prompt-btn" class="thassi-u-btn-primary" style="padding:0 10px; font-size:11px;">CAD</button>
-          </form>
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-            <button class="w-action-link" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
-            <button class="w-action-link" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">Druck starten</button>
-            <button class="w-action-link" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor \u2192</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 2. CAMERA VISION INSPECTOR -->
-      <div class="sb-preview-item" id="widget-vision">
-        <div class="sb-preview-head">
-          <button class="sb-preview-trigger" onclick="openFullService('camera-vision', 'Camera Vision')">
-            <span class="room-dot" id="vision-dock-dot" style="background:#10b981;"></span>
-            <span>CAMERA VISION \xB7 6 STREAMS</span>
-            <span class="sb-meta" id="vision-dock-meta">Zyklisch</span>
-            <span class="sb-caret">\u25B4</span>
-          </button>
-          <button class="w-nav-btn" onclick="openFullService('camera-vision', 'Camera Vision')">Vision \u2197</button>
-        </div>
-        <div class="sb-upward-flyout">
-          <div id="vision-flyout-summary" style="font-size:11px; color:var(--text-secondary); margin-bottom:8px; font-family:var(--font-mono);">
-            Zyklischer Snapshot-Scan aktiv
-          </div>
-          <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:4px; max-height:175px; overflow-y:auto;"></div>
-        </div>
-      </div>
-
-      <!-- 3. INFRASTRUCTURE & SYSTEM QUICK LINKS -->
-      <div class="sb-preview-item" id="widget-sysmon">
-        <div class="sb-preview-head">
-          <span class="sh-section-label">INFRASTRUKTUR &amp; SYSTEM</span>
-          <div style="display:flex; gap:6px;" id="widget-googleusage">
-            <span id="sysmon-dock-dot" style="display:none;"></span>
-            <span id="sysmon-dock-meta" style="display:none;"></span>
-            <span id="gusage-dock-dot" style="display:none;"></span>
-            <span id="gusage-dock-meta" style="display:none;"></span>
-            <button class="w-nav-btn" onclick="openFullService('system-monitor', 'HASS OS Performance & Prozesse')">HASS OS \u2197</button>
-            <button class="w-nav-btn" onclick="openFullService('network-monitor', 'Netzwerk & Router')">Netzwerk \u2197</button>
-            <button class="w-nav-btn" onclick="openFullService('google-usage', 'Google Usage & AI Credits')">AI Usage \u2197</button>
-            <button class="w-nav-btn" onclick="openFullService('workflows', 'Workflows')">Axons \u2197</button>
-          </div>
-        </div>
-      </div>
-    </aside>
-  </main>
-
-  <!-- ZONE D: BOTTOM 24H CHRONOLOGICAL HORIZON & GOOGLE CALENDAR TIMELINE -->
+  <!-- ZONE D: 24H CHRONOLOGICAL HORIZON & GOOGLE CALENDAR TIMELINE -->
   <section id="timeline-dock">
     <div id="timeline-toolbar">
       <div class="tl-controls">
@@ -8987,6 +8977,104 @@ function renderUnifiedDashboardHtml(ingressPath) {
       </div>
     </div>
   </section>
+
+  <!-- ZONE E: SLEEK BOTTOM BAR FOR SMART HOME ROOMS & HARDWARE FLYOUTS -->
+  <main id="devices-dock">
+    <div id="timeline-devices-separator"></div>
+    <div id="pinned-rooms-tray"></div>
+
+    <div class="sh-matrix-column">
+      <div id="room-dock-bar">
+        <div class="sh-bar-left">
+          <button class="room-pill" onclick="openFullService('smart-canvas', 'Smart Home')" title="Smart Home Canvas \xF6ffnen" style="padding:5px 8px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.5V19a1 1 0 0 0 1 1h4.5v-5.5h3V20H18a1 1 0 0 0 1-1V9.5"></path></svg>
+          </button>
+          <span id="sh-matrix-summary" style="display:none;">5 R\xE4ume</span>
+          <div class="room-dock-group" id="room-pills-container"></div>
+          <button class="td-sep-unpin-btn" id="btn-unpin-all-rooms" onclick="unpinAllRooms()" style="display:none;">Schlie\xDFen \u2715</button>
+        </div>
+      </div>
+      <div id="rooms-live-matrix-grid"></div>
+    </div>
+
+    <aside id="statusbar-right-previews">
+      <!-- 1. 3D PRINT BOTTOM-BAR TRIGGER & UPWARD FLYOUT -->
+      <div class="sb-preview-item" id="widget-3dprint">
+        <div class="sb-preview-head">
+          <button class="sb-preview-trigger" onclick="toggleWidget('3dprint', event)" title="3D Druck Vorschau ein-/ausklappen">
+            <span class="room-dot" id="dot-3dprint" style="background:#10b981;"></span>
+            <span id="print3d-dock-dot" style="display:none;"></span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+            <span>3D Druck</span>
+            <span class="sb-meta" id="print3d-dock-meta">Bereit</span>
+            <span class="sb-caret">\u25B4</span>
+          </button>
+        </div>
+        <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <span class="sh-section-label">3D DRUCK \xB7 BAMBU P1S</span>
+            <button class="w-nav-btn" onclick="openFullService('3d-print', '3D Druck Studio')">Studio \u2197</button>
+          </div>
+          <div class="w-3d-row">
+            <div style="position:relative; width:76px; height:58px; border-radius:3px; background:var(--bg-elevated); border:1px solid var(--line-hairline); overflow:hidden; flex-shrink:0;"
+                 title="Miniatur 3D-Objekt (mit Maus/Touch drehbar)">
+              <canvas id="mini-3d-canvas" width="152" height="116" style="width:76px; height:58px; display:block; cursor:grab; touch-action:none;"></canvas>
+            </div>
+            <div class="w-3d-info">
+              <div class="w-primary" id="compact-3dprint" style="font-size:14px;">Kein Projekt aktiv</div>
+              <div class="w-sub" id="sub-3dprint">Platzhalter \xB7 0% Leerlauf</div>
+              <div style="width:100%; height:3px; background:var(--line-hairline); overflow:hidden; margin-top:6px;">
+                <div id="mini-3d-progress-fill" style="width:0%; height:100%; background:#10b981; transition:width 0.35s ease;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="w-stat-grid" style="margin-bottom:8px;">
+            <div class="w-stat-item"><span class="w-stat-k">Drucker / Modus</span><span class="w-stat-v" id="e3d-printer">Bambu Lab P1S</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Fortschritt / Layer</span><span class="w-stat-v" id="e3d-layer">0% (0/0)</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">Ma\xDFe / Gewicht</span><span class="w-stat-v" id="e3d-dims">--</span></div>
+            <div class="w-stat-item"><span class="w-stat-k">D\xFCse / Heizbett</span><span class="w-stat-v" id="e3d-temps">24\xB0C / 24\xB0C</span></div>
+          </div>
+          <form onsubmit="submitMini3dPrompt(event)" style="display:flex; gap:6px; margin-bottom:8px;">
+            <input id="mini-3d-prompt" class="minimal-input" placeholder="AI CAD: 3D-Objekt \xE4ndern oder neu erstellen\u2026" />
+            <button type="submit" id="mini-3d-prompt-btn" class="thassi-u-btn-primary" style="padding:0 10px; font-size:11px;">CAD</button>
+          </form>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <button class="w-action-link" onclick="toggleMini3dPlaceholder()" id="btn-mini-3d-toggle">Platzhalter testen</button>
+            <button class="w-action-link" onclick="triggerMini3dPrint()" id="btn-mini-3d-print">Druck starten</button>
+            <button class="w-action-link" onclick="openFullService('3d-print', '3D Druck Studio')">3D Editor \u2192</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. CAMERA VISION BOTTOM-BAR TRIGGER & UPWARD FLYOUT -->
+      <div class="sb-preview-item" id="widget-vision">
+        <div class="sb-preview-head">
+          <button class="sb-preview-trigger" onclick="toggleWidget('vision', event)" title="Kameras &amp; Vision ein-/ausklappen">
+            <span class="room-dot" id="vision-dock-dot" style="background:#10b981;"></span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            <span>Kameras</span>
+            <span class="sb-meta" id="vision-dock-meta">6 Streams</span>
+            <span class="sb-caret">\u25B4</span>
+          </button>
+        </div>
+        <div class="sb-upward-flyout" onclick="event.stopPropagation()">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span class="sh-section-label">KAMERAS &amp; VISION</span>
+            <button class="w-nav-btn" onclick="openFullService('camera-vision', 'Camera Vision')">Vision \u2197</button>
+          </div>
+          <div id="vision-flyout-summary" style="font-size:11px; color:var(--text-secondary); margin-bottom:8px; font-family:var(--font-mono);">
+            On-Demand Snapshot-Modus
+          </div>
+          <div id="vision-flyout-cameras" style="display:flex; flex-direction:column; gap:4px; max-height:175px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <div id="widget-sysmon" style="display:none;">
+        <span id="sysmon-dock-dot"></span><span id="sysmon-dock-meta"></span>
+        <span id="gusage-dock-dot"></span><span id="gusage-dock-meta"></span>
+      </div>
+    </aside>
+  </main>
 
   <!-- QUICK IMPORT & FILE EXPORT FLYOUT -->
   <div id="quick-import-flyout-modal"
@@ -10073,7 +10161,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
             const dotColor = isRoomActive ? '#10b981' : (room.motionActive ? '#f59e0b' : '#52525b');
             const rowsHtml = (room.devices || []).map(buildRoomDeviceRowHtml).join('');
             const offBtn = isRoomActive
-              ? '<button class="sh-room-off-btn" onclick="turnOffAllInRoom('' + room.id + '')">Alle aus</button>'
+              ? '<button class="sh-room-off-btn" onclick="turnOffAllInRoom(\\'' + room.id + '\\')">Alle aus</button>'
               : '';
             return [
               '<div class="sh-room-cell">',
@@ -10374,17 +10462,17 @@ function renderUnifiedDashboardHtml(ingressPath) {
           const evCount = (calendarEvents || []).length;
           sysEl.innerHTML =
             '<div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; width:100%;">' +
-              '<div onclick="openFullService('3d-print', '3D Druck Studio')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
+              '<div onclick="openFullService(\\'3d-print\\', \\'3D Druck Studio\\')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
                 '<span style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">3D Druck P1S</span>' +
                 '<span style="font-family:var(--font-mono); font-size:18px; color:var(--text-primary);">' + pct3d + '% \xB7 ' + (p3d.status || 'IDLE') + '</span>' +
                 '<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">' + Math.round(p3d.nozzleTemp || 24) + '\xB0C / ' + Math.round(p3d.bedTemp || 24) + '\xB0C</span>' +
               '</div>' +
-              '<div onclick="openFullService('camera-vision', 'Kameras & Vision')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
+              '<div onclick="openFullService(\\'camera-vision\\', \\'Kameras & Vision\\')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
                 '<span style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Kameras &amp; Vision</span>' +
                 '<span style="font-family:var(--font-mono); font-size:18px; color:#10b981;">' + camCount + ' Online</span>' +
                 '<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">KI-Erkennung aktiv</span>' +
               '</div>' +
-              '<div onclick="openFullService('google-calendar', 'Kalender & Zeit')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
+              '<div onclick="openFullService(\\'google-calendar\\', \\'Kalender & Zeit\\')" style="cursor:pointer; padding:12px; border:1px solid var(--line-hairline); border-radius:4px; background:var(--bg-elevated); display:flex; flex-direction:column; gap:4px;">' +
                 '<span style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Tages-Agenda</span>' +
                 '<span style="font-family:var(--font-mono); font-size:18px; color:var(--text-primary);">' + evCount + ' Termine</span>' +
                 '<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">24h Horizon unten</span>' +
@@ -10448,13 +10536,10 @@ function renderUnifiedDashboardHtml(ingressPath) {
         hash = mapped.hash;
       }
       setLeftNavActive(appId);
-      const inHass = Boolean(
-        document.body.classList.contains('in-hass-frame') ||
-        (window.top && window.top !== window)
-      );
+      const inHass = document.body.classList.contains('in-hass-frame');
       const barEl = document.getElementById('full-app-bar');
       if (barEl) {
-        barEl.style.display = (fromSidebar || inHass) ? 'none' : 'flex';
+        barEl.style.display = (fromSidebar && inHass) ? 'none' : 'flex';
       }
       try {
         if (window.top && window.top !== window) {
@@ -12313,15 +12398,24 @@ function renderUnifiedDashboardHtml(ingressPath) {
     loadAllLiveData();
     void loadWeatherData();
     void refreshHealthWidget();
-    setInterval(() => void refreshHealthWidget(), 2000);
-    setInterval(loadAllLiveData, 60000);
-    setInterval(() => void loadWeatherData(), 600000);
-    setInterval(() => refreshMini3dData(), 5000);
-    setInterval(loadRoomsQuickAccess, 12000);
+    setInterval(() => {
+      if (!document.hidden) loadAllLiveData();
+    }, 120000);
+    setInterval(() => {
+      if (!document.hidden) void loadWeatherData();
+    }, 600000);
+    setInterval(() => {
+      if (!document.hidden) void loadRoomsQuickAccess();
+    }, 30000);
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) void refreshHealthWidget();
+      if (!document.hidden) {
+        void loadRoomsQuickAccess();
+        void refreshHealthWidget();
+      }
     });
-    window.addEventListener('focus', () => void refreshHealthWidget());
+    window.addEventListener('focus', () => {
+      void loadRoomsQuickAccess();
+    });
 
     const SIDEBAR_APP_TITLES = {
       'smart-canvas': 'Smart Home',
@@ -12799,6 +12893,10 @@ async function discoverAllApps() {
         try {
           const hotDir = path4.join(deployedBase, entry.name);
           const hotBackend = path4.join(hotDir, "backend.mjs");
+          if (entry.name === "camera-vision" && fs4.existsSync(hotBackend) && fs4.statSync(hotBackend).size > 1e6) {
+            fs4.rmSync(hotDir, { recursive: true, force: true });
+            continue;
+          }
           const builtInBackend = path4.join(__dirname, "apps", entry.name, "backend.mjs");
           if (fs4.existsSync(builtInBackend) && fs4.existsSync(hotBackend)) {
             const builtInMtime = fs4.statSync(builtInBackend).mtimeMs;
