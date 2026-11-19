@@ -3260,14 +3260,9 @@ export function renderUnifiedDashboardHtml(ingressPath: string): string {
       });
       const ovStage = document.getElementById('horizon-overview-stage');
       const devDock = document.getElementById('devices-dock');
-      if (tabId === 'overview') {
-        if (ovStage) ovStage.style.display = 'grid';
-        if (devDock) devDock.style.display = 'none';
-        renderHorizonOverviewCharts();
-      } else {
-        if (ovStage) ovStage.style.display = 'none';
-        if (devDock) devDock.style.display = 'grid';
-      }
+      if (ovStage) ovStage.style.display = 'grid';
+      if (devDock) devDock.style.display = 'flex';
+      renderHorizonOverviewCharts();
     }
     window.switchHorizonTab = switchHorizonTab;
 

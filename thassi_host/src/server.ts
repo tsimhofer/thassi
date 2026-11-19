@@ -876,7 +876,12 @@ async function startServer() {
           '<head>',
           `<head><script>window.__THASSI_DEPLOYED_APPS__ = ${JSON.stringify(allManifests)};</script>`
         );
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          Pragma: 'no-cache',
+          Expires: '0',
+        });
         res.end(dashboardHtml);
         return;
       }
@@ -1260,7 +1265,12 @@ async function startServer() {
           return sendJson(res, 400, { error: 'Missing ?code parameter from Google OAuth' });
         }
         await googleOAuth.exchangeCode(queryObj.code);
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          Pragma: 'no-cache',
+          Expires: '0',
+        });
         res.end(
           '<h2>✅ Google Account Connected to Thassi Dashboard!</h2><p>You can close this tab now.</p>'
         );
@@ -1301,7 +1311,12 @@ async function startServer() {
           return dir;
         };
 
-        const targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
+        let targetDir: string;
+        try {
+          targetDir = writeBundleToDir(path.join(os.tmpdir(), 'thassi_deployed_apps'));
+        } catch {
+          targetDir = writeBundleToDir(path.join('/dev/shm', 'thassi_deployed_apps'));
+        }
         if (process.env.THASSI_RAM_ONLY !== '1') {
           try {
             writeBundleToDir(path.join(DATA_DIR, 'deployed_apps'));
@@ -1368,8 +1383,8 @@ async function startServer() {
     }
   });
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Thassi] Unified Dashboard listening on http://0.0.0.0:${PORT}`);
+  server.listen(PORT, () => {
+    console.log(`[Thassi] Unified Dashboard listening on dual-stack [::]:${PORT}`);
     console.log(
       `[Thassi] Installed services (${loadedApps.size}): ${Array.from(loadedApps.keys()).join(', ')}`
     );

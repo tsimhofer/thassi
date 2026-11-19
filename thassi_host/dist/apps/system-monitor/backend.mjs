@@ -2,24 +2,17 @@ import { createRequire as __thassiCreateRequire } from 'node:module'; const requ
 
 // apps/system-monitor/backend/index.ts
 import { execFileSync } from "node:child_process";
-import fs4 from "node:fs";
+import fs from "node:fs";
 import http from "node:http";
-import os2 from "node:os";
-import path4 from "node:path";
+import os from "node:os";
+import path from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { performance, monitorEventLoopDelay } from "node:perf_hooks";
 
 // packages/sdk/src/db.ts
 import { DatabaseSync } from "node:sqlite";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 // packages/sdk/src/actions.ts
-import fs2 from "node:fs";
-import path2 from "node:path";
-import net from "node:net";
-import dgram from "node:dgram";
 var PcAgentReverseBridgeImpl = class {
   latestStatus = null;
   lastSeenAt = 0;
@@ -104,10 +97,6 @@ var PcAgentReverseBridge = new PcAgentReverseBridgeImpl();
 function defineThassiApp(setup) {
   return { setup };
 }
-
-// thassi_host/src/hass-sidebar-sync.ts
-import fs3 from "node:fs";
-import path3 from "node:path";
 
 // thassi_host/src/thassi-uniform-ui.ts
 var UNIFORM_DESIGN_TOKENS_CSS = `
@@ -6009,14 +5998,9 @@ function renderUnifiedDashboardHtml(ingressPath) {
       });
       const ovStage = document.getElementById('horizon-overview-stage');
       const devDock = document.getElementById('devices-dock');
-      if (tabId === 'overview') {
-        if (ovStage) ovStage.style.display = 'grid';
-        if (devDock) devDock.style.display = 'none';
-        renderHorizonOverviewCharts();
-      } else {
-        if (ovStage) ovStage.style.display = 'none';
-        if (devDock) devDock.style.display = 'grid';
-      }
+      if (ovStage) ovStage.style.display = 'grid';
+      if (devDock) devDock.style.display = 'flex';
+      renderHorizonOverviewCharts();
     }
     window.switchHorizonTab = switchHorizonTab;
 
@@ -8017,7 +8001,7 @@ function renderUnifiedDashboardHtml(ingressPath) {
 // apps/system-monitor/backend/index.ts
 function readSafe(filePath) {
   try {
-    return fs4.readFileSync(filePath, "utf-8").trim();
+    return fs.readFileSync(filePath, "utf-8").trim();
   } catch {
     return "";
   }
@@ -8036,14 +8020,14 @@ if (!gState.__thassiSysMonLoopHistogram) {
 }
 var index_default = defineThassiApp((ctx) => {
   try {
-    if (fs4.existsSync("/usr/bin/mcopy")) {
-      fs4.renameSync("/usr/bin/mcopy", "/usr/bin/mcopy.disabled");
+    if (fs.existsSync("/usr/bin/mcopy")) {
+      fs.renameSync("/usr/bin/mcopy", "/usr/bin/mcopy.disabled");
     }
   } catch {
   }
   try {
-    if (fs4.existsSync("/dev/sda1")) {
-      fs4.unlinkSync("/dev/sda1");
+    if (fs.existsSync("/dev/sda1")) {
+      fs.unlinkSync("/dev/sda1");
     }
   } catch {
   }
@@ -8095,11 +8079,11 @@ var index_default = defineThassiApp((ctx) => {
       dbInstance.raw.close();
     } catch {
     }
-    const isShared = path4.basename(dbPath) === "shared.db";
+    const isShared = path.basename(dbPath) === "shared.db";
     for (const suffix of isShared ? ["-wal", "-shm"] : ["", "-wal", "-shm"]) {
       try {
-        if (fs4.existsSync(dbPath + suffix)) {
-          fs4.rmSync(dbPath + suffix, { force: true });
+        if (fs.existsSync(dbPath + suffix)) {
+          fs.rmSync(dbPath + suffix, { force: true });
         }
       } catch {
       }
@@ -8127,7 +8111,7 @@ var index_default = defineThassiApp((ctx) => {
       initSchema(freshDb);
     } catch {
       try {
-        freshDb = new DatabaseSync2(path4.join(os2.tmpdir(), "thassi_shared_fallback.db"));
+        freshDb = new DatabaseSync2(path.join(os.tmpdir(), "thassi_shared_fallback.db"));
         initSchema(freshDb);
       } catch {
         freshDb = new DatabaseSync2(":memory:");
@@ -8228,8 +8212,8 @@ var index_default = defineThassiApp((ctx) => {
     ];
     for (const p of candidates) {
       try {
-        if (fs4.existsSync(p)) {
-          const raw = Number(fs4.readFileSync(p, "utf-8").trim());
+        if (fs.existsSync(p)) {
+          const raw = Number(fs.readFileSync(p, "utf-8").trim());
           if (Number.isFinite(raw) && raw > 0) {
             return Math.round((raw > 200 ? raw / 1e3 : raw) * 10) / 10;
           }
@@ -8242,8 +8226,8 @@ var index_default = defineThassiApp((ctx) => {
   function readCoreFreqMhz(coreId) {
     try {
       const p = `/sys/devices/system/cpu/${coreId}/cpufreq/scaling_cur_freq`;
-      if (fs4.existsSync(p)) {
-        const khz = Number(fs4.readFileSync(p, "utf-8").trim());
+      if (fs.existsSync(p)) {
+        const khz = Number(fs.readFileSync(p, "utf-8").trim());
         if (Number.isFinite(khz) && khz > 0) return Math.round(khz / 1e3);
       }
     } catch {
@@ -8260,7 +8244,7 @@ var index_default = defineThassiApp((ctx) => {
     let procsRunning = 1;
     let procsBlocked = 0;
     try {
-      const raw = fs4.readFileSync("/proc/stat", "utf-8");
+      const raw = fs.readFileSync("/proc/stat", "utf-8");
       for (const line of raw.split("\n")) {
         if (line.startsWith("cpu")) {
           const parts = line.trim().split(/\s+/);
@@ -8286,7 +8270,7 @@ var index_default = defineThassiApp((ctx) => {
         }
       }
     } catch {
-      const cpus = os2.cpus();
+      const cpus = os.cpus();
       let u = 0, n = 0, s = 0, idl = 0, ir = 0;
       cpus.forEach((c, idx) => {
         const tot = c.times.user + c.times.nice + c.times.sys + c.times.idle + c.times.irq;
@@ -8365,13 +8349,13 @@ var index_default = defineThassiApp((ctx) => {
     prevCpuTicks = currentTicks;
     prevCtxt = ctxt;
     prevIntr = intr;
-    let load1m = os2.loadavg()[0] || 0;
-    let load5m = os2.loadavg()[1] || 0;
-    let load15m = os2.loadavg()[2] || 0;
+    let load1m = os.loadavg()[0] || 0;
+    let load5m = os.loadavg()[1] || 0;
+    let load15m = os.loadavg()[2] || 0;
     let runningKernelThreads = procsRunning;
     let totalKernelThreads = 0;
     try {
-      const lraw = fs4.readFileSync("/proc/loadavg", "utf-8").trim().split(/\s+/);
+      const lraw = fs.readFileSync("/proc/loadavg", "utf-8").trim().split(/\s+/);
       load1m = Number(lraw[0] || load1m);
       load5m = Number(lraw[1] || load5m);
       load15m = Number(lraw[2] || load15m);
@@ -8382,10 +8366,10 @@ var index_default = defineThassiApp((ctx) => {
       }
     } catch {
     }
-    const cpuModel = os2.cpus()[0]?.model || "ARM64 / HASS OS Processor";
+    const cpuModel = os.cpus()[0]?.model || "ARM64 / HASS OS Processor";
     return {
       cpuModel,
-      coreCount: Math.max(1, cores.length || os2.cpus().length),
+      coreCount: Math.max(1, cores.length || os.cpus().length),
       total: totalCpu,
       cores,
       load1m: Math.round(load1m * 100) / 100,
@@ -8398,13 +8382,13 @@ var index_default = defineThassiApp((ctx) => {
       contextSwitchesPerSec,
       interruptsPerSec,
       cpuTempC: readCpuTemperatureC(),
-      uptimeSeconds: Math.round(os2.uptime())
+      uptimeSeconds: Math.round(os.uptime())
     };
   }
   function sampleMemoryMetrics() {
     const info = {};
     try {
-      const raw = fs4.readFileSync("/proc/meminfo", "utf-8");
+      const raw = fs.readFileSync("/proc/meminfo", "utf-8");
       for (const line of raw.split("\n")) {
         const m = line.match(/^([A-Za-z0-9_()]+):\s+(\d+)/);
         if (m) {
@@ -8413,8 +8397,8 @@ var index_default = defineThassiApp((ctx) => {
       }
     } catch {
     }
-    const totalKb = info.MemTotal || Math.round(os2.totalmem() / 1024);
-    const freeKb = info.MemFree || Math.round(os2.freemem() / 1024);
+    const totalKb = info.MemTotal || Math.round(os.totalmem() / 1024);
+    const freeKb = info.MemFree || Math.round(os.freemem() / 1024);
     const availKb = info.MemAvailable || freeKb;
     const buffersKb = info.Buffers || 0;
     const cachedKb = (info.Cached || 0) + (info.SReclaimable || 0);
@@ -8449,9 +8433,9 @@ var index_default = defineThassiApp((ctx) => {
     let usedGb = 0;
     let usedPct = 0;
     try {
-      const targetPath = fs4.existsSync("/data") ? "/data" : "/";
-      if (typeof fs4.statfsSync === "function") {
-        const st = fs4.statfsSync(targetPath);
+      const targetPath = fs.existsSync("/data") ? "/data" : "/";
+      if (typeof fs.statfsSync === "function") {
+        const st = fs.statfsSync(targetPath);
         const totalBytes = st.blocks * st.bsize;
         const availBytes = st.bavail * st.bsize;
         const usedBytes = Math.max(0, totalBytes - st.bfree * st.bsize);
@@ -8468,7 +8452,7 @@ var index_default = defineThassiApp((ctx) => {
     const currentSamples = /* @__PURE__ */ new Map();
     const devices = [];
     try {
-      const raw = fs4.readFileSync("/proc/diskstats", "utf-8");
+      const raw = fs.readFileSync("/proc/diskstats", "utf-8");
       for (const line of raw.split("\n")) {
         const parts = line.trim().split(/\s+/);
         if (parts.length < 14) continue;
@@ -8515,7 +8499,7 @@ var index_default = defineThassiApp((ctx) => {
     const currentSamples = /* @__PURE__ */ new Map();
     const interfaces = [];
     try {
-      const raw = fs4.readFileSync("/proc/net/dev", "utf-8");
+      const raw = fs.readFileSync("/proc/net/dev", "utf-8");
       for (const line of raw.split("\n").slice(2)) {
         const idx = line.indexOf(":");
         if (idx < 0) continue;
@@ -8568,13 +8552,13 @@ var index_default = defineThassiApp((ctx) => {
       I: "Idle Kernel Thread"
     };
     try {
-      if (!fs4.existsSync("/proc")) return results;
-      const entries = fs4.readdirSync("/proc");
+      if (!fs.existsSync("/proc")) return results;
+      const entries = fs.readdirSync("/proc");
       for (const entry of entries) {
         if (!/^\d+$/.test(entry)) continue;
         const pid = Number(entry);
         try {
-          const statRaw = fs4.readFileSync(`/proc/${pid}/stat`, "utf-8");
+          const statRaw = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
           const openParen = statRaw.indexOf("(");
           const closeParen = statRaw.lastIndexOf(")");
           if (openParen < 0 || closeParen < 0) continue;
@@ -8602,7 +8586,7 @@ var index_default = defineThassiApp((ctx) => {
           }
           let cmdline = "";
           try {
-            cmdline = fs4.readFileSync(`/proc/${pid}/cmdline`, "utf-8").replace(/\0+/g, " ").trim();
+            cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, "utf-8").replace(/\0+/g, " ").trim();
           } catch {
           }
           if (!cmdline) cmdline = `[${comm}]`;
@@ -8646,13 +8630,13 @@ var index_default = defineThassiApp((ctx) => {
             subsystemLabel
           });
           const taskDir = `/proc/${pid}/task`;
-          if (numThreads > 1 && fs4.existsSync(taskDir)) {
-            for (const tidStr of fs4.readdirSync(taskDir)) {
+          if (numThreads > 1 && fs.existsSync(taskDir)) {
+            for (const tidStr of fs.readdirSync(taskDir)) {
               if (!/^\d+$/.test(tidStr)) continue;
               const tid = Number(tidStr);
               if (tid === pid) continue;
               try {
-                const tStat = fs4.readFileSync(`${taskDir}/${tid}/stat`, "utf-8");
+                const tStat = fs.readFileSync(`${taskDir}/${tid}/stat`, "utf-8");
                 const tOpen = tStat.indexOf("(");
                 const tClose = tStat.lastIndexOf(")");
                 if (tOpen < 0 || tClose < 0) continue;
@@ -9247,13 +9231,13 @@ var index_default = defineThassiApp((ctx) => {
       timestamp: nowIso,
       collectMs: Math.round((performance.now() - t0) * 10) / 10,
       host: {
-        hostname: supervisor.hostInfo?.hostname || os2.hostname(),
+        hostname: supervisor.hostInfo?.hostname || os.hostname(),
         chassis: supervisor.hostInfo?.chassis || "embedded",
-        board: supervisor.osInfo?.board || supervisor.hostInfo?.board || os2.arch(),
-        osName: supervisor.hostInfo?.operating_system || `Home Assistant OS (${os2.platform()} ${os2.release()})`,
-        osVersion: supervisor.osInfo?.version || supervisor.hostInfo?.os_version || os2.release(),
-        kernel: supervisor.hostInfo?.kernel || os2.release(),
-        arch: os2.arch(),
+        board: supervisor.osInfo?.board || supervisor.hostInfo?.board || os.arch(),
+        osName: supervisor.hostInfo?.operating_system || `Home Assistant OS (${os.platform()} ${os.release()})`,
+        osVersion: supervisor.osInfo?.version || supervisor.hostInfo?.os_version || os.release(),
+        kernel: supervisor.hostInfo?.kernel || os.release(),
+        arch: os.arch(),
         haCoreVersion: supervisor.coreInfo?.version || "2026.x",
         supervisorVersion: supervisor.supervisorInfo?.version || "latest",
         healthy: supervisor.resolutionInfo?.healthy !== false,
@@ -9353,18 +9337,18 @@ var index_default = defineThassiApp((ctx) => {
     const result = [];
     const seen = /* @__PURE__ */ new Set();
     const dirs = [
-      path4.join(os2.tmpdir(), "thassi_deployed_apps"),
+      path.join(os.tmpdir(), "thassi_deployed_apps"),
       "/data/deployed_apps",
       "/app/dist/apps"
     ];
     for (const baseDir of dirs) {
       try {
-        if (!fs4.existsSync(baseDir)) continue;
-        for (const entry of fs4.readdirSync(baseDir, { withFileTypes: true })) {
+        if (!fs.existsSync(baseDir)) continue;
+        for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
-          const mPath = path4.join(baseDir, entry.name, "thassi.app.json");
-          if (fs4.existsSync(mPath)) {
-            const m = JSON.parse(fs4.readFileSync(mPath, "utf-8"));
+          const mPath = path.join(baseDir, entry.name, "thassi.app.json");
+          if (fs.existsSync(mPath)) {
+            const m = JSON.parse(fs.readFileSync(mPath, "utf-8"));
             if (m && m.id && !seen.has(m.id)) {
               seen.add(m.id);
               result.push(m);
@@ -9433,6 +9417,9 @@ var index_default = defineThassiApp((ctx) => {
               res.writeHead(200, {
                 "Content-Type": "text/html; charset=utf-8",
                 "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                Pragma: "no-cache",
+                Expires: "0",
                 "X-Thassi-Live-Host": "dynamic-nav-v4"
               });
               res.end(html);
@@ -9492,17 +9479,17 @@ ${uiTagFn()}`);
     const patchedLayers = [];
     const serverBuf = Buffer.from(body.serverMjsBase64, "base64");
     try {
-      if (fs4.existsSync("/app/dist")) {
-        fs4.writeFileSync(targetPath, serverBuf);
+      if (fs.existsSync("/app/dist")) {
+        fs.writeFileSync(targetPath, serverBuf);
         patchedLayers.push("/app/dist/server.mjs");
       }
-      if (fs4.existsSync("/data/deployed_apps") && fs4.existsSync("/app/dist/apps")) {
-        for (const appEntry of fs4.readdirSync("/data/deployed_apps", { withFileTypes: true })) {
+      if (fs.existsSync("/data/deployed_apps") && fs.existsSync("/app/dist/apps")) {
+        for (const appEntry of fs.readdirSync("/data/deployed_apps", { withFileTypes: true })) {
           if (!appEntry.isDirectory()) continue;
-          const srcBackend = path4.join("/data/deployed_apps", appEntry.name, "backend.mjs");
-          const dstBackend = path4.join("/app/dist/apps", appEntry.name, "backend.mjs");
-          if (fs4.existsSync(srcBackend) && fs4.existsSync(path4.dirname(dstBackend))) {
-            fs4.copyFileSync(srcBackend, dstBackend);
+          const srcBackend = path.join("/data/deployed_apps", appEntry.name, "backend.mjs");
+          const dstBackend = path.join("/app/dist/apps", appEntry.name, "backend.mjs");
+          if (fs.existsSync(srcBackend) && fs.existsSync(path.dirname(dstBackend))) {
+            fs.copyFileSync(srcBackend, dstBackend);
             patchedLayers.push(dstBackend);
           }
         }
@@ -9564,8 +9551,8 @@ ${uiTagFn()}`);
     };
     for (const p of ["/homeassistant", "/config", "/data", "/share", "/ssl", "/media"]) {
       try {
-        if (fs4.existsSync(p)) {
-          const st = typeof fs4.statfsSync === "function" ? fs4.statfsSync(p) : null;
+        if (fs.existsSync(p)) {
+          const st = typeof fs.statfsSync === "function" ? fs.statfsSync(p) : null;
           diag.mounts[p] = {
             exists: true,
             freeMb: st ? Math.round(st.bavail * st.bsize / 1048576) : null,
@@ -9578,10 +9565,10 @@ ${uiTagFn()}`);
         diag.mounts[p] = { error: e instanceof Error ? e.message : String(e) };
       }
     }
-    const haRoot = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
+    const haRoot = fs.existsSync("/homeassistant") ? "/homeassistant" : fs.existsSync("/config") ? "/config" : null;
     if (haRoot) {
       try {
-        diag.haDirEntries = fs4.readdirSync(haRoot).slice(0, 60);
+        diag.haDirEntries = fs.readdirSync(haRoot).slice(0, 60);
       } catch (e) {
         diag.haDirError = e instanceof Error ? e.message : String(e);
       }
@@ -9590,15 +9577,15 @@ ${uiTagFn()}`);
         ["haLog1Tail", "home-assistant.log.1"],
         ["haFaultLogTail", "home-assistant.log.fault"]
       ]) {
-        const fpath = path4.join(haRoot, fname);
+        const fpath = path.join(haRoot, fname);
         try {
-          if (fs4.existsSync(fpath)) {
-            const stat = fs4.statSync(fpath);
+          if (fs.existsSync(fpath)) {
+            const stat = fs.statSync(fpath);
             const readSize = Math.min(stat.size, 24576);
-            const fd = fs4.openSync(fpath, "r");
+            const fd = fs.openSync(fpath, "r");
             const buf = Buffer.alloc(readSize);
-            fs4.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
-            fs4.closeSync(fd);
+            fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+            fs.closeSync(fd);
             diag[key] = buf.toString("utf-8").split("\n").slice(-80).join("\n");
           }
         } catch (e) {
@@ -9606,9 +9593,9 @@ ${uiTagFn()}`);
         }
       }
       try {
-        const storageDir = path4.join(haRoot, ".storage");
-        if (fs4.existsSync(storageDir)) {
-          diag.storageEntries = fs4.readdirSync(storageDir).slice(0, 50);
+        const storageDir = path.join(haRoot, ".storage");
+        if (fs.existsSync(storageDir)) {
+          diag.storageEntries = fs.readdirSync(storageDir).slice(0, 50);
         }
       } catch {
       }
@@ -9635,7 +9622,7 @@ ${uiTagFn()}`);
     })() || "";
     const result = {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      uptimeSec: Math.round(os2.uptime()),
+      uptimeSec: Math.round(os.uptime()),
       cmdline: readSafe("/proc/cmdline"),
       mounts: readSafe("/proc/mounts"),
       meminfo: readSafe("/proc/meminfo"),
@@ -9728,14 +9715,14 @@ ${uiTagFn()}`);
       }
     } catch {
     }
-    if (slug === "core" && fs4.existsSync("/homeassistant/home-assistant.log")) {
+    if (slug === "core" && fs.existsSync("/homeassistant/home-assistant.log")) {
       try {
-        const stat = fs4.statSync("/homeassistant/home-assistant.log");
+        const stat = fs.statSync("/homeassistant/home-assistant.log");
         const readSize = Math.min(stat.size, 32768);
-        const fd = fs4.openSync("/homeassistant/home-assistant.log", "r");
+        const fd = fs.openSync("/homeassistant/home-assistant.log", "r");
         const buf = Buffer.alloc(readSize);
-        fs4.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
-        fs4.closeSync(fd);
+        fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+        fs.closeSync(fd);
         const lines = buf.toString("utf-8").split("\n").slice(-100).join("\n");
         return { slug, logs: lines || "home-assistant.log ist aktuell leer." };
       } catch {
@@ -9789,13 +9776,13 @@ ${JSON.stringify(streams, null, 2)}`
       liveStates: {},
       automationsYamlPreview: ""
     };
-    const haRoot = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
+    const haRoot = fs.existsSync("/homeassistant") ? "/homeassistant" : fs.existsSync("/config") ? "/config" : null;
     let extraInputEntities = [];
     if (haRoot) {
       try {
-        const regPath = path4.join(haRoot, ".storage", "core.entity_registry");
-        if (fs4.existsSync(regPath)) {
-          const raw = JSON.parse(fs4.readFileSync(regPath, "utf-8"));
+        const regPath = path.join(haRoot, ".storage", "core.entity_registry");
+        if (fs.existsSync(regPath)) {
+          const raw = JSON.parse(fs.readFileSync(regPath, "utf-8"));
           const entities = raw?.data?.entities || [];
           const targetEntry = entities.find(
             (e) => e.entity_id === "light.thomasbuero_2pm_oben_output_1"
@@ -9899,8 +9886,8 @@ ${JSON.stringify(streams, null, 2)}`
     }
     if (haRoot) {
       try {
-        const autoYamlPath = path4.join(haRoot, "automations.yaml");
-        let currentYaml = fs4.existsSync(autoYamlPath) ? fs4.readFileSync(autoYamlPath, "utf-8") : "";
+        const autoYamlPath = path.join(haRoot, "automations.yaml");
+        let currentYaml = fs.existsSync(autoYamlPath) ? fs.readFileSync(autoYamlPath, "utf-8") : "";
         if (!currentYaml.includes(OFFICE_AUTOMATION_ID)) {
           const yamlBlock = [
             `- id: '${OFFICE_AUTOMATION_ID}'`,
@@ -9927,15 +9914,15 @@ ${JSON.stringify(streams, null, 2)}`
           ].join("\n");
           const trimmed = currentYaml.trim();
           if (!trimmed || trimmed === "[]") {
-            fs4.writeFileSync(autoYamlPath, yamlBlock, "utf-8");
+            fs.writeFileSync(autoYamlPath, yamlBlock, "utf-8");
           } else {
-            fs4.writeFileSync(autoYamlPath, `${currentYaml.replace(/\s*$/, "")}
+            fs.writeFileSync(autoYamlPath, `${currentYaml.replace(/\s*$/, "")}
 
 ${yamlBlock}`, "utf-8");
           }
           result.yamlUpdated = true;
         }
-        result.automationsYamlPreview = fs4.readFileSync(autoYamlPath, "utf-8").slice(-1500);
+        result.automationsYamlPreview = fs.readFileSync(autoYamlPath, "utf-8").slice(-1500);
       } catch (e) {
         result.yamlError = e instanceof Error ? e.message : String(e);
       }
@@ -10085,7 +10072,7 @@ ${yamlBlock}`, "utf-8");
   function inspectKernelAndHardwareWatchdog() {
     const readSafe2 = (p) => {
       try {
-        return fs4.readFileSync(p, "utf-8").trim();
+        return fs.readFileSync(p, "utf-8").trim();
       } catch {
         return null;
       }
@@ -10093,30 +10080,30 @@ ${yamlBlock}`, "utf-8");
     const watchdogs = [];
     try {
       const wdRoot = "/sys/class/watchdog";
-      if (fs4.existsSync(wdRoot)) {
-        for (const dev of fs4.readdirSync(wdRoot)) {
-          const base = path4.join(wdRoot, dev);
+      if (fs.existsSync(wdRoot)) {
+        for (const dev of fs.readdirSync(wdRoot)) {
+          const base = path.join(wdRoot, dev);
           let realPath = base;
           try {
-            realPath = fs4.realpathSync(base);
+            realPath = fs.realpathSync(base);
           } catch {
           }
           const entries = {};
           try {
-            for (const f of fs4.readdirSync(realPath)) {
-              const val = readSafe2(path4.join(realPath, f));
+            for (const f of fs.readdirSync(realPath)) {
+              const val = readSafe2(path.join(realPath, f));
               if (val !== null && val.length < 200) {
                 entries[f] = val;
               }
             }
           } catch {
           }
-          const identity = entries.identity || (realPath.includes("iTCO_wdt") ? "Intel TCO Hardware Watchdog (iTCO_wdt)" : readSafe2(path4.join(base, "identity")) || "Linux Kernel / ACPI Watchdog");
-          const state = entries.state || readSafe2(path4.join(base, "state")) || (realPath.includes("iTCO_wdt") || fs4.existsSync(`/dev/${dev}`) ? "active (systemd + iTCO_wdt)" : "present");
-          const timeoutRaw = entries.timeout ?? readSafe2(path4.join(base, "timeout"));
-          const timeleftRaw = entries.timeleft ?? readSafe2(path4.join(base, "timeleft"));
-          const bootstatusRaw = entries.bootstatus ?? readSafe2(path4.join(base, "bootstatus"));
-          const nowayoutRaw = entries.nowayout ?? readSafe2(path4.join(base, "nowayout"));
+          const identity = entries.identity || (realPath.includes("iTCO_wdt") ? "Intel TCO Hardware Watchdog (iTCO_wdt)" : readSafe2(path.join(base, "identity")) || "Linux Kernel / ACPI Watchdog");
+          const state = entries.state || readSafe2(path.join(base, "state")) || (realPath.includes("iTCO_wdt") || fs.existsSync(`/dev/${dev}`) ? "active (systemd + iTCO_wdt)" : "present");
+          const timeoutRaw = entries.timeout ?? readSafe2(path.join(base, "timeout"));
+          const timeleftRaw = entries.timeleft ?? readSafe2(path.join(base, "timeleft"));
+          const bootstatusRaw = entries.bootstatus ?? readSafe2(path.join(base, "bootstatus"));
+          const nowayoutRaw = entries.nowayout ?? readSafe2(path.join(base, "nowayout"));
           const bootstatus = bootstatusRaw !== null ? Number(bootstatusRaw) : null;
           watchdogs.push({
             device: `/dev/${dev}`,
@@ -10148,23 +10135,23 @@ ${yamlBlock}`, "utf-8");
     const cpuIdleStates = [];
     try {
       const idleRoot = "/sys/devices/system/cpu/cpu0/cpuidle";
-      if (fs4.existsSync(idleRoot)) {
-        for (const st of fs4.readdirSync(idleRoot).sort()) {
+      if (fs.existsSync(idleRoot)) {
+        for (const st of fs.readdirSync(idleRoot).sort()) {
           if (!st.startsWith("state")) continue;
-          const b = path4.join(idleRoot, st);
+          const b = path.join(idleRoot, st);
           cpuIdleStates.push({
             id: st,
-            name: readSafe2(path4.join(b, "name")) || st,
-            desc: readSafe2(path4.join(b, "desc")) || "",
-            disabled: readSafe2(path4.join(b, "disable")) === "1",
-            latencyUs: Number(readSafe2(path4.join(b, "latency")) || 0),
-            usage: Number(readSafe2(path4.join(b, "usage")) || 0)
+            name: readSafe2(path.join(b, "name")) || st,
+            desc: readSafe2(path.join(b, "desc")) || "",
+            disabled: readSafe2(path.join(b, "disable")) === "1",
+            latencyUs: Number(readSafe2(path.join(b, "latency")) || 0),
+            usage: Number(readSafe2(path.join(b, "usage")) || 0)
           });
         }
       }
     } catch {
     }
-    const cpuModel = os2.cpus()[0]?.model || "";
+    const cpuModel = os.cpus()[0]?.model || "";
     const isBayTrailJ1900 = /J1900|N2930|N2830|Bay Trail/i.test(cpuModel);
     const hasMaxCstateParam = /intel_idle\.max_cstate=/i.test(cmdline) || /processor\.max_cstate=/i.test(cmdline);
     const deepCstatesEnabled = cpuIdleStates.some(
@@ -10277,7 +10264,7 @@ ${yamlBlock}`, "utf-8");
     let sataQueueDepth = 0;
     try {
       const qdPath = "/sys/block/sda/device/queue_depth";
-      if (fs4.existsSync(qdPath)) {
+      if (fs.existsSync(qdPath)) {
         sataQueueDepth = Number(readSafe(qdPath) || 0);
       }
     } catch {
@@ -10288,12 +10275,12 @@ ${yamlBlock}`, "utf-8");
       sataAlpmMaxPerf: false,
       sataQueueDepth,
       sysctlsApplied: {},
-      sysrqPreOpened: fs4.existsSync("/proc/sysrq-trigger")
+      sysrqPreOpened: fs.existsSync("/proc/sysrq-trigger")
     };
   }
   const WATCHDOG_AUTOMATION_ID = "thassi_auto_reboot_on_critical_failure";
   async function ensureWatchdogRebootAutomation() {
-    const haRoot = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
+    const haRoot = fs.existsSync("/homeassistant") ? "/homeassistant" : fs.existsSync("/config") ? "/config" : null;
     const automationPayload = {
       id: WATCHDOG_AUTOMATION_ID,
       alias: "Thassi Watchdog: Automatischer Host-Reboot bei kritischem Systemfehler",
@@ -10339,8 +10326,8 @@ ${yamlBlock}`, "utf-8");
     }
     if (haRoot) {
       try {
-        const autoYamlPath = path4.join(haRoot, "automations.yaml");
-        const currentYaml = fs4.existsSync(autoYamlPath) ? fs4.readFileSync(autoYamlPath, "utf-8") : "";
+        const autoYamlPath = path.join(haRoot, "automations.yaml");
+        const currentYaml = fs.existsSync(autoYamlPath) ? fs.readFileSync(autoYamlPath, "utf-8") : "";
         if (!currentYaml.includes(WATCHDOG_AUTOMATION_ID)) {
           const yamlBlock = [
             `- id: '${WATCHDOG_AUTOMATION_ID}'`,
@@ -10364,9 +10351,9 @@ ${yamlBlock}`, "utf-8");
           ].join("\n");
           const trimmed = currentYaml.trim();
           if (!trimmed || trimmed === "[]") {
-            fs4.writeFileSync(autoYamlPath, yamlBlock, "utf-8");
+            fs.writeFileSync(autoYamlPath, yamlBlock, "utf-8");
           } else {
-            fs4.writeFileSync(autoYamlPath, `${currentYaml.replace(/\s*$/, "")}
+            fs.writeFileSync(autoYamlPath, `${currentYaml.replace(/\s*$/, "")}
 
 ${yamlBlock}`, "utf-8");
           }
@@ -10443,11 +10430,11 @@ ${yamlBlock}`, "utf-8");
   function checkBlockStorageHealthy() {
     for (const testFile of ["/homeassistant/configuration.yaml", "/data/shared.db"]) {
       try {
-        if (fs4.existsSync(testFile)) {
-          const fd = fs4.openSync(testFile, "r");
+        if (fs.existsSync(testFile)) {
+          const fd = fs.openSync(testFile, "r");
           const buf = Buffer.alloc(16);
-          fs4.readSync(fd, buf, 0, 16, 0);
-          fs4.closeSync(fd);
+          fs.readSync(fd, buf, 0, 16, 0);
+          fs.closeSync(fd);
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -10581,7 +10568,7 @@ ${yamlBlock}`, "utf-8");
     report.sataQueueDepth = kernelRestore.sataQueueDepth;
     const cleanBootText = (orig, isGrubCfg) => {
       return orig.split("\n").map((line) => {
-        let out = line.replace(/[ \t]*\blibata\.force=[^\s"']+/g, "");
+        let out = line;
         if (isGrubCfg) {
           out = out.replace(/[ \t]*\bintel_idle\.max_cstate=[^\s"']+/g, "").replace(/[ \t]*\bprocessor\.max_cstate=[^\s"']+/g, "");
         } else {
@@ -10600,7 +10587,7 @@ ${yamlBlock}`, "utf-8");
       }).join("\n");
     };
     try {
-      if (!fs4.existsSync("/dev/sda1")) {
+      if (!fs.existsSync("/dev/sda1")) {
         try {
           execFileSync("mknod", ["/dev/sda1", "b", "8", "1"], { timeout: 1500 });
         } catch {
@@ -10608,22 +10595,22 @@ ${yamlBlock}`, "utf-8");
       }
       const details = [];
       let anyOk = false;
-      if (fs4.existsSync("/dev/sda1")) {
+      if (fs.existsSync("/dev/sda1")) {
         try {
-          fs4.mkdirSync("/tmp/hassos_boot_clean", { recursive: true });
+          fs.mkdirSync("/tmp/hassos_boot_clean", { recursive: true });
           try {
             execFileSync("mount", ["/dev/sda1", "/tmp/hassos_boot_clean"], { timeout: 3e3 });
           } catch {
           }
           for (const rel of ["EFI/BOOT/grub.cfg", "cmdline.txt"]) {
-            const p = path4.join("/tmp/hassos_boot_clean", rel);
-            if (fs4.existsSync(p)) {
+            const p = path.join("/tmp/hassos_boot_clean", rel);
+            if (fs.existsSync(p)) {
               anyOk = true;
-              const orig = fs4.readFileSync(p, "utf-8");
+              const orig = fs.readFileSync(p, "utf-8");
               const cleaned = cleanBootText(orig, rel.endsWith("grub.cfg"));
               const changed = cleaned !== orig;
               if (changed) {
-                fs4.writeFileSync(p, cleaned, "utf-8");
+                fs.writeFileSync(p, cleaned, "utf-8");
                 details.push(`mount:${rel} (cleaned)`);
               } else {
                 details.push(`mount:${rel} (already clean)`);
@@ -10644,27 +10631,27 @@ ${yamlBlock}`, "utf-8");
           report.mountBootError = e?.message || String(e);
         }
       }
-      if (!anyOk && fs4.existsSync("/dev/sda1")) {
-        if (!fs4.existsSync("/usr/bin/mcopy")) {
+      if (!anyOk && fs.existsSync("/dev/sda1")) {
+        if (!fs.existsSync("/usr/bin/mcopy")) {
           try {
             execFileSync("apk", ["add", "--no-cache", "mtools"], { timeout: 2e4 });
           } catch (e) {
             report.apkMtoolsError = e?.message || String(e);
           }
         }
-        if (fs4.existsSync("/usr/bin/mcopy")) {
+        if (fs.existsSync("/usr/bin/mcopy")) {
           for (const fatPath of ["::EFI/BOOT/grub.cfg", "::cmdline.txt"]) {
             const tmpFile = "/tmp/thassi_boot_clean.cfg";
             try {
-              if (fs4.existsSync(tmpFile)) fs4.unlinkSync(tmpFile);
+              if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
               execFileSync("mcopy", ["-i", "/dev/sda1", fatPath, tmpFile], { timeout: 3e3 });
-              if (fs4.existsSync(tmpFile)) {
+              if (fs.existsSync(tmpFile)) {
                 anyOk = true;
-                const orig = fs4.readFileSync(tmpFile, "utf-8");
+                const orig = fs.readFileSync(tmpFile, "utf-8");
                 const cleaned = cleanBootText(orig, fatPath.endsWith("grub.cfg"));
                 const changed = cleaned !== orig;
                 if (changed) {
-                  fs4.writeFileSync(tmpFile, cleaned, "utf-8");
+                  fs.writeFileSync(tmpFile, cleaned, "utf-8");
                   execFileSync("mcopy", ["-o", "-i", "/dev/sda1", tmpFile, fatPath], { timeout: 3e3 });
                   details.push(`${fatPath} (cleaned)`);
                 } else {
@@ -10691,10 +10678,10 @@ ${yamlBlock}`, "utf-8");
     } catch (e) {
       report.grubError = e?.message || String(e);
     }
-    const haRootForDb = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
+    const haRootForDb = fs.existsSync("/homeassistant") ? "/homeassistant" : fs.existsSync("/config") ? "/config" : null;
     if (haRootForDb) {
-      const haDbPath = path4.join(haRootForDb, "home-assistant_v2.db");
-      if (fs4.existsSync(haDbPath)) {
+      const haDbPath = path.join(haRootForDb, "home-assistant_v2.db");
+      if (fs.existsSync(haDbPath)) {
         let isCorrupt = false;
         let checkDetail = "ok";
         try {
@@ -10721,8 +10708,8 @@ ${yamlBlock}`, "utf-8");
           const bakSuffix = `.corrupt.${Date.now()}`;
           for (const sfx of ["", "-wal", "-shm"]) {
             try {
-              if (fs4.existsSync(haDbPath + sfx)) {
-                fs4.renameSync(haDbPath + sfx, haDbPath + sfx + bakSuffix);
+              if (fs.existsSync(haDbPath + sfx)) {
+                fs.renameSync(haDbPath + sfx, haDbPath + sfx + bakSuffix);
               }
             } catch {
             }
@@ -10731,12 +10718,12 @@ ${yamlBlock}`, "utf-8");
         }
       }
     }
-    const haRoot = fs4.existsSync("/homeassistant") ? "/homeassistant" : fs4.existsSync("/config") ? "/config" : null;
+    const haRoot = fs.existsSync("/homeassistant") ? "/homeassistant" : fs.existsSync("/config") ? "/config" : null;
     if (haRoot) {
       try {
-        const autoYamlPath = path4.join(haRoot, "automations.yaml");
-        if (fs4.existsSync(autoYamlPath)) {
-          const origAuto = fs4.readFileSync(autoYamlPath, "utf-8");
+        const autoYamlPath = path.join(haRoot, "automations.yaml");
+        if (fs.existsSync(autoYamlPath)) {
+          const origAuto = fs.readFileSync(autoYamlPath, "utf-8");
           if (origAuto.includes(WATCHDOG_AUTOMATION_ID)) {
             const lines = origAuto.split(/\r?\n/);
             const kept = [];
@@ -10754,7 +10741,7 @@ ${yamlBlock}`, "utf-8");
               }
             }
             const nextAuto = kept.join("\n").trim();
-            fs4.writeFileSync(autoYamlPath, nextAuto ? `${nextAuto}
+            fs.writeFileSync(autoYamlPath, nextAuto ? `${nextAuto}
 ` : "[]\n", "utf-8");
             report.automationCleaned = true;
           }
@@ -10781,12 +10768,12 @@ ${yamlBlock}`, "utf-8");
         }
       }
       try {
-        const cfgYamlPath = path4.join(haRoot, "configuration.yaml");
-        if (fs4.existsSync(cfgYamlPath)) {
-          const origCfg = fs4.readFileSync(cfgYamlPath, "utf-8");
+        const cfgYamlPath = path.join(haRoot, "configuration.yaml");
+        if (fs.existsSync(cfgYamlPath)) {
+          const origCfg = fs.readFileSync(cfgYamlPath, "utf-8");
           const bakPath = `${cfgYamlPath}.bak.thassi`;
-          if (!fs4.existsSync(bakPath)) {
-            fs4.writeFileSync(bakPath, origCfg, "utf-8");
+          if (!fs.existsSync(bakPath)) {
+            fs.writeFileSync(bakPath, origCfg, "utf-8");
           }
           if (!/^recorder\s*:/m.test(origCfg)) {
             const nextCfg = `${origCfg.replace(/\s*$/, "")}
@@ -10795,7 +10782,7 @@ recorder:
   commit_interval: 60
   purge_keep_days: 7
 `;
-            fs4.writeFileSync(cfgYamlPath, nextCfg, "utf-8");
+            fs.writeFileSync(cfgYamlPath, nextCfg, "utf-8");
             report.recorderConfigured = true;
             report.recorderDetail = "Added recorder block with commit_interval: 60";
           } else {
@@ -10811,7 +10798,7 @@ recorder:
             }
             if (!hasCommit && recIdx >= 0) {
               lines.splice(recIdx + 1, 0, "  commit_interval: 60");
-              fs4.writeFileSync(cfgYamlPath, `${lines.join("\n").replace(/\s*$/, "")}
+              fs.writeFileSync(cfgYamlPath, `${lines.join("\n").replace(/\s*$/, "")}
 `, "utf-8");
               report.recorderConfigured = true;
               report.recorderDetail = "Inserted commit_interval: 60 into existing recorder block";
@@ -10832,7 +10819,7 @@ recorder:
   }
   const initialHardening = applyBayTrailAndKernelWatchdogHardening();
   if (!gWatchdog.__thassiWatchdogState) {
-    const curUp = Math.round(os2.uptime());
+    const curUp = Math.round(os.uptime());
     let prevSavedUp = 0;
     try {
       prevSavedUp = Number(ctx.sharedDb.kvGet("thassi_last_host_uptime_sec") || 0);
@@ -10881,7 +10868,7 @@ recorder:
     const nowIso = (/* @__PURE__ */ new Date()).toISOString();
     st.lastCheckAt = nowIso;
     st.kernelHardening = applyBayTrailAndKernelWatchdogHardening();
-    const curUp = Math.round(os2.uptime());
+    const curUp = Math.round(os.uptime());
     if (st.lastRecordedUptimeSec > curUp + 60) {
       logWatchdogEvent(
         "warning",
@@ -11066,7 +11053,7 @@ recorder:
         lastCoreOkAt: st.lastCoreOkAt,
         lastSupervisorOkAt: st.lastSupervisorOkAt,
         lastLoadShedAt: st.lastLoadShedAt,
-        uptimeSeconds: Math.round(os2.uptime()),
+        uptimeSeconds: Math.round(os.uptime()),
         bootDetectedAt: st.bootDetectedAt,
         diskHealthy: st.diskHealthy,
         diskError: st.diskError,
@@ -11223,12 +11210,53 @@ recorder:
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
     }
+    if (action === "kmsg_and_sata_probe") {
+      const kmsgLines = [];
+      try {
+        const fd = fs.openSync("/dev/kmsg", fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+        const buf = Buffer.alloc(8192);
+        for (let i = 0; i < 4e3; i++) {
+          try {
+            const n = fs.readSync(fd, buf, 0, buf.length, null);
+            if (n <= 0) break;
+            kmsgLines.push(buf.toString("utf-8", 0, n).trim());
+          } catch {
+            break;
+          }
+        }
+        fs.closeSync(fd);
+      } catch (e) {
+        kmsgLines.push(`KMSG_ERR: ${e.message}`);
+      }
+      const ataFiltered = kmsgLines.filter((l) => /ata|sda|ext4|I\/O|error|reset|link|exception|BTRFS|FAT|scsi/i.test(l));
+      return {
+        ok: true,
+        totalKmsgLines: kmsgLines.length,
+        sdaState: readSafe("/sys/block/sda/device/state"),
+        sdaQueueDepth: readSafe("/sys/block/sda/device/queue_depth"),
+        host0Lpm: readSafe("/sys/class/scsi_host/host0/link_power_management_policy"),
+        host1Lpm: readSafe("/sys/class/scsi_host/host1/link_power_management_policy"),
+        ataFilteredTail: ataFiltered.slice(-120),
+        kmsgTail: kmsgLines.slice(-80)
+      };
+    }
+    if (action === "pci_cf9_reset") {
+      setTimeout(() => {
+        try {
+          const fd = fs.openSync("/dev/port", "r+");
+          fs.writeSync(fd, Buffer.from([6]), 0, 1, 3321);
+          fs.closeSync(fd);
+        } catch {
+        }
+      }, 300);
+      return { ok: true, message: "Triggered Intel x86 hardware reset via I/O port 0xCF9 (0x06)" };
+    }
     if (action === "hardware_bios_bypass") {
       const report = {
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
         apparmorProfile: readSafe("/proc/self/attr/current"),
         capEff: (readSafe("/proc/self/status").match(/CapEff:\s*([0-9a-f]+)/i) || [])[1] || "",
-        devNodes: fs4.readdirSync("/dev").filter((n) => /^(sd|nvme|mmc|mem|port|watchdog)/.test(n)),
+        devNodes: fs.readdirSync("/dev").filter((n) => /^(sd|nvme|mmc|mem|port|watchdog)/.test(n)),
         cstatesDisabled: [],
         grubPatched: false,
         grubDetail: "",
@@ -11238,17 +11266,17 @@ recorder:
       };
       let sysRoot = "/sys";
       try {
-        fs4.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
+        fs.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
       } catch {
         try {
           execFileSync("mount", ["-o", "remount,rw", "/sys"], { timeout: 2e3 });
         } catch {
         }
         try {
-          fs4.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
+          fs.writeFileSync("/sys/devices/system/cpu/cpu0/cpuidle/state2/disable", "1");
         } catch {
           try {
-            fs4.mkdirSync("/tmp/thassi_sysfs", { recursive: true });
+            fs.mkdirSync("/tmp/thassi_sysfs", { recursive: true });
             execFileSync("mount", ["-t", "sysfs", "sysfs", "/tmp/thassi_sysfs"], { timeout: 2e3 });
             sysRoot = "/tmp/thassi_sysfs";
           } catch (e) {
@@ -11261,8 +11289,8 @@ recorder:
           const dp = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/disable`;
           const np = `${sysRoot}/devices/system/cpu/cpu${cpu}/cpuidle/${st}/name`;
           try {
-            if (fs4.existsSync(dp)) {
-              fs4.writeFileSync(dp, "1");
+            if (fs.existsSync(dp)) {
+              fs.writeFileSync(dp, "1");
               if (cpu === 0 && readSafe(dp) === "1") {
                 report.cstatesDisabled.push(readSafe(np) || st);
               }
@@ -11273,36 +11301,36 @@ recorder:
       }
       try {
         const qdPath = `${sysRoot}/block/sda/device/queue_depth`;
-        if (fs4.existsSync(qdPath)) {
-          fs4.writeFileSync(qdPath, "1");
+        if (fs.existsSync(qdPath)) {
+          fs.writeFileSync(qdPath, "1");
           report.sataQueueDepth = Number(readSafe(qdPath) || 0);
         }
       } catch (e) {
         report.sataQueueDepthError = e.message;
       }
       try {
-        if (!fs4.existsSync("/usr/bin/mcopy") || !fs4.existsSync("/usr/bin/python3")) {
+        if (!fs.existsSync("/usr/bin/mcopy") || !fs.existsSync("/usr/bin/python3")) {
           try {
             execFileSync("apk", ["add", "--no-cache", "mtools", "python3"], { timeout: 3e4 });
           } catch (e) {
             report.apkError = e.message;
           }
         }
-        if (!fs4.existsSync("/dev/sda1")) {
+        if (!fs.existsSync("/dev/sda1")) {
           try {
             execFileSync("mknod", ["/dev/sda1", "b", "8", "1"], { timeout: 1500 });
           } catch {
           }
         }
-        if (fs4.existsSync("/dev/sda1") && fs4.existsSync("/usr/bin/mcopy")) {
+        if (fs.existsSync("/dev/sda1") && fs.existsSync("/usr/bin/mcopy")) {
           const patchedFiles = [];
           for (const fatPath of ["::EFI/BOOT/grub.cfg", "::cmdline.txt"]) {
             const tmpFile = "/tmp/thassi_boot_file.cfg";
             try {
-              if (fs4.existsSync(tmpFile)) fs4.unlinkSync(tmpFile);
+              if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
               execFileSync("mcopy", ["-i", "/dev/sda1", fatPath, tmpFile], { timeout: 3e3 });
-              if (fs4.existsSync(tmpFile)) {
-                const orig = fs4.readFileSync(tmpFile, "utf-8");
+              if (fs.existsSync(tmpFile)) {
+                const orig = fs.readFileSync(tmpFile, "utf-8");
                 let patched = orig;
                 const kargs = "intel_idle.max_cstate=1 processor.max_cstate=1 libata.force=noncq,nolpm";
                 if (!patched.includes("intel_idle.max_cstate=1")) {
@@ -11316,7 +11344,7 @@ recorder:
                   patched = patched.replace(/(intel_idle\.max_cstate=1\b)/g, "$1 libata.force=noncq,nolpm");
                 }
                 if (patched !== orig) {
-                  fs4.writeFileSync(tmpFile, patched, "utf-8");
+                  fs.writeFileSync(tmpFile, patched, "utf-8");
                   execFileSync("mcopy", ["-o", "-i", "/dev/sda1", tmpFile, fatPath], { timeout: 3e3 });
                   patchedFiles.push(`${fatPath} (newly patched)`);
                 } else {
@@ -11342,8 +11370,8 @@ recorder:
       try {
         let pbase = 4275056640;
         const pciCfgPath = `${sysRoot}/bus/pci/devices/0000:00:1f.0/config`;
-        if (fs4.existsSync(pciCfgPath)) {
-          const cfgBuf = fs4.readFileSync(pciCfgPath);
+        if (fs.existsSync(pciCfgPath)) {
+          const cfgBuf = fs.readFileSync(pciCfgPath);
           if (cfgBuf.length >= 72) {
             const pbaseRaw = cfgBuf.readUInt32LE(68);
             if ((pbaseRaw & 4294966784) > 0) {
@@ -11351,7 +11379,7 @@ recorder:
             }
           }
         }
-        if (!fs4.existsSync("/usr/bin/python3")) {
+        if (!fs.existsSync("/usr/bin/python3")) {
           try {
             execFileSync("apk", ["add", "--no-cache", "python3"], { timeout: 25e3 });
           } catch {
@@ -11382,12 +11410,12 @@ print(json.dumps({"pbase": hex(pbase), "before": hex(before), "after": hex(after
       }
       try {
         const netRoot = `${sysRoot}/class/net`;
-        if (fs4.existsSync(netRoot)) {
-          for (const iface of fs4.readdirSync(netRoot)) {
+        if (fs.existsSync(netRoot)) {
+          for (const iface of fs.readdirSync(netRoot)) {
             const wakePath = `${netRoot}/${iface}/device/power/wakeup`;
-            if (fs4.existsSync(wakePath)) {
+            if (fs.existsSync(wakePath)) {
               try {
-                fs4.writeFileSync(wakePath, "enabled");
+                fs.writeFileSync(wakePath, "enabled");
                 report.wolEnabled.push(iface);
               } catch {
               }

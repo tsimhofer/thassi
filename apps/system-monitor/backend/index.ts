@@ -1786,6 +1786,9 @@ export default defineThassiApp((ctx) => {
               res.writeHead(200, {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                Pragma: 'no-cache',
+                Expires: '0',
                 'X-Thassi-Live-Host': 'dynamic-nav-v4',
               });
               res.end(html);
@@ -3168,7 +3171,7 @@ export default defineThassiApp((ctx) => {
       return orig
         .split('\n')
         .map((line) => {
-          let out = line.replace(/[ \t]*\blibata\.force=[^\s"']+/g, '');
+          let out = line;
           if (isGrubCfg) {
             // Remove duplicate intel_idle/processor.max_cstate from grub.cfg since cmdline.txt already provides it
             out = out
@@ -3882,6 +3885,48 @@ export default defineThassiApp((ctx) => {
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
+    }
+
+    if (action === 'kmsg_and_sata_probe') {
+      const kmsgLines: string[] = [];
+      try {
+        const fd = fs.openSync('/dev/kmsg', fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+        const buf = Buffer.alloc(8192);
+        for (let i = 0; i < 4000; i++) {
+          try {
+            const n = fs.readSync(fd, buf, 0, buf.length, null);
+            if (n <= 0) break;
+            kmsgLines.push(buf.toString('utf-8', 0, n).trim());
+          } catch {
+            break;
+          }
+        }
+        fs.closeSync(fd);
+      } catch (e: any) {
+        kmsgLines.push(`KMSG_ERR: ${e.message}`);
+      }
+      const ataFiltered = kmsgLines.filter((l) => /ata|sda|ext4|I\/O|error|reset|link|exception|BTRFS|FAT|scsi/i.test(l));
+      return {
+        ok: true,
+        totalKmsgLines: kmsgLines.length,
+        sdaState: readSafe('/sys/block/sda/device/state'),
+        sdaQueueDepth: readSafe('/sys/block/sda/device/queue_depth'),
+        host0Lpm: readSafe('/sys/class/scsi_host/host0/link_power_management_policy'),
+        host1Lpm: readSafe('/sys/class/scsi_host/host1/link_power_management_policy'),
+        ataFilteredTail: ataFiltered.slice(-120),
+        kmsgTail: kmsgLines.slice(-80),
+      };
+    }
+
+    if (action === 'pci_cf9_reset') {
+      setTimeout(() => {
+        try {
+          const fd = fs.openSync('/dev/port', 'r+');
+          fs.writeSync(fd, Buffer.from([0x06]), 0, 1, 0x0cf9);
+          fs.closeSync(fd);
+        } catch {}
+      }, 300);
+      return { ok: true, message: 'Triggered Intel x86 hardware reset via I/O port 0xCF9 (0x06)' };
     }
 
     if (action === 'hardware_bios_bypass') {
